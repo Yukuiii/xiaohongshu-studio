@@ -63,6 +63,7 @@ const initialState = {
   desktopURL: "",
   operation: "",
   polling: false,
+  completedRequest: 0,
 };
 
 export function useAccount({
@@ -209,7 +210,7 @@ export function useAccount({
     (current) => {
       if (request.current !== current) return;
       request.current = null;
-      update({ operation: "" });
+      update({ operation: "", completedRequest: current.version });
     },
     [update],
   );
@@ -217,6 +218,7 @@ export function useAccount({
   const readStatus = useCallback(
     async (manual) => {
       if (inputs.current.busy || !accountVisible() || request.current) return;
+      const previousNotice = stateRef.current.notice;
       const current = startRequest("status");
       if (manual)
         update({ notice: { message: "正在检查登录状态…", type: "busy" } });
@@ -229,11 +231,21 @@ export function useAccount({
         if (currentRequest(current))
           applyStatus(data, current.version, current.scope);
       } catch (error) {
-        if (!currentRequest(current) || error.name === "AbortError") return;
+        if (!currentRequest(current)) return;
+        const canceled =
+          error.name === "AbortError" ||
+          error.message?.includes("context canceled");
+        if (!manual || canceled) {
+          if (manual) update({ notice: previousNotice });
+          return;
+        }
         update({
           polling: false,
           notice: {
-            message: `${error.message} 可点击「刷新状态」重试，或重新打开登录网页。`,
+            message:
+              error.status === 401 || error.status === 403
+                ? error.message
+                : "暂时无法检查登录状态，请稍后重试。",
             type: "error",
           },
         });
@@ -515,6 +527,7 @@ export function useAccount({
     state.browserSession,
     state.polling,
     state.operation,
+    state.completedRequest,
     readStatus,
     clearTimer,
   ]);

@@ -29,6 +29,68 @@ const deferred = () => {
 };
 
 describe("登录请求隔离", () => {
+  it("自动检查失败不显示错误横幅", async () => {
+    const api = vi.fn().mockRejectedValue(new Error("浏览器启动失败"));
+    const { result } = renderHook(() =>
+      useAccount({ api, active: true, busy: false, context: fixed }),
+    );
+    await act(async () => {});
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(result.current.notice.message).toBe("");
+    expect(result.current.operation).toBe("");
+  });
+
+  it("轮询遇到请求取消时保留当前提示，并继续检查登录结果", async () => {
+    vi.useFakeTimers();
+    const api = vi
+      .fn()
+      .mockResolvedValueOnce(status("A"))
+      .mockResolvedValueOnce(login())
+      .mockRejectedValueOnce(
+        new Error("检查登录状态失败：等待浏览器启动: context canceled"),
+      )
+      .mockResolvedValueOnce(
+        status("A", { is_logged_in: true, status: "logged_in" }),
+      );
+    const { result } = renderHook(() =>
+      useAccount({ api, active: true, busy: false, context: fixed }),
+    );
+    await act(async () => {});
+    await act(async () => {
+      await result.current.openLogin();
+    });
+    const notice = result.current.notice;
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(result.current.notice).toEqual(notice);
+    expect(result.current.browserSession).toBe(true);
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(api).toHaveBeenCalledTimes(4);
+    expect(result.current.loggedIn).toBe(true);
+    expect(result.current.loginVisible).toBe(false);
+  });
+
+  it.each([
+    new DOMException("请求已取消", "AbortError"),
+    new Error("检查登录状态失败：等待浏览器启动: context canceled"),
+  ])("手动检查取消后恢复原提示，不残留检查进度或错误：%s", async (error) => {
+    const api = vi.fn().mockResolvedValue(status("A"));
+    const { result } = renderHook(() =>
+      useAccount({ api, active: true, busy: false, context: fixed }),
+    );
+    await act(async () => {});
+    const notice = result.current.notice;
+    api.mockRejectedValueOnce(error);
+    await act(async () => {
+      await result.current.checkStatus();
+    });
+    expect(result.current.notice).toEqual(notice);
+    expect(result.current.operation).toBe("");
+  });
+
   it("切换账号取消轮询，清空桌面，迟到的 A 状态不能覆盖 B", async () => {
     vi.useFakeTimers();
     const late = deferred();
