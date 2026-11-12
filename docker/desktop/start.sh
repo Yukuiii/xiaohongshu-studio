@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# dbus-run-session 提供共享会话，浏览器与输入法必须继承同一组环境。
+# 桌面组件与浏览器共用 DBus 会话，应用退出后再关闭桌面。
 export DISPLAY=:99 XDG_RUNTIME_DIR=/tmp/xhs-runtime
 rime_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fcitx5/rime"
 # Rime 首次部署会并发写配置，预建 build 目录避免创建目录的竞态。
@@ -23,8 +23,14 @@ fi
 printf 'Gtk/IMModule "fcitx"\n' > "$XDG_RUNTIME_DIR/xsettingsd.conf"
 
 pids=()
+app_pid=""
 cleanup() {
     trap - EXIT TERM INT
+    # 保持 Xvfb 和 DBus 存活，等待浏览器正常关闭并保存 profile。
+    if [[ -n "$app_pid" ]]; then
+        kill "$app_pid" 2>/dev/null || true
+        wait "$app_pid" 2>/dev/null || true
+    fi
     if (( ${#pids[@]} )); then
         kill "${pids[@]}" 2>/dev/null || true
         wait "${pids[@]}" 2>/dev/null || true
@@ -47,16 +53,27 @@ if lock.exists():
     Path('/tmp/.X11-unix/X99').unlink(missing_ok=True)
 PY
 
+bus_dir="$(mktemp -d "$XDG_RUNTIME_DIR/dbus.XXXXXX")"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$bus_dir/bus"
+dbus-daemon --session --nofork --address="$DBUS_SESSION_BUS_ADDRESS" &
+bus_pid=$!
+pids+=("$bus_pid")
+
 Xvfb "$DISPLAY" -screen 0 1440x1000x24 -nolisten tcp &
-pids+=("$!")
+display_pid=$!
+pids+=("$display_pid")
 ready=false
 for ((i=0; i<50; i++)); do
-    if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then ready=true; break; fi
-    if ! kill -0 "${pids[0]}" 2>/dev/null; then break; fi
+    if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1 &&
+        dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames >/dev/null 2>&1; then
+        ready=true
+        break
+    fi
+    if ! kill -0 "$display_pid" 2>/dev/null || ! kill -0 "$bus_pid" 2>/dev/null; then break; fi
     sleep 0.1
 done
 if [[ "$ready" != true ]]; then
-    echo "Xvfb 启动失败" >&2
+    echo "Xvfb 或 DBus 启动失败" >&2
     exit 1
 fi
 
@@ -74,12 +91,11 @@ websockify --web /usr/share/novnc --auth-plugin ExpectOrigin --auth-source http:
 pids+=("$!")
 "$@" &
 app_pid=$!
-pids+=("$app_pid")
 
 # 任一桌面组件退出都让容器失败，交给 restart 策略恢复，避免假健康。
 # 定期检查全部子进程，避免 wait -n 漏掉进入等待前已退出的进程。
 while true; do
-    for pid in "${pids[@]}"; do
+    for pid in "${pids[@]}" "$app_pid"; do
         if ! kill -0 "$pid" 2>/dev/null; then
             status=0
             wait "$pid" || status=$?

@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -20,6 +21,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMain(m *testing.M) {
+	// 在测试参数解析前退出，允许子进程接收 Chromium 的启动参数。
+	switch os.Getenv("XHS_BROWSER_STARTUP_EXIT_HELPER") {
+	case "21":
+		_, _ = fmt.Fprintln(os.Stderr, "fixture Chromium startup failed: profile is already in use")
+		os.Exit(21)
+	case "0":
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 // TestMaskProxyCredentials 校验代理日志脱敏：绝不能把用户名/密码打进日志。
 func TestMaskProxyCredentials(t *testing.T) {
@@ -199,6 +212,60 @@ func TestFailedStartPreservesOnlyPersistentProfile(t *testing.T) {
 	WithUserDataDir("")(cfg)
 	_, _, err = prepareProfile(cfg)
 	require.Error(t, err)
+}
+
+func TestBrowserStartupReportsExitStatusAndOutput(t *testing.T) {
+	t.Setenv("XHS_BROWSER_STARTUP_EXIT_HELPER", "21")
+	for _, persistent := range []bool{true, false} {
+		t.Run(map[bool]string{true: "persistent", false: "temporary"}[persistent], func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("TMPDIR", root)
+			t.Setenv("TMP", root)
+			t.Setenv("TEMP", root)
+			cfg := &browserConfig{}
+			WithCookies(nil)(cfg)
+			marker := filepath.Join(root, "profile", "Local State")
+			if persistent {
+				WithUserDataDir(filepath.Dir(marker))(cfg)
+				require.NoError(t, os.MkdirAll(cfg.userDataDir, 0o700))
+				require.NoError(t, os.WriteFile(marker, []byte("keep"), 0o600))
+			}
+			for range 2 {
+				b, err := openBrowser(os.Args[0], true, cfg)
+				require.Nil(t, b)
+				require.ErrorContains(t, err, "浏览器启动后退出")
+				require.ErrorContains(t, err, "fixture Chromium startup failed: profile is already in use")
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				require.Equal(t, 21, exitErr.ExitCode())
+				require.NotErrorIs(t, err, context.Canceled)
+				require.NotErrorIs(t, err, context.DeadlineExceeded)
+			}
+			if persistent {
+				data, err := os.ReadFile(marker)
+				require.NoError(t, err)
+				require.Equal(t, "keep", string(data))
+				path, _, err := prepareProfile(cfg)
+				require.NoError(t, err, "退出后必须释放 profile 使用权")
+				require.NoError(t, (&Browser{userDataDir: path}).cleanup())
+			} else {
+				entries, err := os.ReadDir(root)
+				require.NoError(t, err)
+				require.Empty(t, entries, "启动退出后必须清理临时 profile")
+			}
+		})
+	}
+}
+
+func TestBrowserStartupReportsSuccessfulProcessExit(t *testing.T) {
+	t.Setenv("XHS_BROWSER_STARTUP_EXIT_HELPER", "0")
+	cfg := &browserConfig{}
+	WithCookies(nil)(cfg)
+	b, err := openBrowser(os.Args[0], true, cfg)
+	require.Nil(t, b)
+	require.ErrorContains(t, err, "浏览器启动后退出")
+	require.ErrorContains(t, err, "exit status 0")
+	require.NotErrorIs(t, err, context.Canceled)
 }
 
 // 本地子进程只等待 stdin 关闭，用于验证真实的进程退出和回收顺序。

@@ -12,8 +12,10 @@ services:
         APT_MIRROR: ${APT_MIRROR:-https://archive.ubuntu.com/ubuntu}
         APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-https://security.ubuntu.com/ubuntu}
         BROWSER_DOWNLOAD_BASE: ${BROWSER_DOWNLOAD_BASE:-https://github.com/adryfish/fingerprint-chromium/releases/download}
+    hostname: xiaohongshu-studio
     container_name: xiaohongshu-studio
     restart: unless-stopped
+    stop_grace_period: 60s
     tty: true
     shm_size: 1gb
     cap_drop:

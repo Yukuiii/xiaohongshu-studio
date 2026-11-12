@@ -14,7 +14,7 @@
 | profile 持久化 | 本地 fixture 验证 Cookie、localStorage、IndexedDB 重启恢复，候选登录提交/回滚及 session Cookie 不重放旧页面 |
 | 发布防重 | 浏览器 Web Locks 协调同账号多标签页，旧草稿保存不覆盖更新后的发布保护；发布回应用本地替身 |
 | 内部桌面 | 容器内 noVNC 页面、真实 WebSocket/RFB 握手；ExpectOrigin 拒绝非 Go 上游 Origin 和缺失 Origin |
-| 进程恢复 | 组件提前退出、应用退出码、正常重启及 SIGKILL 后显示锁恢复 |
+| 进程恢复 | 组件提前退出、应用退出码、正常重启及 SIGKILL 后显示锁恢复；TERM 时等待应用完成保存，再关闭 Xvfb 和 DBus |
 | 指纹行为 | 真实 Linux 浏览器的平台伪装、同 seed 的 Canvas 一致性及不同 seed 的差异 |
 | 安全扫描 | 单款完整镜像的 Grype 严重度汇总与 High/Critical 明细，完整 JSON 保存为 artifact |
 

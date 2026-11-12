@@ -102,6 +102,49 @@ def check_rfb(port, origin=None, expected=(401, 403), path="/desktop/websockify"
         read(struct.unpack(">I", initial[20:24])[0])
 
 
+def check_shutdown_order(image, name, media, containers):
+    fixture = media / "shutdown-app.py"
+    ready_file = media / "shutdown-ready"
+    result_file = media / "shutdown-result.json"
+    fixture.write_text('''import json
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+
+def terminate(signum, frame):
+    for command in (
+        ["xdpyinfo"],
+        ["dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.DBus",
+         "/org/freedesktop/DBus", "org.freedesktop.DBus.ListNames"],
+    ):
+        subprocess.run(command, check=True, capture_output=True, timeout=3)
+    time.sleep(0.2)
+    Path("/app/check/shutdown-result.json").write_text(json.dumps({"saved": True}))
+    raise SystemExit(0)
+
+
+signal.signal(signal.SIGTERM, terminate)
+Path("/app/check/shutdown-ready").touch()
+while True:
+    signal.pause()
+''')
+    child = name + "-shutdown"
+    containers.append(child)
+    docker("run", "-d", "--name", child, "--network", "none", "--mount",
+           f"type=bind,src={media},dst=/app/check", image,
+           "python3", "/app/check/shutdown-app.py")
+    deadline = time.monotonic() + 30
+    while not ready_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert ready_file.exists(), "停机测试应用未启动"
+    docker("stop", "--time", "60", child, timeout=75)
+    assert json.loads(result_file.read_text()) == {"saved": True}
+    assert int(docker("inspect", "--format", "{{.State.ExitCode}}", child).stdout) == 143
+    print("PASS 应用收到 TERM 时桌面和 DBus 仍可用，保存完成后再退出桌面", flush=True)
+
+
 def main(image):
     name = "xhs-desktop-test-" + uuid.uuid4().hex[:12]
     network = name + "-network"
@@ -219,6 +262,7 @@ else:
             docker("cp", str(Path(__file__).with_name("input_test.py")), name + ":/tmp/input_test.py")
             result = docker("exec", name, "python3", "-u", "/tmp/input_test.py", timeout=90)
             print(result.stdout, end="", flush=True)
+            check_shutdown_order(image, name, media, containers)
 
             docker("exec", name, "python3", "-c", """
 import os, signal

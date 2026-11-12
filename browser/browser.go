@@ -143,9 +143,17 @@ func openBrowser(binPath string, headless bool, cfg *browserConfig) (_ *Browser,
 		}
 	})
 	defer stopTimeout()
+	startupExitError := func() error {
+		return fmt.Errorf("浏览器启动后退出（%s，profile 可能正被占用）: %w", b.cmd.ProcessState, errors.Join(b.exitErr, parser.Err()))
+	}
+	startupCanceledByExit := false
 	defer func() {
 		if err != nil {
-			err = errors.Join(err, b.terminate())
+			terminateErr := b.terminate()
+			if startupCanceledByExit && !b.Alive() {
+				err = startupExitError()
+			}
+			err = errors.Join(err, terminateErr)
 		}
 	}()
 
@@ -153,8 +161,10 @@ func openBrowser(binPath string, headless bool, cfg *browserConfig) (_ *Browser,
 	select {
 	case endpoint = <-parser.URL:
 	case <-b.exit:
-		return nil, fmt.Errorf("浏览器启动后退出（profile 可能正被占用）: %w", parser.Err())
+		return nil, startupExitError()
 	case <-startupCtx.Done():
+		// 启动等待的 Canceled 来自进程退出，回收完成后再读取退出状态和输出。
+		startupCanceledByExit = errors.Is(startupCtx.Err(), context.Canceled)
 		return nil, fmt.Errorf("等待浏览器启动: %w", startupCtx.Err())
 	}
 	controlURL, err := resolveControlURL(startupCtx, endpoint)

@@ -137,7 +137,7 @@ ENV DISPLAY=:99 LANG=C.UTF-8 \
 
 EXPOSE 18060
 
-# tini 回收浏览器子进程并将退出信号转发给同容器桌面会话。
-ENTRYPOINT ["/usr/bin/tini", "-s", "-g", "--", "dbus-run-session", "--", "/usr/local/bin/xhs-desktop-start"]
+# 只向主脚本转发信号，由脚本先关闭应用和浏览器，再退出桌面组件。
+ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/xhs-desktop-start"]
 
 CMD ["/app/xiaohongshu-studio"]

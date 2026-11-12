@@ -23,6 +23,7 @@ Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix 
 
 - `docker/data/` 保存账号、完整浏览器数据、上传图片及运行配置，更新时保留；可用 `XHS_DATA_DIR` 指定已有数据目录的完整路径。Compose 显式设置 `XHS_ACCOUNTS_DIR=/app/data/accounts`，已有 `/app/data` 挂载覆盖此目录，无需新增卷。
 - 每个账号在 `accounts/<account-id>/` 下保存独立 `account.json`、`profiles/<profile-id>/` 和 `downloads/`；整个 Chromium user-data-dir（包括 `Local State`、`Default/`、Cookie、localStorage、IndexedDB、Service Worker、缓存和站点配置）都是持久数据。浏览器空闲 10 分钟后关闭，正常关闭、切换账号和重建容器均保留 profile；备份时先停止服务，再保留整个 `data/`。
+- Compose 固定容器主机名为 `xiaohongshu-studio`，并提供 60 秒的优雅停机时间。退出时先等待应用关闭浏览器、保存 profile，再关闭 Xvfb 和 DBus，避免重建后被旧容器的 Chromium 锁阻挡。
 - `COOKIES_PATH=/app/data/cookies.json` 保留为旧版本迁移源。首次初始化创建固定默认账号，兼容 v1/v2 Cookie，并优先保留当时有效的 `XHS_FP_SEED`，否则使用旧文件 seed 或生成独立 seed。旧文件不删除；之后以 profile 为会话权威，不反复注入 Cookie。移除旧账号不会触发重新导入，也不能从旧 Cookie 恢复此前未保存的完整站点数据。
 - 工作台上传与生成图片通过 `docker/data/uploads/` 挂载到容器 `/tmp/xiaohongshu_images/`，按 `web/<account-id>/` 隔离。旧图片只迁入固定旧账号且保留源文件；草稿引用不能替代图片备份。
 - 草稿与模型配置仍保存在访问工作台的浏览器本地；共享配置键为 `hongshu-workbench.settings.v1`，每账号草稿键为 `hongshu-workbench.draft.v1:<account-id>`，payload 保持兼容。旧草稿只迁入固定旧账号一次，已有目标草稿不覆盖，并保留发布结果未知时的防重状态。升级保持原访问地址；换浏览器、改地址或清理网站数据不会自动恢复。
