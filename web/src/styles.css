@@ -9,6 +9,7 @@
   --red-soft: #fcf0ed;
   --green: #48745e;
   --radius: 18px;
+  --sidebar-width: 224px;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
@@ -89,11 +90,90 @@ small {
 [hidden] {
   display: none !important;
 }
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-rows: 80px 1fr;
+  min-height: 100dvh;
+}
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 20;
+  width: var(--sidebar-width);
+  height: 100dvh;
+  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+  background: var(--white);
+  border-right: 1px solid var(--line);
+}
+.sidebar-nav {
+  display: grid;
+  gap: 8px;
+  margin-top: 54px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 13px 16px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: left;
+}
+.nav-item svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.nav-item:hover:not(:disabled) {
+  background: var(--paper);
+  color: var(--ink);
+}
+.nav-item[aria-current="page"] {
+  background: var(--red-soft);
+  color: var(--red);
+  font-weight: 700;
+}
+.nav-item .status-dot {
+  margin-left: auto;
+}
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding: 22px 8px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+.sidebar-footer-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--red);
+}
+.page-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.settings-form {
+  max-width: 840px;
+}
+.settings-description {
+  margin-bottom: 26px;
+}
 .topbar {
-  height: 90px;
-  max-width: 1600px;
-  margin: auto;
-  padding: 0 5%;
+  grid-column: 2;
+  height: 80px;
+  width: 100%;
+  padding: 0 38px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -127,11 +207,6 @@ small {
   font-size: 8px;
   color: var(--muted);
   margin-top: 5px;
-}
-.top-actions {
-  display: flex;
-  align-items: center;
-  gap: 15px;
 }
 .save-status {
   font-size: 12px;
@@ -197,9 +272,11 @@ small {
   background: var(--green);
 }
 .workspace {
+  grid-column: 2;
+  width: 100%;
   max-width: 1250px;
-  margin: auto;
-  padding: 45px 38px 0;
+  margin: 0 auto;
+  padding: 45px 38px 32px;
 }
 .intro {
   display: flex;
@@ -919,9 +996,6 @@ textarea {
   background: #2527226b;
   backdrop-filter: blur(4px);
 }
-.settings-dialog {
-  max-width: 590px;
-}
 .dialog-header {
   display: flex;
   align-items: center;
@@ -981,43 +1055,6 @@ fieldset label:first-of-type {
   margin-top: 18px;
   margin-bottom: 0;
 }
-.account-dialog {
-  max-width: 1100px;
-  max-height: 94dvh;
-}
-.login-browser-placeholder {
-  min-height: 180px;
-  margin: 20px 0 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--paper);
-  border-radius: 12px;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.8;
-  text-align: center;
-  padding: 24px;
-}
-.login-browser-frame {
-  display: block;
-  width: 100%;
-  height: clamp(560px, 68dvh, 700px);
-  margin-top: 20px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #252722;
-}
-.account-actions {
-  flex-wrap: wrap;
-  align-items: center;
-}
-.account-actions .button {
-  text-align: center;
-}
-#login-browser-help {
-  line-height: 1.8;
-}
 .publish-summary {
   padding: 19px;
   background: var(--paper);
@@ -1048,7 +1085,7 @@ fieldset label:first-of-type {
   flex-shrink: 0;
   margin-top: 5px;
 }
-body.working {
+.app-shell.working {
   cursor: progress;
 }
 @media (min-width: 1450px) {
@@ -1081,9 +1118,6 @@ body.working {
   .topbar {
     padding: 0 24px;
   }
-  .save-status {
-    display: none;
-  }
   .form-bottom {
     align-items: flex-start;
     flex-direction: column;
@@ -1103,13 +1137,59 @@ body.working {
   .section-heading .pill {
     display: none;
   }
-  .top-actions {
-    gap: 8px;
+}
+@media (min-width: 761px) and (max-width: 1050px) {
+  .workspace-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .preview-column {
+    width: 100%;
+    max-width: 410px;
+    margin: auto;
+  }
+  .preview-sticky {
+    position: static;
   }
 }
 @media (max-width: 760px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 56px 1fr;
+  }
+  .sidebar {
+    position: sticky;
+    inset: auto;
+    top: 0;
+    grid-column: 1;
+    grid-row: 1;
+    width: auto;
+    height: auto;
+    padding: 16px 18px 10px;
+    gap: 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .sidebar-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 0;
+    gap: 6px;
+  }
+  .nav-item {
+    justify-content: center;
+    min-height: 42px;
+    padding: 10px 8px;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .nav-item .status-dot {
+    margin-left: 0;
+  }
+  .sidebar-footer {
+    display: none;
+  }
   .topbar {
-    height: 76px;
+    grid-column: 1;
+    height: 56px;
     padding: 0 20px;
   }
   .brand {
@@ -1125,12 +1205,8 @@ body.working {
     font-size: 6px;
     letter-spacing: 1.3px;
   }
-  .top-actions .button {
-    font-size: 11px;
-    padding: 8px 10px;
-    min-height: 36px;
-  }
   .workspace {
+    grid-column: 1;
     padding: 30px 18px 0;
   }
   .intro {
@@ -1218,16 +1294,6 @@ body.working {
   .dialog-actions {
     flex-wrap: wrap;
   }
-  .account-dialog {
-    width: calc(100% - 16px);
-    padding: 18px 14px;
-  }
-  .login-browser-frame {
-    height: clamp(360px, 62dvh, 620px);
-  }
-  .account-actions .button {
-    flex: 1 1 calc(50% - 10px);
-  }
   .field-note {
     font-size: 10px;
   }
@@ -1244,14 +1310,6 @@ body.working {
   .preview-placeholder > span {
     font-size: 32px;
   }
-  .top-actions .account {
-    max-width: 125px;
-  }
-  .account #account-label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   * {
@@ -1261,25 +1319,12 @@ body.working {
 }
 @media (max-width: 420px) {
   .topbar {
-    padding: 14px 16px;
-    height: auto;
-    min-height: 76px;
+    padding: 0 16px;
+    height: 56px;
     gap: 12px;
-    flex-wrap: wrap;
   }
   .brand {
     font-size: 15px;
-  }
-  .top-actions {
-    margin-left: auto;
-    gap: 6px;
-  }
-  .top-actions .button {
-    font-size: 10px;
-    padding: 7px 8px;
-  }
-  .top-actions .account {
-    max-width: 105px;
   }
   .brand small {
     letter-spacing: 1px;
@@ -1287,9 +1332,6 @@ body.working {
   .brand-mark {
     width: 31px;
     height: 31px;
-  }
-  .topbar .brand {
-    gap: 7px;
   }
   .workspace {
     padding-left: 14px;

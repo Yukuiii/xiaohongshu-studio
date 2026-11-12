@@ -4,32 +4,55 @@
 
 A Chinese-language browser workspace for researching Xiaohongshu topics, drafting posts, adding images, and confirming publication. Open **http://localhost:18060/** after starting the service, or use the workspace URL supplied by your administrator.
 
+The frontend uses Vite + React. The left sidebar provides Workspace (工作台) for research, drafting, images, and publication; Accounts (账号) for the current login session; and Settings (设置) for models and the service token. Add account (添加账号) opens the real sign-in page directly for QR scanning.
+
 Sign-in uses the complete Xiaohongshu browser page, including phone confirmation and account-security checks. The default Docker application includes Chromium and the noVNC desktop in one container and exposes only port `18060`; no separate noVNC container is needed. See [Docker deployment](./docker/README.md).
 
 ## Start the workspace
 
-Run or build from **this repository's current source**. Historical upstream downloads do not establish availability of this workspace. Install Go (**1.27.4**, as specified in [go.mod](./go.mod)), then run this in the project directory containing go.mod:
+Run or build from **this repository's current source**. Historical upstream downloads do not establish availability of this workspace. Install Go (**1.27.4**, as specified in [go.mod](./go.mod)) and **Node.js 24**, then build the frontend from the project directory containing go.mod:
 
 ```bash
+npm --prefix web ci
+npm --prefix web run build
 go run .
 ```
 
-Keep the terminal open and visit **http://localhost:18060/**. First startup installs the bundled browser. Running source directly on macOS/Windows opens a visible local Chromium window for sign-in; use the single-application Docker deployment for the browser embedded in the workspace. Frontend assets are embedded and need no Node installation.
+Keep the terminal open and visit **http://localhost:18060/**. First startup installs the bundled browser. Running source directly on macOS/Windows opens a visible local Chromium window for sign-in; use the single-application Docker deployment for the browser embedded in the workspace. Go embeds the page and hashed assets from `web/dist/`; the compiled executable and production container require no Node installation at runtime.
 
-To build an executable:
+To build an executable, refresh the frontend output before compiling Go:
 
 ```bash
+npm --prefix web ci
+npm --prefix web run build
 go build -o xiaohongshu-studio .
 ./xiaohongshu-studio
 ```
 
 See the [Windows guide](./docs/windows_guide.md) for PowerShell commands. For containers, follow the [Docker guide](./docker/README.md) to build from the current source.
 
+## Frontend development
+
+Install dependencies and build `web/dist/` once using the commands above, then run these in separate terminals:
+
+```bash
+# Terminal one: Go API, port 18060 by default
+go run .
+```
+
+```bash
+# Terminal two: Vite with hot updates, port 5173 by default
+npm --prefix web run dev
+```
+
+Visit **http://localhost:5173/** for development. Vite proxies `/api`, `/desktop` (including WebSocket), and `/health` to `http://127.0.0.1:18060`, so the page, API, and login desktop share a browser origin. Port `5173` serves development; Go serves production on `18060`. After frontend changes, run `npm --prefix web run build` and rebuild or restart Go to refresh the embedded page. Go compilation fails if `web/dist/` is missing.
+
+
 ## From topic to publication
 
 1. **Configure a text model.** Open Settings (设置) and enter an OpenAI-compatible base URL, API key, and model name. Include the provider's version path, for example `https://api.openai.com/v1`; the application does not append `/v1`. Fetch the model list or enter a name manually.
 2. **Enter a service token if required.** When the administrator enables `AUTH_TOKEN`, enter that token in Settings. It is separate from the model provider's API key.
-3. **Open the login browser.** Use the account panel to open the real Xiaohongshu page, scan the code, and confirm on your phone. Complete any additional account-security verification using the mobile app already signed into that account. The browser stays open during verification; after the login information is saved successfully, the browser and account dialog close automatically.
+3. **Add an account and scan.** Open Accounts (账号) in the sidebar and click Add account (添加账号) to open the real Xiaohongshu sign-in page directly. Scan the code and confirm on your phone. Complete any additional account-security verification using the mobile app already signed into that account. The browser stays open during verification; after the login information is saved successfully, the browser closes and the account page collapses the login area and shows the connected account.
 4. **Research and draft.** Enter a topic, search keywords, and writing instructions. The workspace searches notes, reads their content, and sends the selected sources to your text model. Review source material and change the selection before drafting again.
 5. **Edit and add images.** Edit the title, body, tags, and image description. Upload local pictures or configure a separate image provider's URL, key, and model supporting OpenAI `images/generations`. Uploading images works without an image model.
 6. **Review and confirm.** Check facts, wording, image order, preview, and visibility. Confirm again in the publication dialog. Generating a draft never publishes it automatically.
@@ -46,7 +69,7 @@ For source launches, `XHS_BROWSER_DOWNLOAD_BASE` selects a compatible mirror ser
 
 ## Drafts, accounts, and storage
 
-- Settings, service tokens, model keys, and drafts use the current browser's localStorage. They do not follow you to another browser and are lost when site data is cleared. Clear configuration in Settings on shared computers; that action preserves the draft.
+- Settings, service tokens, model keys, and drafts use the current browser's localStorage. React preserves the existing `hongshu-workbench.settings.v1` and `hongshu-workbench.draft.v1` storage formats. Keep the same workspace address to reuse existing settings and drafts; changing browser or address, or clearing site data, does not restore them automatically. Development on `5173` and production on `18060` have separate storage. Clear configuration in Settings on shared computers; that action preserves the draft.
 - The server does not persist model configuration. Selected research material is sent to your configured model provider for drafting.
 - Everyone using one service shares its Xiaohongshu account; there are no isolated user accounts. Login sessions live in the server's Cookie file, normally `cookies.json` in the working directory, depending on deployment configuration.
 - Uploaded and generated images live under `xiaohongshu_images/web` in the server's system temporary directory. Saved draft references are not backups of image files; upload again if temporary files are removed. The default Docker configuration persists images under the host's `data/uploads/web/`; retain the entire data directory when rebuilding containers. See [Docker deployment](./docker/README.md).

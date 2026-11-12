@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"io/fs"
+	"mime"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"strings"
 	"testing"
 
@@ -13,19 +16,61 @@ import (
 
 func TestWorkspaceRemainsPublicWithAuthentication(t *testing.T) {
 	router := setupRoutes(NewAppServer(nil, "secret-token"))
-	for _, asset := range []struct {
+	assets := []struct {
 		path        string
 		contentType string
-	}{
-		{"/", "text/html"},
-		{"/web/app.js", "text/javascript"},
-		{"/web/style.css", "text/css"},
-	} {
+		data        []byte
+	}{{"/", "text/html; charset=utf-8", webIndex}}
+	err := fs.WalkDir(webAssets, "web/dist/assets", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		data, err := webAssets.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		contentType := mime.TypeByExtension(path.Ext(name))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		assets = append(assets, struct {
+			path        string
+			contentType string
+			data        []byte
+		}{"/web/assets/" + strings.TrimPrefix(name, "web/dist/assets/"), contentType, data})
+		return nil
+	})
+	require.NoError(t, err)
+	for _, asset := range assets {
 		t.Run(asset.path, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, asset.path, nil))
 			require.Equal(t, http.StatusOK, recorder.Code)
-			assert.Contains(t, recorder.Header().Get("Content-Type"), asset.contentType)
+			assert.Equal(t, asset.contentType, recorder.Header().Get("Content-Type"))
+			assert.Equal(t, asset.data, recorder.Body.Bytes())
+			assert.Equal(t, "no-cache", recorder.Header().Get("Cache-Control"))
+			assert.Equal(t, "nosniff", recorder.Header().Get("X-Content-Type-Options"))
+			assert.Equal(t, "no-referrer", recorder.Header().Get("Referrer-Policy"))
+			assert.Contains(t, recorder.Header().Get("Content-Security-Policy"), "script-src 'self'")
+			assert.Contains(t, recorder.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'")
+		})
+	}
+}
+
+func TestWorkspaceDoesNotExposeSourceOrDirectories(t *testing.T) {
+	router := setupRoutes(NewAppServer(nil, "secret-token"))
+	for _, assetPath := range []string{
+		"/web/app.js", "/web/style.css", "/web/index.html", "/web/src/main.jsx",
+		"/web/package.json", "/web/dist/index.html", "/web/assets/",
+		"/web/assets/missing.js", "/web/assets/../index.html",
+	} {
+		t.Run(assetPath, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, assetPath, nil))
+			assert.Equal(t, http.StatusNotFound, recorder.Code)
 		})
 	}
 }

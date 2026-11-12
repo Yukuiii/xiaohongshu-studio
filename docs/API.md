@@ -23,7 +23,9 @@ curl http://localhost:18060/api/v1/login/status \
 
 Token 缺失或无效时，接口返回 HTTP `401 Unauthorized`。命令行参数可能被进程列表看到，部署环境优先使用 `AUTH_TOKEN`。
 
-Web 创作台位于 `/`，静态资源位于 `/web/*`，保持公开以便用户填写配置；业务 API 与上传图片仍受上述鉴权控制。HTTP API 写请求使用 `net/http.CrossOriginProtection` 检查浏览器来源，跨站请求返回 `403`。无浏览器来源头的原生客户端仍可调用，Web 页面应与 API 同源。
+Vite + React 创作台位于 `/`（内嵌的 `web/dist/index.html`），公开静态资源仅为 `/web/assets/*` 下的 Vite 哈希产物，便于用户填写配置。旧 `/web/app.js`、`/web/style.css` 已移除；源码、构建目录和目录列表不提供访问。页面及资源保留 CSP、`nosniff` 和 Referrer-Policy 安全响应头；业务 API 与上传图片仍受上述鉴权控制。HTTP API 写请求使用 `net/http.CrossOriginProtection` 检查浏览器来源，跨站请求返回 `403`。无浏览器来源头的原生客户端仍可调用，Web 页面应与 API 同源。
+
+源码构建先使用 Node.js 24 执行 `npm --prefix web ci`、`npm --prefix web run build`，再编译或运行 Go；缺少 `web/dist/` 时 Go 编译失败，生产运行无需 Node。开发时先构建一次，在两个终端分别运行 `go run .`（18060）与 `npm --prefix web run dev`（5173），访问 `http://localhost:5173/`。Vite 将 `/api`、`/desktop`（含 WebSocket）和 `/health` 代理到 `http://127.0.0.1:18060`，桌面 Cookie 与跨站写请求保护沿用原边界。
 
 ## 通用响应格式
 
@@ -130,7 +132,7 @@ GET /api/v1/login/status
 
 `status` 区分 `waiting_scan`（等待扫码）、`waiting_confirmation`（等待手机确认）、`verification_required`（需要账号安全验证）、`saving`（正在保存登录信息）、`logged_in`（已登录）、`expired`（浏览器会话到期）、`failed`（处理失败）、`not_logged_in`（未登录且无活动会话）。`message` 为相应的可读说明。扫码成功或仍有验证弹窗时，`is_logged_in` 为 `false`。
 
-工作台在账号弹窗打开期间串行检查进度，隐藏弹窗或页面时停止轮询。验证未完成时浏览器继续保留；登录成功并保存 Cookie 后自动关闭浏览器，前端停止桌面连接、收起登录弹窗并提示成功。
+左侧「账号」页的「添加账号」直接调用打开登录浏览器接口并展示真实扫码页面，仍使用服务现有的共享单账号会话。「工作台」用于创作，「设置」用于模型及服务令牌配置。登录区域打开期间串行检查进度，收起登录区域、切换导航或隐藏页面时停止前端轮询。验证未完成时后台浏览器继续保留；登录成功并保存 Cookie 后自动关闭浏览器，前端停止桌面连接、收起登录区域并显示已连接账号。原浏览器配置与草稿存储格式、服务端 Cookie 和桌面授权保持可用。
 
 #### 2.2 可视化登录浏览器
 
