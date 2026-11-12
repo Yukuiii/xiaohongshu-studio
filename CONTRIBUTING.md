@@ -79,7 +79,7 @@ PRs violating this rule **will NOT be merged**.
 - [ ] 代码已格式化，注释清晰
 - [ ] Web/HTTP 行为变更已更新对应文档，保留草稿、现有登录会话和发布确认
 - [ ] 未提交 Cookie、密钥、令牌或个人运行数据
-- [ ] 保留 [LICENSE](./LICENSE) 与原作者、上游贡献者署名
+- [ ] 保留 [LICENSE](./LICENSE)、原作者版权声明与上游来源说明
 
 ---
 
