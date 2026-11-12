@@ -12,7 +12,7 @@
 
 ## 发版规范
 
-- 发版=打语义化 tag `vX.Y.Z` 推上去（触发 Release 与 Docker 镜像），破坏性变更进 major；main 每次推送自动生成的日期 tag `vYYYY.MM.DD.HHMM-sha` 不是发版，别跟它混。
+- 发版使用语义化 tag `vX.Y.Z`，推送后触发 Release 与 Docker 镜像发布；破坏性变更升级 major。
 
 ## 代码 Review 重点
 
