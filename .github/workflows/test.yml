@@ -30,8 +30,8 @@ jobs:
       - name: Unit tests
         run: go test ./...
 
-      # 交叉编译检查：发布产物覆盖五个平台，但 CI 默认只在 linux/amd64 上构建，
-      # 平台相关的编译错误会拖到发版时才暴露。这里只编译不留产物，几秒钟。
+      # 编译覆盖五个平台；发布仅包含具备内置浏览器的三个目标平台。
+      # 平台相关错误在发版前暴露；这里只编译，不运行浏览器。
       - name: Cross-compile check
         run: |
           for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do

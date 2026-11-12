@@ -1,136 +1,60 @@
-# Windows 安装指南（避免环境变量问题）
+# 红薯创作台 Windows 安装指南
 
-在 Windows 部署过程，如果遇到问题，那么可以先参考本手册。
+本指南从当前仓库源码启动 Web 创作台。页面随 Go 程序一起构建，无需安装 Node。历史上游发行包不保证包含当前工作台。
 
-可以参考这里 https://github.com/xpzouying/xiaohongshu-mcp/issues/56
+## 1. 准备 Go 和源码
 
-由于 xiaohongshu-mcp 采用的是 Go，NPX 则依赖 Node.JS。为了*避免后续遇到的环境变量等问题*，建议使用 Winget 来安装 Go 和 Node.JS，因为使用 Winget 安装后，Windows 会自动配置好对应的环境变量。
+在 Windows 终端打开 PowerShell，安装 Go：
 
-## 打开命令行
-<img width="981" height="851" alt="打开命令行" src="https://github.com/user-attachments/assets/1170e4b4-5a47-41ae-9beb-6ca9bd896ede" />
-
-1. Windows 搜索框中输入 CMD
-2. 选择以管理员身份运行
-
-## 安装 Go 
-在*命令行*中使用以下命令安装 Go (截图如下）
-<img width="762" height="164" alt="安装 Go" src="https://github.com/user-attachments/assets/621752cf-a757-41e6-9b14-45ff559537f3" />
-
-```bash
- winget install GoLang.Go
+```powershell
+winget install GoLang.Go
 ```
 
-## 安装 Node.JS
-继续在*命令行*中使用以下命令安装 Node.JS (截图如下）
-<img width="665" height="178" alt="安装 Node.JS" src="https://github.com/user-attachments/assets/e09f33cb-f6dc-46f1-824a-ed3c7929658f" />
+安装后重新打开终端，执行 `go version`。当前 [go.mod](../go.mod) 要求 Go **1.27.4**；如果版本不足，请更新 Go。
 
+从当前仓库页面下载源码 ZIP 并解压，或使用已有的当前源码副本。在包含 `go.mod` 的文件夹右键打开终端。不要使用上游历史二进制替代本次源码构建。
 
-```bash
- winget install OpenJS.NodeJS.LTS
+## 2. 启动并打开页面
+
+```powershell
+go run .
 ```
 
-祝大家使用 xiaohongshu-mcp 服务愉快哦~
+保持终端运行，在浏览器打开 **http://localhost:18060/**。首次启动会先下载并安装内置浏览器，完成后才开始提供页面；请等待终端提示。
 
-# xiaohongshu-mcp Windows11快速搭建
+也可以先构建再启动：
 
-## 1.  下载最新构建版本
-
-[github.com](https://github.com/xpzouying/xiaohongshu-mcp/releases)
-
-如果当前系统为Windows 则选择 xiaohongshu-mcp-windows-amd64.zip 下载
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_597379_Dw_WBLdYI-KsFlXm_1760067122?w=1137&h=633&type=image/png)
-
-下载完解压文件
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_806026_wozodlNLyXADgJzQ_1760067150?w=1097&h=437&type=image/png)
-
-在当前文件夹中右键打开终端
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_24479_igFOK7Lf332tlvkM_1760067218?w=1090&h=622&type=image/png)
-
-先运行登录命令程序
-
-```
-./xiaohongshu-login-windows-amd64.exe
+```powershell
+go build -o xiaohongshu-studio.exe .
+.\xiaohongshu-studio.exe
 ```
 
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_557435_MEWWz-JeHubKmkhc_1760067518?w=1709&h=810&type=image/png)
+如需设置服务访问令牌，在启动程序前执行：
 
-等待下载完
-
-## 2.  解决Windows 11 报病毒问题
-
-在运行之前的程序后会报病毒，如下图
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_79147_lDOh7CnkzJEWiROM_1760067634?w=1761&h=518&type=image/png)
-
-这时候我们需要打开Windows 安全中心（Windows 11 版本演示）
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_436678__HrwxQPD57zZvW5h_1760067781?w=1424&h=932&type=image/png)
-
-点击进入管理设置后，查看最下方的排除项
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_936924_6OPZpwjyICV7NlGc_1760067974?w=1166&h=916&type=image/png)
-
-把之前的错误程序的路径添加进去，如下图
-
-要改成你当前报错的实际路径
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_871687_NBwGzTWJ1RHTQgBQ_1760068159?w=1901&h=439&type=image/png)
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_710523_eExonqwWf2gSc5RD_1760068191?w=1838&h=658&type=image/png)
-
-总结解决路径办法
-
-解决步骤：
-
-1. 打开 Windows 安全中心（Windows Security）。
-
-2. 点击 病毒和威胁防护（Virus & threat protection）。
-
-3. 在“病毒和威胁防护设置”下，点击 管理设置（Manage settings）。
-
-4. 向下滚动，找到并点击 添加或删除排除项（Add or remove exclusions）。
-
-5. 点击 添加排除项（Add an exclusion）。
-
-6. 选择 文件夹（Folder）。
-
-7. 导航到以下路径并选择该文件夹：
-
-```
-C:\Users\你的用户(当前电脑)\AppData\Local\Temp\leakless-amd64-adb80298fa6a3af7ced8b1c9b5f18007
+```powershell
+$env:AUTH_TOKEN = "替换为自己的服务访问令牌"
+.\xiaohongshu-studio.exe
 ```
 
-8.  . 确认添加排除项。
+之后在页面设置里填写同一令牌。它与模型服务的 API Key 不同。仅在当前 PowerShell 窗口设置的环境变量不会自动应用到其他终端。
 
-## 3.  启动程序
+## 3. 配置、扫码和创作
 
-```
-./xiaohongshu-login-windows-amd64.exe
-```
+1. 打开「设置」，填写文字模型的 OpenAI 兼容接口地址、API Key 和模型名称。地址应包含服务商要求的版本路径，例如 `https://api.openai.com/v1`。
+2. 如服务启用了访问令牌，填写对应令牌并保存设置。
+3. 打开账号入口并点击「打开登录浏览器」。源码运行时切换至本机弹出的 Chromium；在真实小红书页面扫码并完成手机确认、安全验证。需要在工作台内嵌浏览器时，使用默认 [Docker 单应用部署](../docker/README.md)，无需额外桌面容器。
+4. 填写选题、搜索关键词和写作要求，搜索素材并生成草稿。
+5. 编辑标题、正文与话题，上传图片；需要 AI 配图时单独配置生图服务。
+6. 检查预览、图片顺序和可见范围，在发布窗口再次确认。
 
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_986235_Vn-u3F7LZXOsYE6c_1760078263?w=1118&h=346&type=image/png)
+完整使用说明、图片限制和数据保存位置见[首页](../README.md)。草稿保存在当前浏览器，登录账号由同一服务的使用者共享。
 
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_215347_jIpS7bT7J6nQPIDs_1760078324?w=901&h=830&type=image/png)
+## 常见问题
 
-登录小红书
+- **找不到 go 命令：** 安装完成后关闭并重新打开终端，再检查 `go version`。
+- **页面无法打开：** 确认服务没有退出，检查终端报错及端口；默认端口为 18060。
+- **浏览器下载失败：** 查看终端中的下载错误，确认网络可用后再启动。
+- **程序被 Windows 安全中心拦截：** 查看保护历史中的具体文件和原因，确认使用当前源码构建的程序；不要关闭整机防护或排除整个临时目录。
+- **扫码未成功：** 查看真实登录浏览器中的错误或验证弹窗，按提示用已登录该账号的手机小红书完成验证。二维码过期时在小红书页面内刷新；登录浏览器会话可保留 20 分钟。
 
-启动MCP服务
-
-```
-./xiaohongshu-mcp-windows-amd64.exe
-```
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_66988_0r6LHv0FuL9Aidlv_1760094345?w=970&h=291&type=image/png)
-
-## 4.  MCP 验证
-
-```
-npx @modelcontextprotocol/inspector
-```
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_861647_Lo0xw1oXyLKD5A2Y_1760165693?w=1074&h=452&type=image/png)
-
-![](https://wdcdn.qpic.cn/MTY4ODg1NTIyMTY1ODI2NQ_260079_5FFeEfMTVXaLGXoz_1760165797?w=1905&h=937&type=image/png)
+开发和维护接口见 [HTTP API 文档](./API.md)。

@@ -1,19 +1,35 @@
 services:
-  xiaohongshu-mcp:
-    # Docker Hub 镜像（默认）
-    image: xpzouying/xiaohongshu-mcp
-    # 阿里云镜像源（国内用户推荐，拉取更快）
-    # image: crpi-hocnvtkomt7w9v8t.cn-beijing.personal.cr.aliyuncs.com/xpzouying/xiaohongshu-mcp
-    container_name: xiaohongshu-mcp
+  xiaohongshu-studio:
+    image: xiaohongshu-studio:local
+    platform: linux/amd64
+    pull_policy: build
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-https://archive.ubuntu.com/ubuntu}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-https://security.ubuntu.com/ubuntu}
+        BROWSER_DOWNLOAD_BASE: ${BROWSER_DOWNLOAD_BASE:-https://github.com/adryfish/fingerprint-chromium/releases/download}
+    container_name: xiaohongshu-studio
     restart: unless-stopped
     tty: true
+    shm_size: 1gb
+    cap_drop:
+      - ALL
+    # 兼容其他 UID 拥有的已有 data 目录。
+    cap_add:
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
     volumes:
-      - ./data:/app/data
-      - ./images:/app/images
+      - ${XHS_DATA_DIR:-./data}:/app/data
+      - ${XHS_MEDIA_DIR:-./images}:/app/images:ro
+      - ${XHS_DATA_DIR:-./data}/uploads:/tmp/xiaohongshu_images
     environment:
       - COOKIES_PATH=/app/data/cookies.json
       - HOME=/app/data/home
       - XDG_CONFIG_HOME=/app/data/config
       - AUTH_TOKEN=${AUTH_TOKEN:-}
+      - XHS_PROXY=${XHS_PROXY:-}
     ports:
-      - "18060:18060"
+      - "127.0.0.1:${XHS_WEB_PORT:-18060}:18060"

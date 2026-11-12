@@ -61,11 +61,10 @@ func DefaultCommentLoadConfig() CommentLoadConfig {
 
 // normalize 把零值字段填回默认值。零值一律按「未设置」处理，不再按「无上限」。
 //
-// 之所以必须在这一层做：配置从 MCP 和 HTTP 两条路进来，字段名和结构都不一样，
-// 漏传很容易发生。HTTP 侧要的是嵌套的 comment_config，传扁平字段会被
-// ShouldBindJSON 静默丢掉，于是 MaxCommentItems=0；而 0 以前表示「无上限」，
-// 一次详情请求就会滚满 defaultMaxAttempts(500) 轮。放在 action 层而不是某个
-// handler 里，两条路径和以后新增的调用方都能覆盖到。
+// HTTP 请求使用嵌套的 comment_config，误传扁平字段会被 ShouldBindJSON 静默
+// 丢掉，导致 MaxCommentItems=0。若将零值解释为「无上限」，一次详情请求就会
+// 滚满 defaultMaxAttempts(500) 轮。统一在 action 层填充默认值，让所有调用方
+// 都有相同的评论加载边界。
 //
 // 真要拉更多评论，显式传一个大的 MaxCommentItems。
 func (c CommentLoadConfig) normalize() CommentLoadConfig {

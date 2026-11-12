@@ -1,8 +1,8 @@
-# 小红书 MCP HTTP API 文档
+# 红薯创作台 HTTP API 文档
 
 ## 概述
 
-该项目提供了小红书 MCP (Model Context Protocol) 服务的 HTTP API 接口，同时支持 MCP 协议和标准的 HTTP REST API。本文档描述了 HTTP API 的使用方法。
+红薯创作台提供浏览器创作页面与标准 HTTP API。本文档保留登录、内容、用户、互动以及模型和图片接口的调用说明；日常创作可直接打开 `http://localhost:18060/`。
 
 **Base URL**: `http://localhost:18060`
 
@@ -10,11 +10,11 @@
 
 ## 访问鉴权（可选）
 
-鉴权默认关闭。设置环境变量 `AUTH_TOKEN` 或启动参数 `-token` 后，所有 `/api/v1/*` 和 `/mcp` 接口都需要携带 Bearer Token；`/health` 健康检查和 CORS `OPTIONS` 预检请求保持公开。非空的 `-token` 优先于 `AUTH_TOKEN`，留空则读取 `AUTH_TOKEN`。
+鉴权默认关闭。设置环境变量 `AUTH_TOKEN` 或启动参数 `-token` 后，所有 `/api/v1/*` 接口都需要携带 Bearer Token；`/health` 健康检查和 CORS `OPTIONS` 预检请求保持公开。非空的 `-token` 优先于 `AUTH_TOKEN`，留空则读取 `AUTH_TOKEN`。
 
 ```bash
 # 启用鉴权
-AUTH_TOKEN=your-secret-token ./xiaohongshu-mcp
+AUTH_TOKEN=your-secret-token ./xiaohongshu-studio
 
 # 调用 HTTP API
 curl http://localhost:18060/api/v1/login/status \
@@ -23,9 +23,11 @@ curl http://localhost:18060/api/v1/login/status \
 
 Token 缺失或无效时，接口返回 HTTP `401 Unauthorized`。命令行参数可能被进程列表看到，部署环境优先使用 `AUTH_TOKEN`。
 
+Web 创作台位于 `/`，静态资源位于 `/web/*`，保持公开以便用户填写配置；业务 API 与上传图片仍受上述鉴权控制。HTTP API 写请求使用 `net/http.CrossOriginProtection` 检查浏览器来源，跨站请求返回 `403`。无浏览器来源头的原生客户端仍可调用，Web 页面应与 API 同源。
+
 ## 通用响应格式
 
-所有 API 响应都使用统一的 JSON 格式：
+除图片读取接口直接返回图片外，API 响应使用统一的 JSON 格式：
 
 ### 成功响应
 ```json
@@ -51,7 +53,7 @@ Token 缺失或无效时，接口返回 HTTP `401 Unauthorized`。命令行参�
 |------|------|------|
 | GET | `/health` | 健康检查 |
 | GET | `/api/v1/login/status` | 检查登录状态 |
-| GET | `/api/v1/login/qrcode` | 获取登录二维码 |
+| POST/DELETE | `/api/v1/login/browser` | 打开或结束可视化登录浏览器 |
 | DELETE | `/api/v1/login/cookies` | 删除 Cookies（重置登录） |
 | POST | `/api/v1/publish` | 发布图文内容 |
 | POST | `/api/v1/publish_video` | 发布视频内容 |
@@ -64,6 +66,11 @@ Token 缺失或无效时，接口返回 HTTP `401 Unauthorized`。命令行参�
 | POST | `/api/v1/feeds/comment/reply` | 回复评论 |
 | POST | `/api/v1/feeds/like` | 点赞/取消点赞 |
 | POST | `/api/v1/feeds/favorite` | 收藏/取消收藏 |
+| POST | `/api/v1/ai/models` | 读取配置的服务商模型列表 |
+| POST | `/api/v1/ai/compose` | 根据已读取素材生成可编辑草稿 |
+| POST | `/api/v1/ai/image` | 根据描述生成并保存配图 |
+| POST | `/api/v1/images/upload` | 上传本地配图 |
+| GET | `/api/v1/images/:id` | 读取上传或生成的图片 |
 
 ---
 
@@ -71,7 +78,9 @@ Token 缺失或无效时，接口返回 HTTP `401 Unauthorized`。命令行参�
 
 ### 1. 健康检查
 
-检查服务状态。
+检查服务状态。此接口公开，不启动浏览器，也不表示小红书账号已登录；账号状态请调用 `/api/v1/login/status`。
+
+响应中的 `version` 为当前运行程序的实际构建版本；下例以开发构建的 `dev` 为例。
 
 **请求**
 ```
@@ -84,8 +93,8 @@ GET /health
   "success": true,
   "data": {
     "status": "healthy",
-    "service": "xiaohongshu-mcp",
-    "account": "ai-report",
+    "service": "xiaohongshu-studio",
+    "version": "dev",
     "timestamp": "now"
   },
   "message": "服务正常"
@@ -98,7 +107,7 @@ GET /health
 
 #### 2.1 检查登录状态
 
-检查当前用户的登录状态。
+检查当前用户的登录状态。存在可视化登录会话时返回该浏览器的实际进度，不会为每次检查另开浏览器。扫码之后可能还需手机确认或账号安全验证；验证完成并保存登录信息后才算登录成功。
 
 **请求**
 ```
@@ -111,38 +120,47 @@ GET /api/v1/login/status
   "success": true,
   "data": {
     "is_logged_in": true,
+    "status": "logged_in",
+    "message": "登录成功",
     "username": "用户名"
   },
   "message": "检查登录状态成功"
 }
 ```
 
-#### 2.2 获取登录二维码
+`status` 区分 `waiting_scan`（等待扫码）、`waiting_confirmation`（等待手机确认）、`verification_required`（需要账号安全验证）、`saving`（正在保存登录信息）、`logged_in`（已登录）、`expired`（浏览器会话到期）、`failed`（处理失败）、`not_logged_in`（未登录且无活动会话）。`message` 为相应的可读说明。扫码成功或仍有验证弹窗时，`is_logged_in` 为 `false`。
 
-获取登录二维码，用于用户扫码登录。
+工作台在账号弹窗打开期间串行检查进度，隐藏弹窗或页面时停止轮询。验证未完成时浏览器继续保留；登录成功并保存 Cookie 后自动关闭浏览器，前端停止桌面连接、收起登录弹窗并提示成功。
 
-**请求**
+#### 2.2 可视化登录浏览器
+
+```http
+POST /api/v1/login/browser
 ```
-GET /api/v1/login/qrcode
-```
 
-**响应**
+无请求体。打开或复用当前登录浏览器，不提取二维码图片，也不会因为再次打开弹窗而重新扫码。默认应用镜像在同一个容器内运行 Go 服务、Chromium 和桌面组件，对外只需要工作台端口 `18060`。
+
+成功响应的 `data` 示例：
+
 ```json
 {
-  "success": true,
-  "data": {
-    "timeout": "300",
-    "is_logged_in": false,
-    "img": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
-  },
-  "message": "获取登录二维码成功"
+  "is_logged_in": false,
+  "status": "waiting_scan",
+  "message": "请在登录浏览器中完成登录和账号验证",
+  "timeout": "20m0s",
+  "mode": "desktop",
+  "desktop_url": "/desktop/vnc.html?autoconnect=1&resize=scale&path=desktop%2Fwebsockify"
 }
 ```
 
-**响应字段说明:**
-- `timeout`: 二维码过期时间（秒）
-- `is_logged_in`: 当前是否已登录
-- `img`: Base64 编码的二维码图片
+- `timeout` 是整个浏览器会话的剩余时间（Go duration 字符串），不是二维码的有效期。二维码失效时在真实浏览器页面内刷新。
+- `mode=desktop`：页面通过同源 iframe 展示 noVNC；普通扫码、手机确认、滑块或账号安全验证都在同一个浏览器中完成。
+- `mode=native`：直接以源码运行在 macOS/Windows 时打开本机可见的 Chromium，`desktop_url` 为空。页面内嵌桌面应使用默认应用镜像。
+- 成功保存登录信息后浏览器自动关闭；验证未完成时可继续查看，最长保留 20 分钟。`DELETE /api/v1/login/browser` 可提前结束窗口，保留已经保存的 Cookie；没有活动会话时同样成功。
+
+`/desktop/*` 是工作台服务内部的桌面代理。打开登录浏览器的授权请求会设置短期、HttpOnly、SameSite=Strict Cookie，供 iframe 与 WebSocket 使用；不把服务令牌放进 URL。桌面页面、静态资源和 WebSocket 都校验桌面 Cookie，并拒绝跨站访问。内部 VNC/桌面端口不映射到宿主机，无需单独部署 noVNC 容器。浏览器须允许本站 Cookie。
+
+Linux 无桌面且未使用默认应用镜像时，打开接口返回明确错误，不会退回隐藏二维码流程。
 
 #### 2.3 删除 Cookies（重置登录状态）
 
@@ -896,6 +914,120 @@ Content-Type: application/json
 
 ---
 
+### 8. Web 创作台
+
+页面依次调用已有的搜索和笔记详情接口获取素材，再调用写稿接口。所有新接口沿用服务 Bearer Token；`config.api_key` 是模型服务商密钥，两者不可混用。服务端不持久化模型配置。
+
+#### 8.1 模型配置与列表
+
+模型调用共用以下配置：
+
+```json
+{
+  "config": {
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "your-model-api-key",
+    "model": "your-text-model"
+  }
+}
+```
+
+`base_url` 必须是 HTTP/HTTPS 地址，不得含 URL 用户信息、查询参数或片段。版本路径由调用方提供，不自动添加 `/v1`；可粘贴完整的 `/chat/completions`、`/images/generations` 或 `/models` 端点，服务会移除该后缀。模型请求不跟随重定向，应填写服务商的最终地址。
+
+`POST /api/v1/ai/models` 接受上述请求，其中 `model` 可省略，调用服务商的 `GET /models`。成功响应的 `data` 为：
+
+```json
+{"models": ["your-text-model", "your-image-model"]}
+```
+
+#### 8.2 根据素材写稿
+
+```http
+POST /api/v1/ai/compose
+Content-Type: application/json
+```
+
+```json
+{
+  "config": {
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "your-model-api-key",
+    "model": "your-text-model"
+  },
+  "topic": "周末城市散步路线",
+  "instructions": "语气自然，整理出发前的准备事项，不编造亲身体验",
+  "sources": [
+    {
+      "id": "note-id",
+      "title": "路线参考",
+      "content": "从笔记详情接口取得的正文",
+      "url": "https://www.xiaohongshu.com/explore/note-id",
+      "author": "作者昵称"
+    }
+  ]
+}
+```
+
+`topic` 必填；`sources` 为 1–5 条，每条必须包含非空 `id` 和 `content`。`instructions`、来源标题、作者和链接可选。请求大小上限 1 MiB。接口只调用模型写稿，不搜索、不发布。
+
+成功响应的 `data`：
+
+```json
+{
+  "title": "周末，去河边慢慢走",
+  "content": "可编辑的文章正文……",
+  "tags": ["城市散步", "周末计划"],
+  "image_prompt": "河边步道，柔和日光，自然摄影"
+}
+```
+
+模型应返回包含标题和正文的 JSON；支持 JSON 代码围栏，格式不正确则报错。超长文章保留原文供编辑，不截断、不自动重试。页面在发布前校验标题、正文和图片，最终通过已有 `POST /api/v1/publish` 发布。
+
+#### 8.3 上传与读取图片
+
+```http
+POST /api/v1/images/upload
+Content-Type: multipart/form-data
+```
+
+使用同名 `files` 字段上传 1–9 张图片，每张不超过 10 MiB，支持 JPEG、PNG、WebP、GIF。服务按内容判断格式，任意一张失败则不保留该批次已保存的图片。成功响应的 `data`：
+
+```json
+{
+  "images": [
+    {
+      "id": "0123456789abcdef0123456789abcdef.png",
+      "name": "封面.png",
+      "path": "/server/temp/xiaohongshu_images/web/0123456789abcdef0123456789abcdef.png",
+      "url": "/api/v1/images/0123456789abcdef0123456789abcdef.png"
+    }
+  ]
+}
+```
+
+`path` 是服务端绝对路径，原样传入发布接口的 `images` 数组。`url` 用于预览：启用鉴权时须携带服务 Token 获取图片，前端使用 Blob URL 展示，不在链接中附带 Token。读取接口仅接受该目录内的随机图片 ID；图片响应为 `private, no-store`。文件保存在服务端临时目录，系统清理后需要重新上传。
+
+#### 8.4 AI 配图
+
+`POST /api/v1/ai/image` 接受生图服务配置和图片描述：
+
+```json
+{
+  "config": {
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "your-image-api-key",
+    "model": "your-image-model"
+  },
+  "prompt": "竖版河边步道，柔和日光，自然摄影，没有文字"
+}
+```
+
+调用服务商 `POST /images/generations`，每次生成一张，支持 `data[0].b64_json` 或 `data[0].url` 返回。图片经与上传相同的校验后落盘，成功响应 `data.image` 的字段与上传图片一致。生图配置独立于文字模型，未配置时仍可上传配图。
+
+模型列表、写稿、生图的超时分别为 30、180、300 秒；客户端取消会传递给模型请求。上游错误返回 `AI_REQUEST_FAILED`，响应不回显密钥或上游原始错误正文。
+
+---
+
 ## 错误代码
 
 所有 API 在发生错误时会返回统一格式的错误响应。以下是可能出现的错误代码：
@@ -927,20 +1059,10 @@ Content-Type: application/json
 
 2. **安全令牌**: `xsec_token` 是小红书的安全令牌，在调用需要该参数的接口时必须提供。
 
-3. **图片上传**: 发布接口中的 `images` 参数需要提供可访问的图片URL。
+3. **图片上传**: 发布接口中的 `images` 参数支持可访问的 HTTP/HTTPS 图片 URL 或服务端本地图片绝对路径；工作台上传接口返回的 `path` 可直接使用。
 
 4. **错误处理**: 所有接口在出错时都会返回统一格式的错误响应，请根据 `code` 字段进行相应的错误处理。
 
 5. **日志记录**: 所有API调用都会被记录到服务日志中，包括请求方法、路径和状态码。
 
-6. **跨域支持**: API 支持跨域请求 (CORS)。
-
-## MCP 协议支持
-
-除了上述HTTP API，本服务同时支持 MCP (Model Context Protocol) 协议：
-
-- **MCP 端点**: `/mcp` 和 `/mcp/*path`
-- **协议类型**: 支持 JSON 响应格式的 Streamable HTTP
-- **用途**: 可以通过MCP客户端调用相同的功能
-
-更多MCP协议相关信息请参考 [Model Context Protocol 官方文档](https://modelcontextprotocol.io/)。
+6. **跨域支持**: API 提供 CORS 响应；浏览器写请求同时受来源检查约束，工作台应与 API 同源部署。

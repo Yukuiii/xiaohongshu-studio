@@ -9,34 +9,30 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sirupsen/logrus"
 )
 
 // AppServer 应用服务器结构体，封装所有服务和处理器
 type AppServer struct {
 	xiaohongshuService *XiaohongshuService
-	mcpServer          *mcp.Server
 	router             *gin.Engine
 	httpServer         *http.Server
 	authToken          string
+	desktop            *desktopGateway
 }
 
 // NewAppServer 创建新的应用服务器实例
 func NewAppServer(xiaohongshuService *XiaohongshuService, authToken string) *AppServer {
-	appServer := &AppServer{
+	return &AppServer{
 		xiaohongshuService: xiaohongshuService,
 		authToken:          authToken,
+		desktop:            newDesktopGateway(os.Getenv("XHS_DESKTOP_URL")),
 	}
-
-	// 初始化 MCP Server（需要在创建 appServer 之后，因为工具注册需要访问 appServer）
-	appServer.mcpServer = InitMCPServer(appServer)
-
-	return appServer
 }
 
 // Start 启动服务器
 func (s *AppServer) Start(port string) error {
+	defer s.xiaohongshuService.CloseLoginBrowser()
 	s.router = setupRoutes(s)
 
 	s.httpServer = &http.Server{
@@ -46,7 +42,7 @@ func (s *AppServer) Start(port string) error {
 
 	// 启动服务器的 goroutine
 	go func() {
-		logrus.Infof("启动 HTTP 服务器: %s", port)
+		logrus.Infof("启动红薯创作台 HTTP 服务器: %s", port)
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logrus.Errorf("服务器启动失败: %v", err)
 			os.Exit(1)
