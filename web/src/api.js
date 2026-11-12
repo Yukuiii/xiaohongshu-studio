@@ -14,6 +14,15 @@ export function redact(message, settings = {}, formSettings = {}) {
   return result.slice(0, 400);
 }
 
+export class APIError extends Error {
+  constructor(message, status, code) {
+    super(message);
+    this.name = "APIError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export function createAPI(getSettings, getFormSettings = getSettings) {
   return async function api(
     path,
@@ -23,10 +32,13 @@ export function createAPI(getSettings, getFormSettings = getSettings) {
       signal,
       token = getSettings().token,
       blob = false,
+      accountId,
     } = {},
   ) {
     const headers = {};
     if (token) headers.Authorization = `Bearer ${token}`;
+    const shared = /^\/accounts(?:\/|$)/.test(path) || path === "/ai/models";
+    if (!shared && accountId) headers["X-XHS-Account-ID"] = accountId;
     if (body && !(body instanceof FormData))
       headers["Content-Type"] = "application/json";
     let response;
@@ -53,26 +65,37 @@ export function createAPI(getSettings, getFormSettings = getSettings) {
     try {
       payload = await response.json();
     } catch {
-      throw new Error(
+      throw new APIError(
         `服务返回了无法识别的响应（${response.status}），请检查服务或接口地址。`,
+        response.status,
       );
     }
     if (!response.ok || payload.success !== true) {
       if (response.status === 401 || response.status === 403) {
-        throw new Error(
+        throw new APIError(
           "访问被拒绝，请在左侧「设置」的高级选项中检查服务访问令牌。",
+          response.status,
+          payload.code,
         );
       }
       const message =
         payload.error || payload.message || `请求失败（${response.status}）`;
       const details =
         typeof payload.details === "string" ? payload.details : "";
-      throw new Error(
-        redact(
-          details ? `${message}：${details}` : message,
-          getSettings(),
-          getFormSettings(),
-        ),
+      const conflict = {
+        LOGIN_BROWSER_BUSY:
+          "另一个账号正在使用扫码窗口，请先结束该账号的登录窗口。",
+        ACCOUNT_BUSY: "该账号正在执行任务，请稍候重试。",
+      };
+      throw new APIError(
+        conflict[payload.code] ||
+          redact(
+            details ? `${message}：${details}` : message,
+            getSettings(),
+            getFormSettings(),
+          ),
+        response.status,
+        payload.code,
       );
     }
     return payload.data;

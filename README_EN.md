@@ -4,7 +4,7 @@
 
 A Chinese-language browser workspace for researching Xiaohongshu topics, drafting posts, adding images, and confirming publication. Open **http://localhost:18060/** after starting the service, or use the workspace URL supplied by your administrator.
 
-The frontend uses Vite + React. The left sidebar provides Workspace (工作台) for research, drafting, images, and publication; Accounts (账号) for the current login session; and Settings (设置) for models and the service token. Add account (添加账号) opens the real sign-in page directly for QR scanning.
+The frontend uses Vite + React. The left sidebar provides Workspace (工作台) for research, drafting, images, and publication; Accounts (账号) for multiple Xiaohongshu accounts and their separate browser data; and Settings (设置) for models and the service token. Add, select, or sign into an account from Accounts using the real sign-in page.
 
 Sign-in uses the complete Xiaohongshu browser page, including phone confirmation and account-security checks. The default Docker application includes Chromium and the noVNC desktop in one container and exposes only port `18060`; no separate noVNC container is needed. See [Docker deployment](./docker/README.md).
 
@@ -52,10 +52,12 @@ Visit **http://localhost:5173/** for development. Vite proxies `/api`, `/desktop
 
 1. **Configure a text model.** Open Settings (设置) and enter an OpenAI-compatible base URL, API key, and model name. Include the provider's version path, for example `https://api.openai.com/v1`; the application does not append `/v1`. Fetch the model list or enter a name manually.
 2. **Enter a service token if required.** When the administrator enables `AUTH_TOKEN`, enter that token in Settings. It is separate from the model provider's API key.
-3. **Add an account and scan.** Open Accounts (账号) in the sidebar and click Add account (添加账号) to open the real Xiaohongshu sign-in page directly. Scan the code and confirm on your phone. Complete any additional account-security verification using the mobile app already signed into that account. The browser stays open during verification; after the login information is saved successfully, the browser closes and the account page collapses the login area and shows the connected account.
+3. **Add, select, and sign into an account.** Manage account names, choose an account, or add one in Accounts (账号), then open its real Xiaohongshu sign-in page. Scan and confirm on your phone, including any security checks using the mobile app already signed into that account. Sign-in is saved only after the real identity matches the binding and browser data reaches disk. Failed sign-in preserves the previous browser data. The shared login desktop displays one account at a time.
 4. **Research and draft.** Enter a topic, search keywords, and writing instructions. The workspace searches notes, reads their content, and sends the selected sources to your text model. Review source material and change the selection before drafting again.
 5. **Edit and add images.** Edit the title, body, tags, and image description. Upload local pictures or configure a separate image provider's URL, key, and model supporting OpenAI `images/generations`. Uploading images works without an image model.
 6. **Review and confirm.** Check facts, wording, image order, preview, and visibility. Confirm again in the publication dialog. Generating a draft never publishes it automatically.
+
+The page uses Web Locks to coordinate publication across tabs for the same account. Use a supporting browser over HTTPS or `localhost` / a loopback address. For a remote HTTP deployment, forward the service to your local machine through SSH before opening the workspace.
 
 Titles allow 20 counted characters (English letters and digits count as half); bodies allow 1,000 characters. Image posts require 1–9 JPEG, PNG, WebP, or GIF files, at most 10 MiB each. Overlong drafts remain editable and must be shortened before publication.
 
@@ -69,10 +71,23 @@ For source launches, `XHS_BROWSER_DOWNLOAD_BASE` selects a compatible mirror ser
 
 ## Drafts, accounts, and storage
 
-- Settings, service tokens, model keys, and drafts use the current browser's localStorage. React preserves the existing `hongshu-workbench.settings.v1` and `hongshu-workbench.draft.v1` storage formats. Keep the same workspace address to reuse existing settings and drafts; changing browser or address, or clearing site data, does not restore them automatically. Development on `5173` and production on `18060` have separate storage. Clear configuration in Settings on shared computers; that action preserves the draft.
-- The server does not persist model configuration. Selected research material is sent to your configured model provider for drafting.
-- Everyone using one service shares its Xiaohongshu account; there are no isolated user accounts. Login sessions live in the server's Cookie file, normally `cookies.json` in the working directory, depending on deployment configuration.
-- Uploaded and generated images live under `xiaohongshu_images/web` in the server's system temporary directory. Saved draft references are not backups of image files; upload again if temporary files are removed. The default Docker configuration persists images under the host's `data/uploads/web/`; retain the entire data directory when rebuilding containers. See [Docker deployment](./docker/README.md).
+- Settings, service tokens, and model keys remain in browser localStorage under the shared `hongshu-workbench.settings.v1` key. Each account's draft uses `hongshu-workbench.draft.v1:<account-id>` with the existing payload. Publication protection is stored separately in `hongshu-workbench.publish.v1:<account-id>`, so ordinary draft saves cannot overwrite newer publication state from another tab. Old drafts migrate once to the fixed legacy account, preserve existing destination drafts, and retain duplicate prevention for uncertain publication results. Keep the same browser and workspace address; changing either or clearing site data does not restore data automatically. Ports `5173` and `18060` have separate storage.
+- The server does not persist model configuration. Selected research material is sent to your configured provider. Models and the service token are shared across the workspace; the token grants access to all accounts, and account slots do not isolate visitors' permissions.
+- Each account owns a fixed seed, downloads, and a complete Chromium user-data-dir, including Cookies, localStorage, IndexedDB, Service Workers, cache, and site configuration. `XHS_ACCOUNTS_DIR` sets the root; otherwise it is the hidden `.xhs-accounts/` directory beside the legacy Cookie file. Metadata and profiles live under `<root>/<account-id>/`. Browsers start on demand and are reused between tasks; idle headless instances close after 10 minutes while retaining data. A one-use snapshot inside the profile carries session Cookies across normal shutdowns without reopening old pages; abnormal exits may require sign-in again.
+- Selection belongs to the current page, and every request binds its account using `X-XHS-Account-ID`. Switching does not alter other tabs. The workspace prevents switching during a task; each account serializes browser work, while different accounts run independently. The shared desktop supports one sign-in window at a time. A previously verified account can still have an expired site session.
+- First initialization creates a fixed default account and imports the old v1/v2 `cookies.json` or `COOKIES_PATH` source once, retaining the original file. The default account preserves a valid migration-time `XHS_FP_SEED`, otherwise its file seed or a new seed. New accounts generate independent seeds. Complete profiles become the session authority thereafter. Removing the default account does not reimport legacy data; migration cannot recover site data older versions never saved.
+- Uploaded and generated images use `xiaohongshu_images/web/<account-id>/` in the server's temporary directory. Old images migrate only to the fixed legacy account, retaining source files. Draft references are not image backups; upload again if files are cleared. Docker persists images in `data/uploads/web/` and accounts in `data/accounts/`; stop the service and back up the entire `data/` directory. Profiles are intended for the same machine and runtime environment; sessions are not guaranteed across operating systems.
+- Reset browser data clears site data while retaining the account ID, identity binding, seed, drafts, and images. Remove account deletes its browser data, downloads, managed images, and this browser's draft; neither operation is allowed during a task or sign-in. The compatibility `DELETE /api/v1/login/cookies` operation clears only the selected browser's Cookies.
+
+## Offline sign-in maintenance
+
+Stop the service using the same data root, then run this from the source directory, replacing `ACCOUNT_ID` with an ID from Accounts or `GET /api/v1/accounts`:
+
+```bash
+go run ./cmd/login -account ACCOUNT_ID
+```
+
+The CLI uses the service's `XHS_ACCOUNTS_DIR`, default directory rules, and process lock. Omit `-account` only when exactly one live account exists; zero or multiple accounts require an explicit selection. Sign-in uses a candidate profile and activates it only after verifying identity and shutting down the browser to flush data. Failure preserves the original profile.
 
 ## Troubleshooting
 

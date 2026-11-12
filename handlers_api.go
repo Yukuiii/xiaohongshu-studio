@@ -13,6 +13,13 @@ import (
 
 // respondError 返回错误响应
 func respondError(c *gin.Context, statusCode int, code, message string, details any) {
+	if err, ok := details.(error); ok {
+		if failure := accountFailure(err); failure != nil {
+			statusCode, code, message, details = failure.Status, failure.Code, failure.Message, nil
+		} else {
+			details = err.Error()
+		}
+	}
 	response := ErrorResponse{
 		Error:   message,
 		Code:    code,
@@ -45,10 +52,10 @@ func respondSuccess(c *gin.Context, data any, message string) {
 
 // checkLoginStatusHandler 检查登录状态
 func (s *AppServer) checkLoginStatusHandler(c *gin.Context) {
-	status, err := s.xiaohongshuService.CheckLoginStatus(c.Request.Context())
+	status, err := s.service(c).CheckLoginStatus(c.Request.Context())
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "STATUS_CHECK_FAILED",
-			"检查登录状态失败", err.Error())
+			"检查登录状态失败", err)
 		return
 	}
 
@@ -57,13 +64,17 @@ func (s *AppServer) checkLoginStatusHandler(c *gin.Context) {
 
 // deleteCookiesHandler 删除 cookies，重置登录状态
 func (s *AppServer) deleteCookiesHandler(c *gin.Context) {
-	err := s.xiaohongshuService.DeleteCookies(c.Request.Context())
+	err := s.service(c).DeleteCookies(c.Request.Context())
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "DELETE_COOKIES_FAILED",
-			"删除 cookies 失败", err.Error())
+			"删除 cookies 失败", err)
 		return
 	}
 
+	if r := requestAccount(c); r != nil {
+		respondSuccess(c, gin.H{"account_id": r.id}, "该账号的 Cookie 已清除，其他浏览器数据保留")
+		return
+	}
 	cookiePath := cookies.GetCookiesFilePath()
 	respondSuccess(c, map[string]interface{}{
 		"cookie_path": cookiePath,
@@ -76,14 +87,14 @@ func (s *AppServer) publishHandler(c *gin.Context) {
 	var req PublishRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-			"请求参数错误", err.Error())
+			"请求参数错误", err)
 		return
 	}
 
-	result, err := s.xiaohongshuService.PublishContent(c.Request.Context(), &req)
+	result, err := s.service(c).PublishContent(c.Request.Context(), &req)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "PUBLISH_FAILED",
-			"发布失败", err.Error())
+			"发布失败", err)
 		return
 	}
 
@@ -95,14 +106,14 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
 	var req PublishVideoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-			"请求参数错误", err.Error())
+			"请求参数错误", err)
 		return
 	}
 
-	result, err := s.xiaohongshuService.PublishVideo(c.Request.Context(), &req)
+	result, err := s.service(c).PublishVideo(c.Request.Context(), &req)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "PUBLISH_VIDEO_FAILED",
-			"视频发布失败", err.Error())
+			"视频发布失败", err)
 		return
 	}
 
@@ -111,10 +122,10 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
 
 // listFeedsHandler 获取Feeds列表
 func (s *AppServer) listFeedsHandler(c *gin.Context) {
-	result, err := s.xiaohongshuService.ListFeeds(c.Request.Context())
+	result, err := s.service(c).ListFeeds(c.Request.Context())
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "LIST_FEEDS_FAILED",
-			"获取Feeds列表失败", err.Error())
+			"获取Feeds列表失败", err)
 		return
 	}
 
@@ -132,7 +143,7 @@ func (s *AppServer) searchFeedsHandler(c *gin.Context) {
 		var searchReq SearchFeedsRequest
 		if err := c.ShouldBindJSON(&searchReq); err != nil {
 			respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-				"请求参数错误", err.Error())
+				"请求参数错误", err)
 			return
 		}
 		keyword = searchReq.Keyword
@@ -147,10 +158,10 @@ func (s *AppServer) searchFeedsHandler(c *gin.Context) {
 		return
 	}
 
-	result, err := s.xiaohongshuService.SearchFeeds(c.Request.Context(), keyword, filters)
+	result, err := s.service(c).SearchFeeds(c.Request.Context(), keyword, filters)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "SEARCH_FEEDS_FAILED",
-			"搜索Feeds失败", err.Error())
+			"搜索Feeds失败", err)
 		return
 	}
 
@@ -162,7 +173,7 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
 	var req FeedDetailRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-			"请求参数错误", err.Error())
+			"请求参数错误", err)
 		return
 	}
 
@@ -176,14 +187,14 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
 			MaxCommentItems:     req.CommentConfig.MaxCommentItems,
 			ScrollSpeed:         req.CommentConfig.ScrollSpeed,
 		}
-		result, err = s.xiaohongshuService.GetFeedDetailWithConfig(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments, config)
+		result, err = s.service(c).GetFeedDetailWithConfig(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments, config)
 	} else {
-		result, err = s.xiaohongshuService.GetFeedDetail(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments)
+		result, err = s.service(c).GetFeedDetail(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments)
 	}
 
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "GET_FEED_DETAIL_FAILED",
-			"获取Feed详情失败", err.Error())
+			"获取Feed详情失败", err)
 		return
 	}
 
@@ -195,14 +206,14 @@ func (s *AppServer) userProfileHandler(c *gin.Context) {
 	var req UserProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-			"请求参数错误", err.Error())
+			"请求参数错误", err)
 		return
 	}
 
-	result, err := s.xiaohongshuService.UserProfile(c.Request.Context(), req.UserID, req.XsecToken, req.Tab)
+	result, err := s.service(c).UserProfile(c.Request.Context(), req.UserID, req.XsecToken, req.Tab)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "GET_USER_PROFILE_FAILED",
-			"获取用户主页失败", err.Error())
+			"获取用户主页失败", err)
 		return
 	}
 
@@ -214,15 +225,15 @@ func (s *AppServer) postCommentHandler(c *gin.Context) {
 	var req PostCommentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-			"请求参数错误", err.Error())
+			"请求参数错误", err)
 		return
 	}
 
 	// 发表评论
-	result, err := s.xiaohongshuService.PostCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.Content)
+	result, err := s.service(c).PostCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.Content)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "POST_COMMENT_FAILED",
-			"发表评论失败", err.Error())
+			"发表评论失败", err)
 		return
 	}
 
@@ -234,14 +245,14 @@ func (s *AppServer) replyCommentHandler(c *gin.Context) {
 	var req ReplyCommentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-			"请求参数错误", err.Error())
+			"请求参数错误", err)
 		return
 	}
 
-	result, err := s.xiaohongshuService.ReplyCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.CommentID, req.UserID, req.Content)
+	result, err := s.service(c).ReplyCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.CommentID, req.UserID, req.Content)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "REPLY_COMMENT_FAILED",
-			"回复评论失败", err.Error())
+			"回复评论失败", err)
 		return
 	}
 
@@ -253,20 +264,20 @@ func (s *AppServer) likeFeedHandler(c *gin.Context) {
 	var req LikeFeedRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-			"请求参数错误", err.Error())
+			"请求参数错误", err)
 		return
 	}
 
 	var result *ActionResult
 	var err error
 	if req.Unlike {
-		result, err = s.xiaohongshuService.UnlikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+		result, err = s.service(c).UnlikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
 	} else {
-		result, err = s.xiaohongshuService.LikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+		result, err = s.service(c).LikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
 	}
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "LIKE_FEED_FAILED",
-			"点赞操作失败", err.Error())
+			"点赞操作失败", err)
 		return
 	}
 
@@ -278,20 +289,20 @@ func (s *AppServer) favoriteFeedHandler(c *gin.Context) {
 	var req FavoriteFeedRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-			"请求参数错误", err.Error())
+			"请求参数错误", err)
 		return
 	}
 
 	var result *ActionResult
 	var err error
 	if req.Unfavorite {
-		result, err = s.xiaohongshuService.UnfavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+		result, err = s.service(c).UnfavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
 	} else {
-		result, err = s.xiaohongshuService.FavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+		result, err = s.service(c).FavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
 	}
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "FAVORITE_FEED_FAILED",
-			"收藏操作失败", err.Error())
+			"收藏操作失败", err)
 		return
 	}
 
@@ -311,10 +322,10 @@ func healthHandler(c *gin.Context) {
 // myProfileHandler 我的信息
 func (s *AppServer) myProfileHandler(c *gin.Context) {
 	// 获取当前登录用户信息
-	result, err := s.xiaohongshuService.GetMyProfile(c.Request.Context(), c.Query("tab"))
+	result, err := s.service(c).GetMyProfile(c.Request.Context(), c.Query("tab"))
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "GET_MY_PROFILE_FAILED",
-			"获取我的主页失败", err.Error())
+			"获取我的主页失败", err)
 		return
 	}
 
@@ -323,10 +334,10 @@ func (s *AppServer) myProfileHandler(c *gin.Context) {
 
 // getUnreadCountHandler 获取通知未读数
 func (s *AppServer) getUnreadCountHandler(c *gin.Context) {
-	result, err := s.xiaohongshuService.GetUnreadCount(c.Request.Context())
+	result, err := s.service(c).GetUnreadCount(c.Request.Context())
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "GET_UNREAD_COUNT_FAILED",
-			"获取未读数失败", err.Error())
+			"获取未读数失败", err)
 		return
 	}
 
@@ -340,7 +351,7 @@ func (s *AppServer) listNotificationsHandler(c *gin.Context) {
 	if c.Request.Method == http.MethodPost {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-				"请求参数错误", err.Error())
+				"请求参数错误", err)
 			return
 		}
 	} else {
@@ -350,10 +361,10 @@ func (s *AppServer) listNotificationsHandler(c *gin.Context) {
 		}
 	}
 
-	result, err := s.xiaohongshuService.ListNotifications(c.Request.Context(), req.Tab, req.Limit)
+	result, err := s.service(c).ListNotifications(c.Request.Context(), req.Tab, req.Limit)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "LIST_NOTIFICATIONS_FAILED",
-			"获取通知列表失败", err.Error())
+			"获取通知列表失败", err)
 		return
 	}
 
@@ -365,14 +376,14 @@ func (s *AppServer) replyNotificationHandler(c *gin.Context) {
 	var req ReplyNotificationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-			"请求参数错误", err.Error())
+			"请求参数错误", err)
 		return
 	}
 
-	result, err := s.xiaohongshuService.ReplyNotification(c.Request.Context(), req.CommentID, req.Content)
+	result, err := s.service(c).ReplyNotification(c.Request.Context(), req.CommentID, req.Content)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "REPLY_NOTIFICATION_FAILED",
-			"回复通知失败", err.Error())
+			"回复通知失败", err)
 		return
 	}
 
@@ -384,14 +395,14 @@ func (s *AppServer) likeNotificationHandler(c *gin.Context) {
 	var req LikeNotificationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
-			"请求参数错误", err.Error())
+			"请求参数错误", err)
 		return
 	}
 
-	result, err := s.xiaohongshuService.LikeNotification(c.Request.Context(), req.CommentID, req.Unlike)
+	result, err := s.service(c).LikeNotification(c.Request.Context(), req.CommentID, req.Unlike)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "LIKE_NOTIFICATION_FAILED",
-			"点赞失败", err.Error())
+			"点赞失败", err)
 		return
 	}
 

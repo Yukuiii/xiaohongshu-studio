@@ -1,7 +1,12 @@
 import { Notice, Dialog } from "./components.jsx";
 import { parseTags, sourceURL, titleLength } from "./useWorkbench.js";
 
-export default function Workspace({ workbench: wb, account, openSettings }) {
+export default function Workspace({
+  workbench: wb,
+  account,
+  selectedAccount,
+  openSettings,
+}) {
   const { draft, busy, images, sources } = wb;
   const titleCount = titleLength(draft.title);
   const contentCount = Array.from(draft.content).length;
@@ -437,7 +442,12 @@ export default function Workspace({ workbench: wb, account, openSettings }) {
                 <span aria-hidden="true">‹</span>
                 <span className="avatar">薯</span>
                 <span id="preview-author">
-                  {account.loggedIn ? account.username : "你的创作账号"}
+                  {selectedAccount?.name}
+                  {account.loggedIn && account.username
+                    ? ` / ${account.username}`
+                    : selectedAccount?.nickname
+                      ? ` / ${selectedAccount.nickname}`
+                      : ""}
                 </span>
                 <span className="preview-follow">创作中</span>
               </div>
@@ -523,7 +533,9 @@ export default function Workspace({ workbench: wb, account, openSettings }) {
                 id="publish-open"
                 className="button primary publish-button"
                 disabled={busy}
-                onClick={() => wb.preparePublish(account.requireLogin)}
+                onClick={() =>
+                  wb.preparePublish(account.requireLogin, selectedAccount)
+                }
               >
                 {wb.operation === "publish-check" ? (
                   "正在检查账号…"
@@ -572,7 +584,10 @@ export default function Workspace({ workbench: wb, account, openSettings }) {
         </p>
         <dl className="publish-summary">
           <dt>发布账号</dt>
-          <dd id="confirm-account">{wb.confirmation?.username}</dd>
+          <dd id="confirm-account">
+            {wb.confirmation?.accountName} / {wb.confirmation?.username}（
+            {wb.confirmation?.userId}）
+          </dd>
           <dt>笔记标题</dt>
           <dd id="confirm-title">{wb.confirmation?.title}</dd>
           <dt>图片数量</dt>
@@ -605,7 +620,7 @@ export default function Workspace({ workbench: wb, account, openSettings }) {
             id="publish-confirm"
             className="button primary"
             disabled={busy || !wb.publishAgreed}
-            onClick={wb.confirmPublish}
+            onClick={() => wb.confirmPublish(account.requireLogin)}
           >
             {wb.operation === "publish-confirm"
               ? "正在发布，请勿关闭…"

@@ -160,7 +160,7 @@ func (s *AppServer) aiImageHandler(c *gin.Context) {
 		respondAIError(c, err)
 		return
 	}
-	image, err := saveWorkbenchImage(data, "AI 配图")
+	image, err := saveAccountImage(data, "AI 配图", requestAccountID(c))
 	if err != nil {
 		respondAIError(c, err)
 		return
