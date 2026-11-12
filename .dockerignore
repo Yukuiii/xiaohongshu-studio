@@ -21,3 +21,5 @@ docker/**
 
 cookies.json
 **/.xhs-accounts
+**/.xhs-settings.json
+**/.xhs-settings-*.tmp

@@ -130,7 +130,8 @@ COPY --from=builder /out/xiaohongshu-studio .
 
 ENV HOME=/app/data/home
 ENV XDG_CONFIG_HOME=/app/data/config
-ENV XHS_ACCOUNTS_DIR=/app/data/accounts COOKIES_PATH=/app/data/cookies.json
+ENV XHS_ACCOUNTS_DIR=/app/data/accounts COOKIES_PATH=/app/data/cookies.json \
+    XHS_SETTINGS_PATH=/app/data/settings.json
 ENV DISPLAY=:99 LANG=C.UTF-8 \
     XMODIFIERS=@im=fcitx GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx \
     XHS_DESKTOP_URL=http://127.0.0.1:6080

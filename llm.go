@@ -17,7 +17,7 @@ import (
 
 // OpenAI 兼容接口的轻量客户端。只依赖 base_url + api_key + model 三件套，
 // DeepSeek / Kimi / Qwen / GLM / OpenAI 等主流服务都适配同一套协议。
-// 配置由前端每次请求传入，服务端不保存。
+// 配置可由服务端保存，也兼容每次请求显式传入。
 
 // LLMConfig 一次模型调用所需的配置。
 type LLMConfig struct {

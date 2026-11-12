@@ -12,6 +12,7 @@
 | 公开入口 | 工作台首页、HTTP API Bearer 鉴权；`/desktop/<session-id>/vnc.html` 与同会话 WebSocket 拒绝无 ticket、跨站和缺失 Origin 请求 |
 | 账号隔离 | 请求账号绑定、Cookie/seed/profile 与图片归属；旧 ticket/连接不能跟随新账号登录会话 |
 | profile 持久化 | 本地 fixture 验证 Cookie、localStorage、IndexedDB 重启恢复，候选登录提交/回滚及 session Cookie 不重放旧页面 |
+| 模型配置 | 服务端文件持久化、0600 权限、响应不返回密钥，同一数据卷重建容器后恢复 |
 | 发布防重 | 浏览器 Web Locks 协调同账号多标签页，旧草稿保存不覆盖更新后的发布保护；发布回应用本地替身 |
 | 内部桌面 | 容器内 noVNC 页面、真实 WebSocket/RFB 握手；ExpectOrigin 拒绝非 Go 上游 Origin 和缺失 Origin |
 | 进程恢复 | 组件提前退出、应用退出码、正常重启及 SIGKILL 后显示锁恢复；TERM 时等待应用完成保存，再关闭 Xvfb 和 DBus |

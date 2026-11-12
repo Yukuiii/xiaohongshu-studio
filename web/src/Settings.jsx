@@ -1,6 +1,11 @@
-import { Notice } from "./components.jsx";
+import { useEffect, useState } from "react";
+import { Dialog, Notice } from "./components.jsx";
 
-export default function Settings({ workbench: wb }) {
+export default function Settings({ workbench: wb, active = true }) {
+  const [confirmClear, setConfirmClear] = useState(false);
+  useEffect(() => {
+    if (!active) setConfirmClear(false);
+  }, [active]);
   return (
     <>
       <header className="intro">
@@ -9,7 +14,7 @@ export default function Settings({ workbench: wb }) {
           <h1 id="settings-title" tabIndex={-1}>
             设置
           </h1>
-          <p className="muted">连接模型服务，管理当前浏览器的创作配置。</p>
+          <p className="muted">连接模型服务，管理工作台共用的模型配置。</p>
         </div>
       </header>
       <form
@@ -24,11 +29,13 @@ export default function Settings({ workbench: wb }) {
           <h2>模型与访问设置</h2>
         </div>
         <p className="muted settings-description">
-          配置仅保存在当前浏览器。API Key
-          会保存在浏览器本地存储中，请勿在共用设备保存；服务端不保存模型配置。
+          模型配置保存在服务端，所有账号共用。Docker
+          部署会保存到数据卷，换浏览器或重建容器后可继续使用。已保存的 API Key
+          不会返回浏览器。
         </p>
+        {wb.settingsLoading && <p role="status">正在读取服务端模型配置…</p>}
         {["text", "image"].map((kind) => (
-          <fieldset key={kind}>
+          <fieldset key={kind} disabled={wb.busy || wb.settingsLoading}>
             <legend>
               {kind === "text" ? (
                 <>
@@ -64,9 +71,18 @@ export default function Settings({ workbench: wb }) {
               onChange={(event) =>
                 wb.changeSetting(kind, "api_key", event.target.value)
               }
-              placeholder={`填写${kind === "text" ? "文字" : "生图"}模型的密钥`}
+              placeholder={
+                wb.settingsForm[kind].has_api_key
+                  ? "服务端已保存，留空保留原密钥"
+                  : `填写${kind === "text" ? "文字" : "生图"}模型的密钥`
+              }
               disabled={wb.busy}
             />
+            {wb.settingsForm[kind].has_api_key && (
+              <p className="helper">
+                同一接口可沿用已保存的密钥；更换接口地址时请填写新的 API Key。
+              </p>
+            )}
             <label htmlFor={`${kind}-model`}>模型名称</label>
             <div className="input-action">
               <input
@@ -122,16 +138,51 @@ export default function Settings({ workbench: wb }) {
             type="button"
             id="clear-settings"
             className="button quiet"
-            onClick={wb.clearSettings}
-            disabled={wb.busy}
+            onClick={() => setConfirmClear(true)}
+            disabled={wb.busy || wb.settingsLoading || !wb.settingsReady}
           >
-            清除已存配置
+            清空模型配置
           </button>
           <button type="submit" className="button primary" disabled={wb.busy}>
             保存设置
           </button>
         </div>
       </form>
+      <Dialog
+        open={active && confirmClear}
+        onClose={() => setConfirmClear(false)}
+        busy={wb.busy}
+        id="clear-model-settings"
+        title="清空服务端模型配置？"
+      >
+        <p className="muted">
+          将删除文字和生图模型的地址、名称及 API
+          Key，所有使用此工作台的浏览器都会受到影响。账号、草稿和本浏览器的服务访问令牌会保留。
+        </p>
+        <Notice
+          notice={wb.settingsStatus.type === "error" ? wb.settingsStatus : null}
+        />
+        <div className="dialog-actions">
+          <button
+            type="button"
+            className="button"
+            disabled={wb.busy}
+            onClick={() => setConfirmClear(false)}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="button primary"
+            disabled={wb.busy}
+            onClick={async () => {
+              if (await wb.clearSettings()) setConfirmClear(false);
+            }}
+          >
+            确认清空
+          </button>
+        </div>
+      </Dialog>
     </>
   );
 }

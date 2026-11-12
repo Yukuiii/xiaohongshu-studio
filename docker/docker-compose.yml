@@ -32,6 +32,7 @@ services:
     environment:
       - COOKIES_PATH=/app/data/cookies.json
       - XHS_ACCOUNTS_DIR=/app/data/accounts
+      - XHS_SETTINGS_PATH=/app/data/settings.json
       - HOME=/app/data/home
       - XDG_CONFIG_HOME=/app/data/config
       - AUTH_TOKEN=${AUTH_TOKEN:-}

@@ -36,6 +36,9 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 
 	// API 路由组
 	api := protected.Group("/api/v1")
+	api.GET("/settings", appServer.getSettingsHandler)
+	api.PUT("/settings", appServer.putSettingsHandler)
+	api.DELETE("/settings", appServer.deleteSettingsHandler)
 	api.GET("/accounts", appServer.listAccountsHandler)
 	api.POST("/accounts", appServer.createAccountHandler)
 	api.PATCH("/accounts/:id", appServer.renameAccountHandler)

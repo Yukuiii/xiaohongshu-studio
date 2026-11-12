@@ -29,6 +29,10 @@ func main() {
 	}
 
 	logrus.Infof("xiaohongshu-studio version: %s", version)
+	settings, err := openSettingsStore(defaultSettingsPath())
+	if err != nil {
+		logrus.Fatalf("无法初始化模型配置存储: %v", err)
+	}
 
 	// 只用内置浏览器。启动时就备好，缺它直接退出，不拖到第一个请求才失败。
 	binPath, err := browser.EnsureBrowser()
@@ -51,6 +55,7 @@ func main() {
 
 	// 账号选择按请求绑定，浏览器和 profile 由管理器持有。
 	appServer := NewAccountAppServer(manager, token)
+	appServer.settings = settings
 	if err := appServer.Start(port); err != nil {
 		logrus.Fatalf("failed to run server: %v", err)
 	}

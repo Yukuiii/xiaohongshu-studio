@@ -23,7 +23,34 @@ const ok = (data) => ({
 });
 
 function service(accounts = [A, B], mode = "native") {
+  let settings = {
+    initialized: true,
+    text: { base_url: "", model: "", has_api_key: false },
+    image: { base_url: "", model: "", has_api_key: false },
+  };
   const fetch = vi.fn(async (url, options) => {
+    if (url === "/api/v1/settings") {
+      if (options.method === "PUT") {
+        const body = JSON.parse(options.body);
+        settings = {
+          initialized: true,
+          ...Object.fromEntries(
+            ["text", "image"].map((kind) => [
+              kind,
+              {
+                base_url: body[kind].base_url,
+                model: body[kind].model,
+                has_api_key:
+                  body[kind].api_key === undefined
+                    ? settings[kind].has_api_key
+                    : Boolean(body[kind].api_key),
+              },
+            ]),
+          ),
+        };
+      }
+      return ok(settings);
+    }
     if (url === "/api/v1/accounts" && options.method === "POST")
       return ok({ account: { id: "C", name: "新账号" } });
     if (url === "/api/v1/accounts")
@@ -181,9 +208,8 @@ describe("账号选择界面", () => {
       const dialog = await screen.findByRole("dialog", {
         name: "扫码登录 · 账号A",
       });
-      const frame = await within(dialog).findByTitle(
-        "小红书登录和账号安全验证浏览器",
-      );
+      const frame =
+        await within(dialog).findByTitle("小红书登录和账号安全验证浏览器");
       expect(dialog).toHaveAttribute("open");
       expect(frame.closest("dialog")).toBe(dialog);
       expect(
@@ -241,13 +267,10 @@ describe("账号选择界面", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "扫码登录 · 账号A",
     });
-    const frame = await within(dialog).findByTitle(
-      "小红书登录和账号安全验证浏览器",
-    );
+    const frame =
+      await within(dialog).findByTitle("小红书登录和账号安全验证浏览器");
     const original = new URL(frame.getAttribute("src"), location.origin);
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "原始大小" }),
-    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "原始大小" }));
     const unscaled = new URL(frame.getAttribute("src"), location.origin);
     expect(unscaled.searchParams.get("resize")).toBe("off");
     expect(unscaled.pathname).toBe(original.pathname);
@@ -257,9 +280,7 @@ describe("账号选择界面", () => {
     expect(
       within(dialog).getByRole("link", { name: "在新窗口查看" }),
     ).toHaveAttribute("href", `${unscaled.pathname}${unscaled.search}`);
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: "适应窗口" }),
-    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "适应窗口" }));
     expect(frame).toHaveAttribute(
       "src",
       `${original.pathname}${original.search}`,
@@ -309,9 +330,7 @@ describe("账号选择界面", () => {
     fireEvent.click(
       within(dialog).getByRole("button", { name: "检查登录状态" }),
     );
-    expect(
-      await within(dialog).findByText(/暂时无法检查登录/),
-    ).toBeVisible();
+    expect(await within(dialog).findByText(/暂时无法检查登录/)).toBeVisible();
     status = "logged_in";
     fireEvent.click(
       within(dialog).getByRole("button", { name: "检查登录状态" }),
@@ -322,9 +341,7 @@ describe("账号选择界面", () => {
       ).not.toBeInTheDocument(),
     );
     expect(screen.getByText(/小红书登录成功，登录信息已保存/)).toBeVisible();
-    fireEvent.click(
-      within(row).getByRole("button", { name: "刷新状态" }),
-    );
+    fireEvent.click(within(row).getByRole("button", { name: "刷新状态" }));
     await waitFor(() =>
       expect(
         screen.queryByText(/小红书登录成功，登录信息已保存/),
@@ -338,7 +355,12 @@ describe("账号选择界面", () => {
       resolveOld = resolve;
     });
     const fetch = service([B]);
-    fetch.mockImplementationOnce(() => old);
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((url, options) =>
+      url === "/api/v1/accounts" && !options.headers.Authorization
+        ? old
+        : original(url, options),
+    );
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
     await screen.findByRole("heading", { name: "设置", level: 1 });
@@ -361,6 +383,50 @@ describe("账号选择界面", () => {
     );
     expect(requests[0][1].signal.aborted).toBe(true);
     expect(requests[1][1].headers.Authorization).toBe("Bearer new-token");
+  });
+
+  it("清空模型配置先确认共享范围，确认后调用全局接口并保留访问令牌", async () => {
+    history.replaceState(null, "", "/web/#settings");
+    localStorage.setItem("hongshu-workbench.token.v1", "service-token");
+    const fetch = service([A]);
+    render(<App />);
+    const clear = await screen.findByRole("button", { name: "清空模型配置" });
+    await waitFor(() => expect(clear).toBeEnabled());
+    fireEvent.click(clear);
+    let dialog = await screen.findByRole("dialog", {
+      name: "清空服务端模型配置？",
+    });
+    expect(
+      within(dialog).getByText(/所有使用此工作台的浏览器都会受到影响/),
+    ).toBeVisible();
+    expect(
+      fetch.mock.calls.some(([, options]) => options.method === "DELETE"),
+    ).toBe(false);
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "取消", exact: true }),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "清空服务端模型配置？" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(clear);
+    dialog = await screen.findByRole("dialog", {
+      name: "清空服务端模型配置？",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认清空" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "清空服务端模型配置？" }),
+      ).not.toBeInTheDocument(),
+    );
+    const request = fetch.mock.calls.find(
+      ([path, options]) =>
+        path === "/api/v1/settings" && options.method === "DELETE",
+    );
+    expect(request[1].headers.Authorization).toBe("Bearer service-token");
+    expect(request[1].headers).not.toHaveProperty("X-XHS-Account-ID");
+    expect(localStorage.getItem("hongshu-workbench.token.v1")).toBe(
+      "service-token",
+    );
   });
 
   it("重置和移除先说明范围并确认，删除当前账号后不自动选择其他账号", async () => {

@@ -21,11 +21,12 @@ function protectionPatch(protection, value) {
 }
 
 const SETTINGS_KEY = "hongshu-workbench.settings.v1";
+const TOKEN_KEY = "hongshu-workbench.token.v1";
 const DRAFT_KEY = "hongshu-workbench.draft.v1";
-const emptySettings = () => ({
-  text: { base_url: "", api_key: "", model: "" },
-  image: { base_url: "", api_key: "", model: "" },
-  token: "",
+const emptySettings = (token = "") => ({
+  text: { base_url: "", api_key: "", model: "", has_api_key: false },
+  image: { base_url: "", api_key: "", model: "", has_api_key: false },
+  token,
 });
 const emptyDraft = () => ({
   topic: "",
@@ -77,11 +78,54 @@ function validImage(image) {
 }
 
 function safeConfig(value) {
+  return {
+    ...Object.fromEntries(
+      ["base_url", "api_key", "model"].map((key) => [
+        key,
+        typeof value?.[key] === "string" ? value[key] : "",
+      ]),
+    ),
+    has_api_key: value?.has_api_key === true,
+  };
+}
+
+function trimmedConfig(value) {
+  const config = safeConfig(value);
+  return {
+    ...config,
+    base_url: config.base_url.trim(),
+    api_key: config.api_key.trim(),
+    model: config.model.trim(),
+  };
+}
+
+function serverSettings(data, token) {
+  if (typeof data?.initialized !== "boolean")
+    throw new Error("服务端模型配置响应无效，请检查服务版本。");
+  return {
+    text: safeConfig({ ...data.text, api_key: "" }),
+    image: safeConfig({ ...data.image, api_key: "" }),
+    token,
+  };
+}
+
+function settingsBody(settings) {
   return Object.fromEntries(
-    ["base_url", "api_key", "model"].map((key) => [
-      key,
-      typeof value?.[key] === "string" ? value[key] : "",
-    ]),
+    ["text", "image"].map((kind) => {
+      const config = trimmedConfig(settings[kind]);
+      return [
+        kind,
+        {
+          base_url: config.base_url,
+          model: config.model,
+          ...(!config.has_api_key ||
+          config.api_key ||
+          (!config.base_url && !config.model)
+            ? { api_key: config.api_key }
+            : {}),
+        },
+      ];
+    }),
   );
 }
 
@@ -97,15 +141,19 @@ function initialState(saved = null) {
     }
   }
   const savedSettings = load(SETTINGS_KEY);
-  const settings =
-    savedSettings && typeof savedSettings === "object"
-      ? {
-          text: safeConfig(savedSettings.text),
-          image: safeConfig(savedSettings.image),
-          token:
-            typeof savedSettings.token === "string" ? savedSettings.token : "",
-        }
-      : emptySettings();
+  let token =
+    typeof savedSettings?.token === "string" ? savedSettings.token : "";
+  try {
+    token = localStorage.getItem(TOKEN_KEY) ?? token;
+  } catch {
+    available = false;
+  }
+  const settings = emptySettings(token);
+  const settingsForm = {
+    text: safeConfig(savedSettings?.text),
+    image: safeConfig(savedSettings?.image),
+    token,
+  };
   const draft = emptyDraft();
   for (const key of Object.keys(draft))
     if (typeof saved?.[key] === "string") draft[key] = saved[key];
@@ -113,7 +161,9 @@ function initialState(saved = null) {
     draft.visibility = "公开可见";
   return {
     settings,
-    settingsForm: structuredClone(settings),
+    settingsForm,
+    settingsLoading: true,
+    settingsReady: false,
     draft,
     sources: Array.isArray(saved?.sources)
       ? saved.sources
@@ -193,7 +243,7 @@ function validateConfig(config, name, requireModel = true) {
     throw new Error(
       `${name}接口地址不能包含查询参数或片段，请填写基础接口地址。`,
     );
-  if (!config.api_key.trim())
+  if (!config.api_key.trim() && !config.has_api_key)
     throw new Error(`请在左侧「设置」中填写${name}的 API Key。`);
   if (requireModel && !config.model)
     throw new Error(`请在左侧「设置」中填写${name}的模型名称。`);
@@ -202,6 +252,10 @@ function validateConfig(config, name, requireModel = true) {
 export function useWorkbench() {
   const [state, setState] = useState(initialState);
   const current = useRef(state);
+  const settingsRequest = useRef(null);
+  const loadedSettingsToken = useRef(null);
+  const legacySettings = useRef(state.settingsForm);
+  const settingsDirty = useRef({ text: false, image: false });
   const researchController = useRef(null);
   const objectURLs = useRef(new Map());
   const firstSave = useRef(true);
@@ -223,6 +277,38 @@ export function useWorkbench() {
       () => current.current.settings,
       () => current.current.settingsForm,
     ),
+  );
+  const fetchModelSettings = useCallback(
+    async (token, signal, migrate = true) => {
+      let data = await api("/settings", { token, signal });
+      signal.throwIfAborted();
+      serverSettings(data, token);
+      const legacy = legacySettings.current;
+      const hasLegacy =
+        legacy &&
+        ["text", "image"].some((kind) =>
+          ["base_url", "api_key", "model"].some((key) => legacy[kind][key]),
+        );
+      if (migrate && !data.initialized && hasLegacy) {
+        try {
+          data = await api("/settings", {
+            method: "PUT",
+            token,
+            signal,
+            body: {
+              ...settingsBody(legacy),
+              only_if_uninitialized: true,
+            },
+          });
+        } catch (error) {
+          if (error.code !== "SETTINGS_ALREADY_INITIALIZED") throw error;
+          data = await api("/settings", { token, signal });
+        }
+        signal.throwIfAborted();
+      }
+      return data;
+    },
+    [api],
   );
   const errorMessage = (error) =>
     redact(
@@ -336,6 +422,8 @@ export function useWorkbench() {
         ...(protection ? protectionPatch(protection, restored) : {}),
         settings: current.current.settings,
         settingsForm: current.current.settingsForm,
+        settingsLoading: current.current.settingsLoading,
+        settingsReady: current.current.settingsReady,
         settingsStatus: current.current.settingsStatus,
         models: current.current.models,
         accountId,
@@ -347,6 +435,95 @@ export function useWorkbench() {
     },
     [saveDraft, update],
   );
+
+  const applyModelSettings = useCallback(
+    (data, token, preserveEdits = false) => {
+      const settings = serverSettings(data, token);
+      let settingsForm = structuredClone(settings);
+      if (preserveEdits) {
+        settingsForm.token = current.current.settingsForm.token;
+        for (const kind of ["text", "image"])
+          if (settingsDirty.current[kind])
+            settingsForm[kind] = {
+              ...current.current.settingsForm[kind],
+              has_api_key: settings[kind].has_api_key,
+            };
+      }
+      loadedSettingsToken.current = token;
+      legacySettings.current = null;
+      update({
+        settings,
+        settingsForm,
+        settingsReady: true,
+        settingsLoading: false,
+      });
+      if (!preserveEdits) settingsDirty.current = { text: false, image: false };
+      try {
+        localStorage.removeItem(SETTINGS_KEY);
+        localStorage.setItem(TOKEN_KEY, token);
+        return true;
+      } catch {
+        storageFailure();
+        return false;
+      }
+    },
+    [storageFailure, update],
+  );
+
+  useEffect(() => {
+    const token = state.settings.token;
+    if (loadedSettingsToken.current === token && current.current.settingsReady)
+      return;
+    const controller = new AbortController();
+    settingsRequest.current?.abort();
+    settingsRequest.current = controller;
+    update({ settingsLoading: true, settingsReady: false });
+    (async () => {
+      try {
+        const data = await fetchModelSettings(token, controller.signal);
+        if (settingsRequest.current !== controller || controller.signal.aborted)
+          return;
+        const localSaved = applyModelSettings(data, token, true);
+        update({
+          settingsStatus: localSaved
+            ? emptyNotice()
+            : {
+                message: "模型配置已从服务端读取，但浏览器本地凭证未能更新。",
+                type: "warning",
+              },
+        });
+      } catch (error) {
+        if (settingsRequest.current !== controller || controller.signal.aborted)
+          return;
+        update({
+          settingsLoading: false,
+          settingsReady: false,
+          settingsStatus: {
+            message: redact(
+              error.message,
+              current.current.settings,
+              current.current.settingsForm,
+            ),
+            type: "error",
+          },
+        });
+      } finally {
+        if (settingsRequest.current === controller)
+          settingsRequest.current = null;
+      }
+    })();
+    return () => {
+      controller.abort();
+      if (settingsRequest.current === controller)
+        settingsRequest.current = null;
+    };
+  }, [
+    api,
+    state.settings.token,
+    update,
+    fetchModelSettings,
+    applyModelSettings,
+  ]);
 
   const isCurrent = (scope) => scope === context.current;
   function ensureCurrent(scope) {
@@ -416,6 +593,8 @@ export function useWorkbench() {
       window.removeEventListener("pagehide", flush);
       clearTimeout(saveTimer.current);
       controllers.current.forEach((controller) => controller.abort());
+      settingsRequest.current?.abort();
+      settingsRequest.current = null;
       window.removeEventListener("beforeunload", beforeUnload);
       researchController.current?.abort();
       for (const url of objectURLs.current.values()) URL.revokeObjectURL(url);
@@ -845,102 +1024,139 @@ export function useWorkbench() {
 
   function changeSetting(kind, key, value) {
     if (current.current.busy) return;
+    if (kind !== "token") settingsDirty.current[kind] = true;
     update(({ settingsForm }) => ({
       settingsForm:
         kind === "token"
           ? { ...settingsForm, token: value }
           : {
               ...settingsForm,
-              [kind]: { ...settingsForm[kind], [key]: value },
+              [kind]: {
+                ...settingsForm[kind],
+                [key]: value,
+                ...(key === "base_url" && value !== settingsForm[kind].base_url
+                  ? { api_key: "" }
+                  : {}),
+              },
             },
     }));
   }
 
   async function saveSettings() {
-    if (current.current.busy) return;
+    if (current.current.busy) return false;
+    const controller = new AbortController();
+    settingsRequest.current?.abort();
+    settingsRequest.current = controller;
+    const dirtyKinds = { ...settingsDirty.current };
+    const dirty = dirtyKinds.text || dirtyKinds.image;
+    const form = current.current.settingsForm;
+    let next = {
+      text: trimmedConfig(form.text),
+      image: trimmedConfig(form.image),
+      token: form.token.trim(),
+    };
+    const tokenChanged = next.token !== current.current.settings.token;
+    update({ busy: true, operation: "save-settings", settingsLoading: true });
+    let saved = false;
     try {
-      const form = current.current.settingsForm;
-      const next = {
-        text: Object.fromEntries(
-          Object.entries(form.text).map(([key, value]) => [key, value.trim()]),
-        ),
-        image: Object.fromEntries(
-          Object.entries(form.image).map(([key, value]) => [key, value.trim()]),
-        ),
-        token: form.token.trim(),
-      };
-      for (const kind of ["text", "image"])
-        if (Object.values(next[kind]).some(Boolean))
-          validateConfig(next[kind], kind === "text" ? "文字模型" : "生图模型");
-      const tokenChanged = next.token !== current.current.settings.token;
       if (tokenChanged && !saveDraft())
         throw new Error("草稿保存失败，服务令牌未切换，请复制重要内容后重试。");
-      update({ settings: next, settingsForm: structuredClone(next) });
-      if (tokenChanged) activateAccount(null, null, { force: true });
-      let saved = true;
-      try {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
-      } catch {
-        saved = false;
-        storageFailure();
+      let data = await fetchModelSettings(
+        next.token,
+        controller.signal,
+        !dirty,
+      );
+      const stored = serverSettings(data, next.token);
+      for (const kind of ["text", "image"]) {
+        if (data.initialized && !dirtyKinds[kind]) next[kind] = stored[kind];
+        else next[kind].has_api_key = stored[kind].has_api_key;
       }
+      for (const kind of ["text", "image"])
+        if (["base_url", "api_key", "model"].some((key) => next[kind][key]))
+          validateConfig(next[kind], kind === "text" ? "文字模型" : "生图模型");
+      if (dirty)
+        data = await api("/settings", {
+          method: "PUT",
+          token: next.token,
+          signal: controller.signal,
+          body: settingsBody(next),
+        });
+      controller.signal.throwIfAborted();
+      if (settingsRequest.current !== controller) return false;
+      const localSaved = applyModelSettings(data, next.token);
+      if (tokenChanged) activateAccount(null, null, { force: true });
       notice(
-        saved
-          ? "设置已保存，可前往账号页连接小红书，或返回工作台继续创作。"
-          : "设置已应用于本次使用，但浏览器未能保存。",
-        saved ? "" : "warning",
+        localSaved
+          ? data.initialized
+            ? "模型配置已保存到服务端，重建容器后可继续使用。"
+            : "访问令牌已保存，模型配置尚未设置。"
+          : "服务端模型设置已应用，但浏览器本地凭证未能更新。",
+        localSaved ? "" : "warning",
         "settingsStatus",
       );
-      if (current.current.images.length)
-        await run(
-          "refresh-images",
-          "正在读取已保存的配图…",
-          async (scope, signal) => {
-            const loaded = await loadImages(
-              current.current.images,
-              scope,
-              signal,
-              "settingsStatus",
-            );
-            ensureCurrent(scope);
-            if (loaded.every((image) => !image.error))
-              notice("设置已应用，所有配图已成功读取。", "", "settingsStatus");
-          },
-          "settingsStatus",
-        );
+      saved = true;
     } catch (error) {
-      notice(errorMessage(error), "error", "settingsStatus");
+      if (settingsRequest.current === controller && !controller.signal.aborted)
+        notice(errorMessage(error), "error", "settingsStatus");
+    } finally {
+      if (settingsRequest.current === controller) {
+        settingsRequest.current = null;
+        update({ busy: false, operation: "", settingsLoading: false });
+      }
     }
+    if (saved && current.current.images.length)
+      await run(
+        "refresh-images",
+        "正在读取已保存的配图…",
+        async (scope, signal) => {
+          const loaded = await loadImages(
+            current.current.images,
+            scope,
+            signal,
+            "settingsStatus",
+          );
+          ensureCurrent(scope);
+          if (loaded.every((image) => !image.error))
+            notice("设置已应用，所有配图已成功读取。", "", "settingsStatus");
+        },
+        "settingsStatus",
+      );
+    return saved;
   }
 
-  function clearSettings() {
-    if (current.current.busy) return;
-    const settings = emptySettings();
-    const tokenChanged = Boolean(current.current.settings.token);
-    if (tokenChanged && !saveDraft()) {
-      notice("草稿保存失败，配置尚未清除。", "error", "settingsStatus");
-      return;
-    }
-    update({
-      settings,
-      settingsForm: structuredClone(settings),
-      models: { text: [], image: [] },
-    });
-    if (tokenChanged) activateAccount(null, null, { force: true });
-    let removed = true;
+  async function clearSettings() {
+    if (current.current.busy) return false;
+    const controller = new AbortController();
+    settingsRequest.current?.abort();
+    settingsRequest.current = controller;
+    update({ busy: true, operation: "clear-settings", settingsLoading: true });
     try {
-      localStorage.removeItem(SETTINGS_KEY);
-    } catch {
-      removed = false;
-      storageFailure();
+      const token = current.current.settings.token;
+      const data = await api("/settings", {
+        method: "DELETE",
+        token,
+        signal: controller.signal,
+      });
+      controller.signal.throwIfAborted();
+      if (settingsRequest.current !== controller) return false;
+      applyModelSettings(data, token);
+      update({ models: { text: [], image: [] } });
+      notice(
+        "已清空服务端模型配置，账号、草稿和服务访问令牌已保留。",
+        "",
+        "settingsStatus",
+      );
+      return true;
+    } catch (error) {
+      if (settingsRequest.current === controller && !controller.signal.aborted)
+        notice(errorMessage(error), "error", "settingsStatus");
+      return false;
+    } finally {
+      if (settingsRequest.current === controller) {
+        settingsRequest.current = null;
+        update({ busy: false, operation: "", settingsLoading: false });
+      }
     }
-    notice(
-      removed
-        ? "已清除当前配置与浏览器保存的凭证；草稿已保留。"
-        : "本次配置已清空，但无法删除浏览器中保存的凭证。请在浏览器设置中清除此站点的数据。",
-      removed ? "" : "warning",
-      "settingsStatus",
-    );
   }
 
   async function readModels(kind) {
@@ -948,11 +1164,7 @@ export function useWorkbench() {
       `${kind}-models`,
       "正在读取模型列表…",
       async (scope, signal) => {
-        const config = Object.fromEntries(
-          Object.entries(current.current.settingsForm[kind]).map(
-            ([key, value]) => [key, value.trim()],
-          ),
-        );
+        const config = trimmedConfig(current.current.settingsForm[kind]);
         validateConfig(
           config,
           kind === "text" ? "文字模型" : "生图模型",
@@ -961,7 +1173,7 @@ export function useWorkbench() {
         const data = await api("/ai/models", {
           method: "POST",
           signal,
-          body: { config },
+          body: { kind, config },
           token: current.current.settingsForm.token.trim(),
         });
         ensureCurrent(scope);

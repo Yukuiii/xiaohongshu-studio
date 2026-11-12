@@ -37,7 +37,10 @@ export function createAPI(getSettings, getFormSettings = getSettings) {
   ) {
     const headers = {};
     if (token) headers.Authorization = `Bearer ${token}`;
-    const shared = /^\/accounts(?:\/|$)/.test(path) || path === "/ai/models";
+    const shared =
+      /^\/accounts(?:\/|$)/.test(path) ||
+      path === "/ai/models" ||
+      path === "/settings";
     if (!shared && accountId) headers["X-XHS-Account-ID"] = accountId;
     if (body && !(body instanceof FormData))
       headers["Content-Type"] = "application/json";

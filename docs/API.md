@@ -70,6 +70,7 @@ curl http://localhost:18060/api/v1/login/status \
 | 方法 | 端点 | 描述 |
 |------|------|------|
 | GET | `/health` | 健康检查 |
+| GET/PUT/DELETE | `/api/v1/settings` | 读取、保存或清空全局模型配置 |
 | GET/POST | `/api/v1/accounts` | 列出或创建账号 |
 | PATCH/DELETE | `/api/v1/accounts/:id` | 修改备注名或移除账号 |
 | POST | `/api/v1/accounts/:id/reset-profile` | 重置所选账号的完整浏览器数据 |
@@ -978,11 +979,42 @@ Content-Type: application/json
 
 ### 8. Web 创作台
 
-页面依次调用已有的搜索和笔记详情接口获取素材，再调用写稿接口。所有新接口沿用服务 Bearer Token；`config.api_key` 是模型服务商密钥，两者不可混用。服务端不持久化模型配置。
+页面依次调用已有的搜索和笔记详情接口获取素材，再调用写稿接口。所有新接口沿用服务 Bearer Token；模型服务商的 API Key 与工作台访问令牌分开配置。模型配置保存在服务端文件，Docker 默认使用 `/app/data/settings.json`，原生默认使用旧 Cookie 文件同目录的 `.xhs-settings.json`；可通过 `XHS_SETTINGS_PATH` 指定文件。
 
 #### 8.1 模型配置与列表
 
-模型调用共用以下配置：
+`GET /api/v1/settings`、`PUT /api/v1/settings` 和 `DELETE /api/v1/settings` 管理工作台共用的模型配置，沿用服务鉴权与同源保护，不需要 `X-XHS-Account-ID`。
+
+读取与保存成功时，`data` 只返回公开配置和密钥是否已保存：
+
+```json
+{
+  "initialized": true,
+  "text": {"base_url": "https://api.openai.com/v1", "model": "your-text-model", "has_api_key": true},
+  "image": {"base_url": "", "model": "", "has_api_key": false}
+}
+```
+
+保存请求示例：
+
+```http
+PUT /api/v1/settings
+Content-Type: application/json
+```
+
+```json
+{
+  "text": {"base_url": "https://api.openai.com/v1", "model": "your-text-model", "api_key": "your-model-api-key"},
+  "image": {"base_url": "", "model": "", "api_key": ""}
+}
+```
+
+- 省略 `api_key` 时仅保留同一规范化接口地址的原密钥；更换接口地址需要同时提供新密钥。
+- 配置某一类模型时需完整填写地址、模型名和密钥；禁用该类模型时将三个字段都置空。`DELETE` 清空文字和生图配置，返回已初始化的空配置。
+- `only_if_uninitialized: true` 可用于旧浏览器首次迁移；已有配置时返回 `409 SETTINGS_ALREADY_INITIALIZED`。清空操作保留初始化标记，旧浏览器不能再次导入。
+- 模型 API Key 不从读取、保存或清空响应返回；服务访问令牌不写入此文件。配置文件使用 `0600` 权限和原子替换保存。
+
+写稿、生图请求省略 `config` 时，分别使用服务端的文字、生图配置；也继续兼容每次显式传入完整配置：
 
 ```json
 {
@@ -996,7 +1028,7 @@ Content-Type: application/json
 
 `base_url` 必须是 HTTP/HTTPS 地址，不得含 URL 用户信息、查询参数或片段。版本路径由调用方提供，不自动添加 `/v1`；可粘贴完整的 `/chat/completions`、`/images/generations` 或 `/models` 端点，服务会移除该后缀。模型请求不跟随重定向，应填写服务商的最终地址。
 
-`POST /api/v1/ai/models` 接受上述请求，其中 `model` 可省略，调用服务商的 `GET /models`。成功响应的 `data` 为：
+`POST /api/v1/ai/models` 可接受 `{"kind":"text"}` 或 `{"kind":"image"}`，使用对应的服务端配置调用服务商 `GET /models`，默认 `kind` 为 `text`。也可携带上述 `config` 测试尚未保存的配置，其中 `model` 可省略；缺少 `api_key` 时只会对相同的已保存接口地址补充密钥，不会将原密钥发送到新地址。成功响应的 `data` 为：
 
 ```json
 {"models": ["your-text-model", "your-image-model"]}
@@ -1071,7 +1103,7 @@ Content-Type: multipart/form-data
 
 #### 8.4 AI 配图
 
-`POST /api/v1/ai/image` 接受生图服务配置和图片描述：
+`POST /api/v1/ai/image` 接受图片描述，省略 `config` 时使用已保存的生图配置；也可显式传入配置：
 
 ```json
 {
@@ -1097,6 +1129,9 @@ Content-Type: multipart/form-data
 | 错误代码 | HTTP 状态码 | 描述 |
 |----------|-------------|------|
 | `INVALID_REQUEST` | 400 | 请求参数错误或格式不正确 |
+| `INVALID_CONFIG` | 400 | 模型配置不完整、无效或跨接口地址保留密钥 |
+| `SETTINGS_ALREADY_INITIALIZED` | 409 | 条件迁移遇到已初始化的服务端配置 |
+| `SETTINGS_UNAVAILABLE` | 503 | 模型配置存储不可用或读写失败 |
 | `ACCOUNT_REQUIRED` | 400 | 零个或多个账号时缺少明确账号选择 |
 | `INVALID_ACCOUNT` | 400 | 账号 ID 或备注名无效 |
 | `ACCOUNT_NOT_FOUND` | 404 | 账号未知或已移除 |

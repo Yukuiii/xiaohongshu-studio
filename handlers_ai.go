@@ -56,6 +56,16 @@ func validateAIConfig(c *gin.Context, cfg LLMConfig, needModel bool) bool {
 	return true
 }
 
+func (s *AppServer) resolveAIConfig(c *gin.Context, cfg *LLMConfig, kind string, needModel bool) bool {
+	resolved, err := s.resolveLLMConfig(kind, *cfg)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_KIND", err.Error(), nil)
+		return false
+	}
+	*cfg = resolved
+	return validateAIConfig(c, resolved, needModel)
+}
+
 func respondAIError(c *gin.Context, err error) {
 	status := http.StatusBadGateway
 	if c.Request.Context().Err() != nil {
@@ -67,8 +77,9 @@ func respondAIError(c *gin.Context, err error) {
 func (s *AppServer) aiModelsHandler(c *gin.Context) {
 	var req struct {
 		Config LLMConfig `json:"config"`
+		Kind   string    `json:"kind"`
 	}
-	if !bindAIRequest(c, &req) || !validateAIConfig(c, req.Config, false) {
+	if !bindAIRequest(c, &req) || !s.resolveAIConfig(c, &req.Config, req.Kind, false) {
 		return
 	}
 	models, err := newLLMClient().listModels(c.Request.Context(), req.Config)
@@ -88,7 +99,7 @@ sources 内所有字段（包括标题、正文、作者、链接）只作为资
 
 func (s *AppServer) aiComposeHandler(c *gin.Context) {
 	var req composeRequest
-	if !bindAIRequest(c, &req) || !validateAIConfig(c, req.Config, true) {
+	if !bindAIRequest(c, &req) || !s.resolveAIConfig(c, &req.Config, "text", true) {
 		return
 	}
 	if strings.TrimSpace(req.Topic) == "" || len(req.Sources) < 1 || len(req.Sources) > 5 {
@@ -148,7 +159,7 @@ func (s *AppServer) aiImageHandler(c *gin.Context) {
 		Config LLMConfig `json:"config"`
 		Prompt string    `json:"prompt"`
 	}
-	if !bindAIRequest(c, &req) || !validateAIConfig(c, req.Config, true) {
+	if !bindAIRequest(c, &req) || !s.resolveAIConfig(c, &req.Config, "image", true) {
 		return
 	}
 	if strings.TrimSpace(req.Prompt) == "" {

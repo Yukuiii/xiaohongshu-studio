@@ -5,13 +5,11 @@ const settings = () => ({ token: "service-token" });
 
 describe("账号请求契约", () => {
   it("给所有账号业务请求携带捕获的账号，公共接口不携带账号", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true, data: {} }),
-      });
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: {} }),
+    });
     vi.stubGlobal("fetch", fetch);
     const api = createAPI(settings);
     for (const path of [
@@ -36,6 +34,7 @@ describe("账号请求契约", () => {
       "/accounts/A",
       "/accounts/A/reset-profile",
       "/ai/models",
+      "/settings",
     ])
       await api(path, { accountId: "A" });
     for (const [, options] of fetch.mock.calls)
@@ -47,13 +46,11 @@ describe("账号请求契约", () => {
     async (code) => {
       vi.stubGlobal(
         "fetch",
-        vi
-          .fn()
-          .mockResolvedValue({
-            ok: false,
-            status: 409,
-            json: async () => ({ success: false, code, error: "busy" }),
-          }),
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 409,
+          json: async () => ({ success: false, code, error: "busy" }),
+        }),
       );
       await expect(
         createAPI(settings)("/login/browser", { accountId: "A" }),

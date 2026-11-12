@@ -113,9 +113,12 @@ Then open **http://127.0.0.1:18060/**. When using a reverse proxy, keep the page
 | Accounts, complete browser profiles, and downloads | `docker/data/accounts/` | `XHS_ACCOUNTS_DIR`; defaults to `.xhs-accounts/` beside the legacy Cookie file |
 | Uploaded and generated images | `docker/data/uploads/`, separated by account | `xiaohongshu_images/web/<account-id>/` under the system temporary directory |
 | Drafts and publication protection records | The visiting browser's localStorage, separated by account | Same |
-| Model configuration, API keys, and the service token | The visiting browser's localStorage | Same |
+| Model configuration and model API keys | `docker/data/settings.json` | `XHS_SETTINGS_PATH`; defaults to `.xhs-settings.json` beside the legacy Cookie file |
+| Service access token | The visiting browser's localStorage | Same |
 
-Docker paths above assume the default configuration. Stop the service before backing up the entire `docker/data/` directory or your custom data directory. Drafts and settings in the visiting browser need to be retained separately. Changing browsers or workspace addresses, or clearing site data, does not restore local drafts automatically. Development and production ports also have separate browser storage.
+Docker paths above assume the default configuration. Stop the service before backing up the entire `docker/data/` directory or your custom data directory, which includes model API keys. Drafts and the service token in the visiting browser need to be retained separately. Changing browsers or workspace addresses, or clearing site data, does not restore local drafts automatically. Development and production ports also have separate browser storage.
+
+Legacy browser model settings migrate automatically only when the server has not been initialized; the old cache is removed after success. Existing server settings take precedence. On another browser, enter the service access token to load the saved provider URLs and model names. Saved API keys are not returned to the browser; leave the key field empty to keep the existing key for the same provider URL.
 
 Image references in drafts do not replace the image files. When running from source, back up the images in the temporary directory separately. Restore browser profiles in the same runtime environment where possible; site sessions can still expire.
 

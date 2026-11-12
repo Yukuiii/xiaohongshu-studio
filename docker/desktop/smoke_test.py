@@ -145,6 +145,54 @@ while True:
     print("PASS 应用收到 TERM 时桌面和 DBus 仍可用，保存完成后再退出桌面", flush=True)
 
 
+def check_settings_persistence(image, name, volume, network, containers):
+    secret = "isolated-persistence-key"
+
+    def request(port, method="GET", body=None):
+        headers = {"Authorization": "Bearer isolated-smoke-test"}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        call = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/v1/settings",
+            data=json.dumps(body).encode() if body is not None else None,
+            headers=headers, method=method,
+        )
+        with urllib.request.urlopen(call, timeout=10) as response:
+            payload = response.read()
+            assert secret.encode() not in payload, "设置响应回显了模型密钥"
+            return json.loads(payload)["data"]
+
+    first_port = int(docker("port", name, "18060/tcp").stdout.strip().rsplit(":", 1)[1])
+    saved = request(first_port, "PUT", {
+        "text": {"base_url": "https://model.example.invalid/v1", "api_key": secret, "model": "fixture-text"},
+        "image": {"base_url": "", "api_key": "", "model": ""},
+    })
+    assert saved["initialized"] and saved["text"]["has_api_key"]
+    docker("exec", name, "python3", "-c", """
+import json, os, stat
+from pathlib import Path
+path = Path(os.environ['XHS_SETTINGS_PATH'])
+assert path == Path('/app/data/settings.json')
+assert stat.S_IMODE(path.stat().st_mode) == 0o600
+assert json.loads(path.read_text())['text']['api_key'] == 'isolated-persistence-key'
+""")
+    docker("stop", "--time", "60", name, timeout=75)
+    docker("rm", name)
+    replacement = name + "-settings"
+    containers.append(replacement)
+    docker("run", "-d", "--name", replacement, "--hostname", "xhs-settings-fixture",
+           "--network", network, "--cap-drop=ALL", "--cap-add=DAC_OVERRIDE",
+           "--security-opt=no-new-privileges:true", "--shm-size=1g",
+           "-e", "AUTH_TOKEN=isolated-smoke-test", "-p", "127.0.0.1::18060",
+           "--mount", f"type=volume,src={volume},dst=/app/data", image)
+    second_port = int(docker("port", replacement, "18060/tcp").stdout.strip().rsplit(":", 1)[1])
+    ready(f"http://127.0.0.1:{second_port}/health")
+    assert request(second_port) == saved, "容器重建后模型配置丢失"
+    cleared = request(second_port, "DELETE")
+    assert cleared["initialized"] and not cleared["text"]["has_api_key"]
+    print("PASS 模型配置保存到数据卷、0600 权限、响应脱敏、重建恢复及清空", flush=True)
+
+
 def main(image):
     name = "xhs-desktop-test-" + uuid.uuid4().hex[:12]
     network = name + "-network"
@@ -300,6 +348,7 @@ for pid in pids:
                                 "/bin/sh", "-c", f"exit {status}", check=False)
                 assert result.returncode == status, result.stderr
             print("PASS 组件提前退出不会漏检、应用退出码保留", flush=True)
+            check_settings_persistence(image, name, volume, network, containers)
     except Exception:
         for container in containers:
             logs = docker("logs", "--tail", "30", container, check=False)

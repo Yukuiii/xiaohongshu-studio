@@ -19,6 +19,7 @@ type AppServer struct {
 	router             *gin.Engine
 	httpServer         *http.Server
 	authToken          string
+	settings           *settingsStore
 	desktop            *desktopGateway
 }
 

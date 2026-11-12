@@ -51,6 +51,8 @@ test_*.sh
 
 # Cookies files (contain sensitive login information)
 .xhs-accounts/
+.xhs-settings.json
+.xhs-settings-*.tmp
 cookies.json
 docker/data/
 docker/images/

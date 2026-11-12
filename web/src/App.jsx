@@ -457,7 +457,7 @@ export default function App() {
           aria-labelledby="settings-title"
           hidden={page !== "settings"}
         >
-          <Settings workbench={wb} />
+          <Settings workbench={wb} active={page === "settings"} />
         </section>
       </main>
     </div>
