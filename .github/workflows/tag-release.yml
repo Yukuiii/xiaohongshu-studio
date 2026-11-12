@@ -64,6 +64,18 @@ jobs:
       with:
         go-version-file: go.mod
 
+    - name: Set up Node
+      uses: actions/setup-node@v6
+      with:
+        node-version: '24'
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+
+    - name: Build frontend
+      run: |
+        npm --prefix web ci
+        npm --prefix web run build
+
     - name: Build for multiple platforms
       env:
         VERSION: ${{ steps.version.outputs.version }}
@@ -148,7 +160,7 @@ jobs:
           ./xiaohongshu-studio-darwin-arm64 -headless=false
           ```
 
-          打开 http://127.0.0.1:18060/，在工作台扫码登录、配置模型和编辑内容。
+          打开 http://127.0.0.1:18060/，在左侧「账号」点击「添加账号」扫码，在「设置」配置模型，在「工作台」编辑内容。
           设置 `AUTH_TOKEN` 后，在页面填写相同的访问令牌。
 
           ### ⚠️ 注意事项

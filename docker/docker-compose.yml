@@ -7,6 +7,7 @@ services:
       context: ..
       dockerfile: Dockerfile
       args:
+        BASE_IMAGE_PREFIX: ${BASE_IMAGE_PREFIX:-docker.io/library}
         APT_MIRROR: ${APT_MIRROR:-https://archive.ubuntu.com/ubuntu}
         APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-https://security.ubuntu.com/ubuntu}
         BROWSER_DOWNLOAD_BASE: ${BROWSER_DOWNLOAD_BASE:-https://github.com/adryfish/fingerprint-chromium/releases/download}

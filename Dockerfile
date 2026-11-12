@@ -1,7 +1,16 @@
-# syntax=docker/dockerfile:1.6
+ARG BASE_IMAGE_PREFIX=docker.io/library
 
-# ---- build stage ----
-FROM golang:1.27.4 AS builder
+# ---- frontend build stage ----
+FROM ${BASE_IMAGE_PREFIX}/node:24-bookworm-slim AS frontend
+
+WORKDIR /src
+COPY web/package.json web/package-lock.json ./web/
+RUN npm --prefix web ci
+COPY web/ ./web/
+RUN npm --prefix web run build
+
+# ---- Go build stage ----
+FROM ${BASE_IMAGE_PREFIX}/golang:1.27.4 AS builder
 
 WORKDIR /src
 # 配置 Go 模块代理为国内源
@@ -12,12 +21,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+COPY --from=frontend /src/web/dist ./web/dist
 # VERSION 由 CI 通过 --build-arg 传入，本地构建默认 dev
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/xiaohongshu-studio .
 
 # ---- run stage ----
-FROM ubuntu:22.04
+FROM ${BASE_IMAGE_PREFIX}/ubuntu:22.04
 
 # 设置时区
 ENV TZ=Asia/Shanghai

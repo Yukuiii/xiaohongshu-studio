@@ -1,6 +1,6 @@
 # Docker 部署红薯创作台
 
-默认镜像同时包含工作台、Chromium 和 noVNC 桌面。打开账号弹窗后点击「打开登录浏览器」，即可在工作台内查看真实浏览器并完成登录、安全验证；只运行一个应用容器，不需要单独的桌面镜像或端口。
+默认镜像同时包含 Vite + React 工作台、Chromium 和 noVNC 桌面。左侧提供「工作台」「账号」「设置」导航；在「账号」点击「添加账号」，会直接打开真实小红书扫码页面，可完成手机确认与安全验证。只运行一个应用容器，不需要单独的桌面镜像或端口。
 
 ## 启动
 
@@ -11,15 +11,17 @@ cd docker
 docker compose up -d --build
 ```
 
-打开 [红薯创作台](http://127.0.0.1:18060/)，在账号弹窗内打开登录浏览器，按真实页面完成扫码及账号安全验证，再配置模型、编辑草稿和确认发布。首次构建需要下载 Go 依赖、系统软件包和内置浏览器；系统依赖与浏览器安装在应用复制之前，后续 Go 更改可复用这些缓存层。
+打开 [红薯创作台](http://127.0.0.1:18060/)，在左侧「账号」点击「添加账号」直接扫码并完成账号安全验证，在「设置」配置模型，再回「工作台」编辑草稿和确认发布。首次构建需要下载 npm/Go 依赖、系统软件包和内置浏览器；系统依赖与浏览器安装在应用复制之前，后续 Go 更改可复用这些缓存层。
 
 镜像和服务名为 `xiaohongshu-studio`，本地镜像标签为 `xiaohongshu-studio:local`。当前内置浏览器镜像支持 `linux/amd64`；Apple Silicon 需要 Docker 的 amd64 模拟支持。
+
+Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix web run build`，再将 `web/dist/` 复制到 Go 构建阶段并嵌入二进制。最终 Ubuntu 运行镜像只复制 Go 程序和桌面组件，不包含 Node 或 npm；宿主机无需安装 Node。构建上下文排除宿主的 `node_modules/` 与 `dist/`，每次使用锁文件生成容器内产物。修改前端后执行 `docker compose up -d --build` 即可更新。
 
 ## 数据与素材
 
 - `docker/data/` 保存登录状态、上传图片及运行配置，更新时保留；可用 `XHS_DATA_DIR` 指定已有数据目录的完整路径。
 - 工作台上传与生成图片通过 `docker/data/uploads/` 挂载到容器 `/tmp/xiaohongshu_images/`，图片保存在其 `web/` 子目录。重建容器时保留整个 `data/`，不要只备份 `cookies.json`。
-- 草稿保存在访问工作台的浏览器本地，换浏览器或清理网站数据不会自动迁移。
+- 草稿与模型配置保存在访问工作台的浏览器本地，继续使用原 `hongshu-workbench.settings.v1`、`hongshu-workbench.draft.v1` 存储格式。升级保持原访问地址即可继续读取；换浏览器、改地址或清理网站数据不会自动迁移。账号页仍对应服务共享的单个小红书会话，升级保留原数据目录与 Cookie 文件。
 - 页面可上传图片；已有图片、视频可放入 `docker/images/`（可用 `XHS_MEDIA_DIR` 指定其他目录），对应容器内只读素材目录 `/app/images/`。桌面文件窗口也有 images 书签。数据与上传目录保持可写。
 - 切换已有部署前，先在旧配置所在目录执行 `docker compose down`，再使用新配置启动；保留原数据目录，不要让两个实例同时操作同一账号。
 - 镜像内浏览器缓存仍使用 `/app/cache/xiaohongshu-mcp/browser` 这一历史存储身份，与应用探测路径一致，无需因改名重新下载。不要将数据卷覆盖到 `/app/cache`。
@@ -48,6 +50,14 @@ XHS_WEB_PORT=18060
 
 需要代理时，在同一文件追加 `XHS_PROXY=http://user:pass@proxy:port`。支持 HTTP、HTTPS 和 SOCKS5；无需认证时省略 `user:pass@`。
 
+Node、Go 和 Ubuntu 基础镜像默认从 Docker Hub 官方仓库拉取。下载缓慢时，可在 `docker/.env` 配置镜像仓库前缀：
+
+```dotenv
+BASE_IMAGE_PREFIX=docker.1ms.run/library
+```
+
+也可使用 Docker 官方在 Amazon ECR Public 的仓库前缀 `public.ecr.aws/docker/library`。构建版本和 `linux/amd64` 平台保持不变；使用镜像源时应核对对应平台的 manifest 摘要与官方一致。该参数由 Compose 传入 Dockerfile，直接构建时使用 `--build-arg BASE_IMAGE_PREFIX=...`。基础镜像、APT 软件包与内置浏览器下载分别配置；切换这个前缀只需重新构建本项目，无需重启 Docker Desktop。
+
 构建时默认使用 Ubuntu 官方 HTTPS 软件源。若所在网络下载缓慢，可在 `docker/.env` 指定可信的 HTTPS 镜像源后重新构建，例如：
 
 ```dotenv
@@ -72,7 +82,7 @@ BROWSER_DOWNLOAD_BASE=https://your-mirror.example/fingerprint-chromium/releases/
 
 容器只公开 `18060`。内部 x11vnc 监听回环 `5900`，websockify/noVNC 监听回环 `6080`，只接受 Go 代理改写的内部 Origin。无需配置桌面来源白名单、VNC 密码或第二条 SSH 转发。Compose 保留 1 GB 共享内存、`cap_drop: ALL`、`DAC_OVERRIDE` 与 `no-new-privileges`；保留该能力以兼容其他 UID 拥有的旧数据目录。
 
-中文输入使用 **Ctrl+Space** 切换 Rime 简体拼音。验证期间关闭账号弹窗仅断开画面，后台浏览器保留；成功保存登录信息后，浏览器自动关闭，页面收起弹窗并显示成功。「结束登录窗口」可提前关闭浏览器并保留已保存的数据。未完成会话最长保留 20 分钟。
+中文输入使用 **Ctrl+Space** 切换 Rime 简体拼音。验证期间收起登录网页或切换导航仅断开画面和前端检查，后台浏览器保留；成功保存登录信息后，浏览器自动关闭，账号页收起登录区域并显示已连接账号。「结束登录窗口」可提前关闭浏览器并保留已保存的数据。未完成会话最长保留 20 分钟。
 
 ## 维护者：构建与发布
 
@@ -81,6 +91,8 @@ BROWSER_DOWNLOAD_BASE=https://your-mirror.example/fingerprint-chromium/releases/
 ```bash
 docker build --builder "$(docker context show)" --platform linux/amd64 -t xiaohongshu-studio:local .
 ```
+
+本地开发前端可按 [贡献指南](../CONTRIBUTING.md) 用 Node.js 24 构建一次后，分别启动 `go run .` 与 `npm --prefix web run dev`。Vite 的 `5173` 端口将 `/api`、`/desktop`（含 WebSocket）及 `/health` 代理到 Go 的 `18060`；容器生产部署仍只需公开 `18060`。
 
 Docker 发布 workflow 使用当前仓库的 `GITHUB_TOKEN` 和 `packages:write` 权限，推送到 `ghcr.io/<小写仓库所有者>/<小写仓库名>`，只发布版本 tag 与 `latest` 两个标签，均包含完整桌面组件。仓库需允许 Actions 发布 Packages。这里描述的是发布配置，不代表当前分支已有可下载镜像。容器检查与实际覆盖边界见 [验证说明](desktop/docs/verification.md)。
 

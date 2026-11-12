@@ -4,9 +4,11 @@
 
 ## 构建与安装
 
-在当前项目源码根目录构建，并准备用户级 LaunchAgents 目录：
+先安装 Go（版本以 [go.mod](../../go.mod) 为准）和 Node.js 24。在当前项目源码根目录依次构建前端与 Go 程序，并准备用户级 LaunchAgents 目录：
 
 ```bash
+npm --prefix web ci
+npm --prefix web run build
 go build -o xiaohongshu-studio .
 mkdir -p "$HOME/Library/LaunchAgents"
 cp deploy/macos/xhs-studio.plist "$HOME/Library/LaunchAgents/xhs-studio.plist"
@@ -40,7 +42,7 @@ launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/xhs-studio.plist"
 launchctl start xhs-studio
 ```
 
-打开工作台，在账号弹窗点击「打开登录浏览器」，切换至本机弹出的 Chromium 完成扫码和安全验证，再回工作台创作。源码后台服务使用本机窗口；需要页面内嵌 noVNC 时改用 [Docker 单应用部署](../../docker/README.md)，不另外启动桌面容器。首次启动若无浏览器缓存会先下载，已有缓存沿用原存储位置。
+打开工作台，进入左侧「账号」并点击「添加账号」，切换至本机弹出的 Chromium 完成扫码和安全验证，再回工作台创作。源码后台服务使用本机窗口；需要页面内嵌 noVNC 时改用 [Docker 单应用部署](../../docker/README.md)，不另外启动桌面容器。首次启动若无浏览器缓存会先下载，已有缓存沿用原存储位置。
 
 ## 管理服务
 
@@ -61,7 +63,13 @@ curl http://127.0.0.1:18060/health
 launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/xhs-studio.plist"
 ```
 
-修改 plist 后先卸载，再重新执行 `bootstrap` 和 `start`。更新源码后先停止服务，在项目根目录重新执行 `go build -o xiaohongshu-studio .`，再启动；保持工作目录和数据文件不变。
+修改 plist 后先卸载，再重新执行 `bootstrap` 和 `start`。更新源码后先停止服务，在项目根目录依次重新构建前端与 Go 程序，再启动；保持工作目录和数据文件不变。编译后的程序运行时无需 Node.js。
+
+```bash
+npm --prefix web ci
+npm --prefix web run build
+go build -o xiaohongshu-studio .
+```
 
 ## fish 快捷命令
 

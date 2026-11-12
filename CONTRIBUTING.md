@@ -12,9 +12,27 @@ Thank you for your interest in Xiaohongshu Studio! The product is a browser work
 2. 在本地完成开发和测试
 3. 提交 PR 并填写清晰的描述
 
-在当前源码目录使用 `go run .`，打开 **http://localhost:18060/**。Go 版本以 [go.mod](./go.mod) 为准（当前为 1.27.4）。页面资源位于 `web/`，通过 Go 嵌入，无需单独的前端构建。构建程序使用 `go build -o xiaohongshu-studio .`。
+前端使用 Vite + React，Go 版本以 [go.mod](./go.mod) 为准（当前为 1.27.4），前端构建使用 Node.js 24。在当前源码目录先安装依赖并生成产物，再运行 Go：
 
-Run `go run .` from the current source directory and open **http://localhost:18060/**. Use the Go version in [go.mod](./go.mod), currently 1.27.4. Files in `web/` are embedded in Go and require no separate frontend build. Build the executable with `go build -o xiaohongshu-studio .`.
+The frontend uses Vite + React. Use the Go version in [go.mod](./go.mod), currently 1.27.4, and Node.js 24 for frontend builds. Install dependencies and generate assets before running Go:
+
+```bash
+npm --prefix web ci
+npm --prefix web run build
+go run .
+```
+
+生产入口为 **http://localhost:18060/**。Go 仅嵌入 `web/dist/index.html` 和 `web/dist/assets/`；缺少产物时编译失败。更新前端后重新执行 `npm --prefix web run build`，再运行 `go build -o xiaohongshu-studio .`。编译后的程序无需 Node；不要提交 `web/node_modules/` 或 `web/dist/`，依赖变化必须同步提交 `web/package-lock.json`。
+
+The production entry is **http://localhost:18060/**. Go embeds only `web/dist/index.html` and `web/dist/assets/`; missing output fails compilation. After frontend changes, run `npm --prefix web run build` before `go build -o xiaohongshu-studio .`. The executable requires no Node at runtime. Do not commit `web/node_modules/` or `web/dist/`; commit `web/package-lock.json` with dependency changes.
+
+开发时先完成一次前端构建，在一个终端运行 `go run .`（18060），另一个终端运行 `npm --prefix web run dev`，访问 **http://localhost:5173/**。Vite 将 `/api`、`/desktop`（含 WebSocket）和 `/health` 代理到 `http://127.0.0.1:18060`。根 Go 包的构建、测试和发版任务均须先执行上述 npm 安装与构建；Docker 通过多阶段构建完成同样流程。
+
+For development, build the frontend once, run `go run .` on port 18060 in one terminal and `npm --prefix web run dev` in another, then visit **http://localhost:5173/**. Vite proxies `/api`, `/desktop` (including WebSocket), and `/health` to `http://127.0.0.1:18060`. Build, test, and release jobs involving the root Go package must run the npm installation and build first; Docker performs these steps in its multistage build.
+
+页面保留左侧「工作台」「账号」「设置」三导航；「添加账号」直接打开真实扫码页面，仍共用服务的单账号会话。保持原浏览器存储键 `hongshu-workbench.settings.v1`、`hongshu-workbench.draft.v1` 及草稿结构，保留服务端 Cookie、桌面授权和发布确认行为。开发与生产端口的浏览器存储相互独立。
+
+Preserve the Workspace, Accounts, and Settings sidebar navigation. Add account opens the real sign-in page directly and uses the service's existing shared account session. Keep the `hongshu-workbench.settings.v1` and `hongshu-workbench.draft.v1` storage keys and draft format, server Cookies, desktop authorization, and publication confirmation. Development and production ports have separate browser storage.
 
 页面流程见 [README](./README.md)，接口契约见 [HTTP API 文档](./docs/API.md)。涉及用户行为或接口的修改需同步更新这些文档；不要把未发布的源码功能描述成上游发行包已有功能。
 

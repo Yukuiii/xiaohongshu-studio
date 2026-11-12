@@ -18,6 +18,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build frontend
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+
       - name: Build
         run: go build ./...
 

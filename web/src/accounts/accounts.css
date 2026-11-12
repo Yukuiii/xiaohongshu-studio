@@ -1,0 +1,175 @@
+.accounts-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.accounts-card {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.accounts-avatar {
+  display: grid;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  border-radius: 22px;
+  background: #fff0f1;
+  color: #d94e61;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.accounts-avatar.connected {
+  background: #eaf5ed;
+  color: #337451;
+}
+
+.accounts-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.accounts-info h2 {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+
+.accounts-info p {
+  margin-bottom: 0;
+}
+
+.accounts-user-id {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.accounts-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+
+.accounts-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  white-space: nowrap;
+  color: #7a7774;
+}
+
+.accounts-state > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.accounts-state.connected {
+  color: #337451;
+}
+
+.accounts-login-panel {
+  margin-top: 24px;
+}
+
+.accounts-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.accounts-panel-header h2 {
+  margin: 8px 0 0;
+}
+
+.accounts-collapse {
+  flex-shrink: 0;
+  font-size: 24px;
+}
+
+.accounts-browser {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #e7e3de;
+  border-radius: 12px;
+  background: #f5f3f0;
+}
+
+.accounts-browser-frame {
+  display: block;
+  width: 100%;
+  height: clamp(420px, 65vh, 760px);
+  border: 0;
+  background: white;
+}
+
+.accounts-browser-busy .accounts-browser-frame {
+  pointer-events: none;
+}
+
+.accounts-browser-cover {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  background: rgb(250 249 247 / 85%);
+}
+
+.accounts-browser-placeholder {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+  padding: 32px;
+  border: 1px dashed #d8d2ca;
+  border-radius: 12px;
+  background: #f8f6f3;
+  color: #77716a;
+  text-align: center;
+  line-height: 1.7;
+}
+
+.accounts-browser-help {
+  line-height: 1.7;
+}
+
+.accounts-login-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+@media (max-width: 760px) {
+  .accounts-intro,
+  .accounts-card {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .accounts-info {
+    flex-basis: calc(100% - 96px);
+  }
+
+  .accounts-card-actions,
+  .accounts-login-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .accounts-browser-frame {
+    height: 480px;
+  }
+}
