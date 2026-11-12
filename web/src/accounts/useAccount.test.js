@@ -29,6 +29,34 @@ const deferred = () => {
 };
 
 describe("登录请求隔离", () => {
+  it.each([true, false])(
+    "页面初始化检查到已有登录时更新身份且不显示扫码成功提示（账号页：%s）",
+    async (active) => {
+      const api = vi.fn().mockResolvedValue(
+        status("A", {
+          is_logged_in: true,
+          status: "logged_in",
+          username: "作者A",
+          message: "登录成功",
+        }),
+      );
+      const { result } = renderHook(() =>
+        useAccount({ api, active, busy: false, context: fixed }),
+      );
+      await act(async () => {});
+      expect(result.current.loggedIn).toBe(true);
+      expect(result.current.username).toBe("作者A");
+      expect(result.current.notice.message).toBe("");
+      expect(result.current.loginVisible).toBe(false);
+      if (active) {
+        await act(async () => {
+          await result.current.checkStatus();
+        });
+        expect(result.current.notice.message).toBe("");
+      }
+    },
+  );
+
   it("自动检查失败不显示错误横幅", async () => {
     const api = vi.fn().mockRejectedValue(new Error("浏览器启动失败"));
     const { result } = renderHook(() =>

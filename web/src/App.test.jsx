@@ -322,6 +322,14 @@ describe("账号选择界面", () => {
       ).not.toBeInTheDocument(),
     );
     expect(screen.getByText(/小红书登录成功，登录信息已保存/)).toBeVisible();
+    fireEvent.click(
+      within(row).getByRole("button", { name: "刷新状态" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/小红书登录成功，登录信息已保存/),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("令牌变化重新加载账号，旧列表响应不能替换新令牌下的选择", async () => {

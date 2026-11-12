@@ -149,13 +149,16 @@ export function useAccount({
       const ended =
         loggedIn ||
         ["expired", "failed", "not_logged_in"].includes(data?.status);
+      const successMessage = stateRef.current.browserSession
+        ? "小红书登录成功，登录信息已保存，登录网页已自动收起。"
+        : "";
       const patch = {
         status: data,
         sessionId: data.session_id || "",
         polling: pending,
         notice: {
           message: loggedIn
-            ? "小红书登录成功，登录信息已保存，登录网页已自动收起。"
+            ? successMessage
             : data?.message ||
               messages[data?.status] ||
               "请按登录网页中的提示完成登录。",
