@@ -109,7 +109,7 @@ type accountRuntime struct {
 }
 
 func NewAccountManager(store *accounts.Store) *AccountManager {
-	m := &AccountManager{store: store, runtimes: make(map[string]*accountRuntime), idleTimeout: 10 * time.Minute, drainTimeout: 30 * time.Second, headless: configs.IsHeadless() || os.Getenv("XHS_DESKTOP_URL") != ""}
+	m := &AccountManager{store: store, runtimes: make(map[string]*accountRuntime), idleTimeout: 10 * time.Minute, drainTimeout: 30 * time.Second, headless: configs.IsHeadless() || embeddedDesktop()}
 	m.checkIdentity = func(ctx context.Context, r *accountRuntime, b accountBrowser) error {
 		_, err := r.inspectIdentity(ctx, b)
 		return err
@@ -514,8 +514,8 @@ func (r *accountRuntime) openLogin(ctx context.Context) (response *LoginBrowserR
 		return nil, err
 	}
 	page := b.NewPage()
-	if err := page.Context(ctx).Timeout(5 * time.Second).SetWindow(&proto.BrowserBounds{WindowState: proto.BrowserWindowStateMaximized}); err != nil {
-		logrus.Debugf("登录窗口最大化失败: %v", err)
+	if err := page.Context(ctx).Timeout(5 * time.Second).SetWindow(&proto.BrowserBounds{WindowState: loginWindowState()}); err != nil {
+		logrus.Debugf("设置登录窗口状态失败: %v", err)
 	}
 	action := xiaohongshu.NewLogin(page)
 	if err := action.Open(ctx); err != nil {
@@ -820,6 +820,16 @@ func (m *AccountManager) Close() error {
 		return err
 	}
 	return m.store.Close()
+}
+
+func embeddedDesktop() bool { return os.Getenv("XHS_DESKTOP_URL") != "" }
+
+// loginWindowState 内嵌桌面直接全屏，避免用户误触窗口关闭按钮；原生窗口保留最大化。
+func loginWindowState() proto.BrowserWindowState {
+	if embeddedDesktop() {
+		return proto.BrowserWindowStateFullscreen
+	}
+	return proto.BrowserWindowStateMaximized
 }
 
 func defaultAccountsRoot() string {

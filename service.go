@@ -255,8 +255,8 @@ func (s *XiaohongshuService) OpenLoginBrowser(ctx context.Context) (response *Lo
 		browser.WithProxy(configs.Proxy()),
 	)
 	page := b.NewPage()
-	if err := page.Context(ctx).Timeout(5 * time.Second).SetWindow(&proto.BrowserBounds{WindowState: proto.BrowserWindowStateMaximized}); err != nil {
-		logrus.Warnf("无法自动最大化登录窗口，可在浏览器中手动调整: %v", err)
+	if err := page.Context(ctx).Timeout(5 * time.Second).SetWindow(&proto.BrowserBounds{WindowState: loginWindowState()}); err != nil {
+		logrus.Warnf("无法自动设置登录窗口状态，可在浏览器中手动调整: %v", err)
 	}
 	loginAction := xiaohongshu.NewLogin(page)
 	if err := loginAction.Open(ctx); err != nil {
