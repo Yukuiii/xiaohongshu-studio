@@ -1,12 +1,13 @@
 services:
   xiaohongshu-studio:
-    image: xiaohongshu-studio:local
+    image: ghcr.io/yukuiii/xiaohongshu-studio:${XHS_IMAGE_TAG:-local}
     platform: linux/amd64
     pull_policy: build
     build:
       context: ..
       dockerfile: Dockerfile
       args:
+        VERSION: ${XHS_IMAGE_TAG:-dev}
         BASE_IMAGE_PREFIX: ${BASE_IMAGE_PREFIX:-docker.io/library}
         APT_MIRROR: ${APT_MIRROR:-https://archive.ubuntu.com/ubuntu}
         APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-https://security.ubuntu.com/ubuntu}

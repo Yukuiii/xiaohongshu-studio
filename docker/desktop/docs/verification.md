@@ -24,10 +24,11 @@
 
 ## 运行检查
 
-按 [部署指南](../../README.md) 构建唯一应用镜像后，在项目根目录执行：
+按 [部署指南](../../README.md) 构建唯一应用镜像后，在项目根目录执行（使用 `./up.sh` 输出的提交标签；有未提交改动时标签带 `-dirty`）：
 
 ```bash
-python3 docker/desktop/smoke_test.py xiaohongshu-studio:local
+tag=$(git rev-parse --short=12 HEAD)
+python3 docker/desktop/smoke_test.py "ghcr.io/yukuiii/xiaohongshu-studio:${tag}"
 ```
 
 需要 Docker 和 Python 3。脚本使用隔离容器、临时数据和随机回环端口，结束后清理。HTTP API 检查向 `POST /api/v1/ai/models` 发送无效 JSON：匿名请求应为 401，带正确令牌的请求应为 400，确保实际路由受保护且不会调用模型或小红书。`input_test.py` 由 smoke 复制到容器执行，无需宿主输入法依赖。
