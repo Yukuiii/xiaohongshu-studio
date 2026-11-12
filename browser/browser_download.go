@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,18 +22,36 @@ import (
 	"github.com/ulikunitz/xz"
 )
 
-// 内置浏览器的下载分发地址。
-const browserCDNBase = "https://cdn.one-world.ai/browsers"
+// 内置浏览器默认从上游 GitHub release 下载，可配置相同目录结构的镜像。
+const browserDownloadBase = "https://github.com/adryfish/fingerprint-chromium/releases/download"
 
-// browserVersion 是内置浏览器的唯一版本源。升级只改 browser_version.txt 一处，Go 与 Dockerfile 同读。
+// browserVersion 是内置浏览器的版本源，升级时需同步更新固定的上游校验清单。
 //
 //go:embed browser_version.txt
 var browserVersionRaw string
 
+// browserChecksums 固定上游 release 的 SHA256，不信任下载镜像提供的校验文件。
+//
+//go:embed browser_checksums.txt
+var browserChecksums string
+
 var browserVersion = strings.TrimSpace(browserVersionRaw)
 
-func browserURL(name string) string {
-	return browserCDNBase + "/" + browserVersion + "/" + name
+func browserURL(name string) (string, error) {
+	base := os.Getenv("XHS_BROWSER_DOWNLOAD_BASE")
+	if base == "" {
+		base = browserDownloadBase
+	}
+	base = strings.TrimSpace(base)
+	u, err := url.Parse(base)
+	if err != nil || u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.Opaque != "" {
+		return "", fmt.Errorf("XHS_BROWSER_DOWNLOAD_BASE 必须是有效的 http(s) 绝对地址")
+	}
+	if u.User != nil || strings.ContainsAny(base, "?#") {
+		return "", fmt.Errorf("XHS_BROWSER_DOWNLOAD_BASE 不允许包含用户名、密码、查询参数或片段")
+	}
+	// 直接拼接保留 GitHub 代理前缀路径中的 https://，避免路径规范化破坏镜像地址。
+	return strings.TrimRight(base, "/") + "/" + browserVersion + "/" + name, nil
 }
 
 // platformAsset 返回当前 OS/arch 对应的下载文件名与解压后二进制文件名。
@@ -43,17 +62,17 @@ func platformAsset() (assetName, binName string, ok bool) {
 		if runtime.GOARCH != "arm64" {
 			return "", "", false
 		}
-		return "macos-arm64.dmg", "Chromium", true
+		return "ungoogled-chromium_" + browserVersion + "-1.1_macos.dmg", "Chromium", true
 	case "linux":
 		if runtime.GOARCH != "amd64" {
 			return "", "", false
 		}
-		return "linux-x64.tar.xz", "chrome", true
+		return "ungoogled-chromium-" + browserVersion + "-1-x86_64_linux.tar.xz", "chrome", true
 	case "windows":
 		if runtime.GOARCH != "amd64" {
 			return "", "", false
 		}
-		return "windows-x64.zip", "chrome.exe", true
+		return "ungoogled-chromium_" + browserVersion + "-1.1_windows_x64.zip", "chrome.exe", true
 	}
 	return "", "", false
 }
@@ -84,6 +103,11 @@ func EnsureBrowser() (string, error) {
 		return bin, nil
 	}
 
+	downloadURL, err := browserURL(asset)
+	if err != nil {
+		return "", err
+	}
+
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", err
 	}
@@ -93,7 +117,7 @@ func EnsureBrowser() (string, error) {
 	archivePath := filepath.Join(cacheDir, asset)
 	var dlErr error
 	for attempt := 1; attempt <= 3; attempt++ {
-		if dlErr = downloadFile(browserURL(asset), archivePath); dlErr == nil {
+		if dlErr = downloadFile(downloadURL, archivePath); dlErr == nil {
 			break
 		}
 		logrus.Warnf("下载失败（第 %d/3 次）: %v", attempt, dlErr)
@@ -103,11 +127,11 @@ func EnsureBrowser() (string, error) {
 	if dlErr != nil {
 		return "", fmt.Errorf("下载内置浏览器失败: %w\n"+
 			"  本项目只用内置浏览器，缺它不继续。请检查网络后重试；\n"+
-			"  离线环境可手动下载 %s，解压到 %s 后重启。", dlErr, browserURL(asset), cacheDir)
+			"  离线环境可手动下载 %s，解压到 %s 后重启。", dlErr, downloadURL, cacheDir)
 	}
 	defer os.Remove(archivePath)
 
-	// 校验 SHA256（本地已成分发点，必须校验完整性）
+	// 新下载的文件必须与内嵌的上游 SHA256 一致，校验通过后才解压。
 	if err := verifySHA256(archivePath, asset); err != nil {
 		return "", fmt.Errorf("校验失败: %w", err)
 	}
@@ -125,9 +149,9 @@ func EnsureBrowser() (string, error) {
 	return bin, nil
 }
 
-// verifySHA256 下载同目录的 SHA256SUMS，校验 asset 的哈希。
+// verifySHA256 使用随程序发布的固定上游 SHA256 校验下载内容。
 func verifySHA256(archivePath, asset string) error {
-	want, err := fetchExpectedSHA(asset)
+	want, err := expectedSHA(asset)
 	if err != nil {
 		return err
 	}
@@ -147,24 +171,22 @@ func verifySHA256(archivePath, asset string) error {
 	return nil
 }
 
-func fetchExpectedSHA(asset string) (string, error) {
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Get(browserURL("SHA256SUMS"))
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("获取 SHA256SUMS: HTTP %d", resp.StatusCode)
-	}
-	sc := bufio.NewScanner(resp.Body)
+func expectedSHA(asset string) (string, error) {
+	sc := bufio.NewScanner(strings.NewReader(browserChecksums))
 	for sc.Scan() {
-		// 格式：<hash>␠␠<filename>
 		fields := strings.Fields(sc.Text())
 		if len(fields) == 2 && fields[1] == asset {
+			hash, err := hex.DecodeString(fields[0])
+			if err != nil || len(hash) != sha256.Size {
+				return "", fmt.Errorf("内嵌 SHA256 清单中 %s 的校验值无效", asset)
+			}
 			return fields[0], nil
 		}
 	}
-	return "", fmt.Errorf("SHA256SUMS 中未找到 %s", asset)
+	if err := sc.Err(); err != nil {
+		return "", fmt.Errorf("读取内嵌 SHA256 清单失败: %w", err)
+	}
+	return "", fmt.Errorf("内嵌 SHA256 清单中未找到 %s", asset)
 }
 
 func findBinary(dir, binName string) string {

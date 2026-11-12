@@ -3,6 +3,7 @@ package xiaohongshu
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -13,27 +14,42 @@ type LoginAction struct {
 	page *rod.Page
 }
 
+// LoginPhase 区分扫码、手机确认、账号验证和登录信息保存的进度。
+type LoginPhase string
+
+const (
+	LoginWaitingScan          LoginPhase = "waiting_scan"
+	LoginWaitingConfirmation  LoginPhase = "waiting_confirmation"
+	LoginVerificationRequired LoginPhase = "verification_required"
+	LoginSaving               LoginPhase = "saving"
+	LoginLoggedIn             LoginPhase = "logged_in"
+	LoginExpired              LoginPhase = "expired"
+	LoginFailed               LoginPhase = "failed"
+	LoginNotLoggedIn          LoginPhase = "not_logged_in"
+)
+
 func NewLogin(page *rod.Page) *LoginAction {
 	return &LoginAction{page: page}
 }
 
+// Open 只打开真实登录页面，不依赖二维码或安全验证浮层的样式。
+func (a *LoginAction) Open(ctx context.Context) error {
+	navigationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return errors.Wrap(a.page.Context(navigationCtx).Navigate("https://www.xiaohongshu.com/explore"), "open login browser failed")
+}
+
 func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
-	// 加超时保护：只是查登录态的快速检查，不应无限挂（登录扫码的等待在 Login/WaitForLogin 里）
-	pp := a.page.Context(ctx).Timeout(30 * time.Second)
-	pp.MustNavigate("https://www.xiaohongshu.com/explore").MustWaitLoad()
-
-	time.Sleep(1 * time.Second)
-
-	exists, _, err := pp.Has(`.main-container .user .link-wrapper .channel`)
-	if err != nil {
-		return false, errors.Wrap(err, "check login status failed")
+	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := a.Open(checkCtx); err != nil {
+		return false, err
 	}
-
-	if !exists {
-		return false, errors.Wrap(err, "login status element not found")
+	if err := a.page.Context(checkCtx).WaitLoad(); err != nil {
+		return false, errors.Wrap(err, "load login page failed")
 	}
-
-	return true, nil
+	phase, err := a.CurrentPhase(checkCtx)
+	return phase == LoginLoggedIn, err
 }
 
 // CurrentUser 当前登录用户的基础信息。
@@ -71,59 +87,113 @@ func (a *LoginAction) CurrentUser(ctx context.Context) (*CurrentUser, error) {
 }
 
 func (a *LoginAction) Login(ctx context.Context) error {
-	pp := a.page.Context(ctx)
+	if err := a.Open(ctx); err != nil {
+		return err
+	}
+	return a.WaitForLogin(ctx, nil)
+}
 
-	// 导航到小红书首页，这会触发二维码弹窗
-	pp.MustNavigate("https://www.xiaohongshu.com/explore").MustWaitLoad()
-
-	time.Sleep(2 * time.Second)
-
-	if exists, _, _ := pp.Has(".main-container .user .link-wrapper .channel"); exists {
+// WaitForLogin 连续两次观察到无验证浮层的登录状态后才返回。
+func (a *LoginAction) WaitForLogin(ctx context.Context, onProgress func(LoginPhase)) error {
+	return a.monitorLogin(ctx, func(phase LoginPhase) error {
+		if onProgress != nil {
+			onProgress(phase)
+		}
 		return nil
-	}
-
-	pp.MustElement(".main-container .user .link-wrapper .channel")
-
-	return nil
+	}, true)
 }
 
-func (a *LoginAction) FetchQrcodeImage(ctx context.Context) (string, bool, error) {
-	pp := a.page.Context(ctx)
-
-	// 导航到小红书首页，这会触发二维码弹窗
-	pp.MustNavigate("https://www.xiaohongshu.com/explore").MustWaitLoad()
-
-	time.Sleep(2 * time.Second)
-
-	if exists, _, _ := pp.Has(".main-container .user .link-wrapper .channel"); exists {
-		return "", true, nil
-	}
-
-	src, err := pp.MustElement(".login-container .qrcode-img").Attribute("src")
-	if err != nil {
-		return "", false, errors.Wrap(err, "get qrcode src failed")
-	}
-	if src == nil || len(*src) == 0 {
-		return "", false, errors.New("qrcode src is empty")
-	}
-
-	return *src, false, nil
+// MonitorLogin 持续观察真实页面，调用方保存登录信息后取消监控。
+// 稳定登录信号会重复通知，允许短暂上下文失效后重新尝试保存。
+func (a *LoginAction) MonitorLogin(ctx context.Context, onProgress func(LoginPhase) error) error {
+	return a.monitorLogin(ctx, onProgress, false)
 }
 
-func (a *LoginAction) WaitForLogin(ctx context.Context) bool {
-	pp := a.page.Context(ctx)
+func (a *LoginAction) monitorLogin(ctx context.Context, onProgress func(LoginPhase) error, stopOnLogin bool) error {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+	var phase LoginPhase
+	stableLogin := 0
 
 	for {
-		select {
-		case <-ctx.Done():
-			return false
-		case <-ticker.C:
-			el, err := pp.Element(".main-container .user .link-wrapper .channel")
-			if err == nil && el != nil {
-				return true
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		next, err := a.CurrentPhase(ctx)
+		if err != nil {
+			stableLogin = 0
+			// 手机确认会触发页面跳转，短暂丢失上下文时继续等待。
+			if !isTransientContextError(err) {
+				return err
+			}
+		} else {
+			if next == LoginLoggedIn {
+				if stableLogin < 2 {
+					stableLogin++
+				}
+			} else {
+				stableLogin = 0
+			}
+			if next != LoginLoggedIn || stableLogin >= 2 {
+				if next == LoginLoggedIn && stopOnLogin {
+					return ctx.Err()
+				}
+				if next != phase || next == LoginLoggedIn {
+					phase = next
+					if onProgress != nil {
+						if err := onProgress(phase); err != nil {
+							if !isTransientContextError(err) {
+								return err
+							}
+							stableLogin = 0
+						}
+					}
+					if next == LoginLoggedIn {
+						stableLogin = 0
+					}
+				}
 			}
 		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
+}
+
+// CurrentPhase 先读取正文里的实际验证文案，再判断背景页面的登录标记。
+func (a *LoginAction) CurrentPhase(ctx context.Context) (LoginPhase, error) {
+	return readLoginPhase(a.page.Context(ctx))
+}
+
+func readLoginPhase(page *rod.Page) (LoginPhase, error) {
+	exists, body, err := page.Has("body")
+	if err != nil {
+		return "", errors.Wrap(err, "check login page body failed")
+	}
+	var text string
+	if exists {
+		text, err = body.Text()
+		if err != nil {
+			return "", errors.Wrap(err, "read login page body failed")
+		}
+		text = strings.Join(strings.Fields(text), "")
+		if strings.Contains(text, "请通过验证") || strings.Contains(text, "扫码验证身份") ||
+			strings.Contains(text, "使用已登录该账号的小红书APP") {
+			return LoginVerificationRequired, nil
+		}
+	}
+	exists, _, err = page.Has(".main-container .user .link-wrapper .channel")
+	if err != nil {
+		return "", errors.Wrap(err, "check login completion failed")
+	}
+	if exists {
+		return LoginLoggedIn, nil
+	}
+	if strings.Contains(text, "请在手机上确认") || strings.Contains(text, "扫码成功") {
+		return LoginWaitingConfirmation, nil
+	}
+	return LoginWaitingScan, nil
 }

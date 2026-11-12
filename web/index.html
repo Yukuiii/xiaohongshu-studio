@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>红薯创作台 · 让灵感成为好笔记</title>
+    <link rel="stylesheet" href="/web/style.css" />
+    <script src="/web/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="红薯创作台首页"
+        ><span class="brand-mark">薯</span
+        ><span>红薯创作台<small>YOUR CREATIVE DESK</small></span></a
+      >
+      <div class="top-actions">
+        <span id="save-status" class="save-status" role="status"
+          >草稿保存在此浏览器</span
+        ><button id="settings-open" class="button quiet" data-lock>
+          创作设置</button
+        ><button id="account-open" class="button account" data-lock>
+          <span class="status-dot" id="account-dot"></span
+          ><span id="account-label">连接小红书</span>
+        </button>
+      </div>
+    </header>
+    <main class="workspace">
+      <section class="intro">
+        <div>
+          <p class="eyebrow">从一个灵感，到一篇好笔记</p>
+          <h1>今天，想分享什么<span>？</span></h1>
+          <p class="muted">
+            寻找真实参考，整理你的表达。每一次发布，都由你决定。
+          </p>
+        </div>
+        <span class="desk-label">创作工作台 <span> / 01</span></span>
+      </section>
+      <section class="onboarding" id="onboarding">
+        <span class="onboarding-icon">✦</span>
+        <div>
+          <strong>先准备好你的创作台</strong>
+          <p>
+            在「创作设置」连接文字模型，再连接小红书账号，即可搜索资料并生成草稿。配图也可以直接上传。
+          </p>
+        </div>
+        <button class="button small" id="setup-start" data-lock>
+          开始设置 →
+        </button>
+      </section>
+      <ol class="steps" aria-label="创作进度">
+        <li id="step-research" class="active"><span>01</span>寻找灵感</li>
+        <li id="step-edit"><span>02</span>打磨笔记</li>
+        <li id="step-publish"><span>03</span>确认发布</li>
+      </ol>
+      <div
+        id="status"
+        class="notice"
+        role="status"
+        aria-live="polite"
+        hidden
+      ></div>
+      <div
+        id="storage-notice"
+        class="notice warning"
+        role="status"
+        hidden
+      ></div>
+      <div id="publish-uncertain" class="notice warning" hidden>
+        <strong>上次发布的结果尚未确认</strong>
+        <p>
+          请求可能已经发送成功。请先打开小红书账号核对笔记，避免重复发布。核对后可解除锁定。
+        </p>
+        <label class="check-label"
+          ><input
+            type="checkbox"
+            id="reviewed-publish"
+            data-lock
+          />我已在小红书核对发布结果</label
+        ><button class="button small" id="unlock-publish" data-lock>
+          解除发布锁定
+        </button>
+      </div>
+      <div class="workspace-grid">
+        <div class="editor-column">
+          <section class="card" aria-labelledby="research-title">
+            <div class="section-heading">
+              <div>
+                <span class="section-kicker">01 / RESEARCH</span>
+                <h2 id="research-title">给灵感一个起点</h2>
+              </div>
+              <span class="pill">真实笔记参考</span>
+            </div>
+            <form id="research-form">
+              <label for="topic">创作选题 <span class="required">*</span></label
+              ><input
+                id="topic"
+                placeholder="例如：适合上班族的 15 分钟早餐"
+                required
+                maxlength="500"
+                data-lock
+              />
+              <label for="keywords"
+                >搜索关键词
+                <span class="field-note"
+                  >最多 3 个，用逗号或换行分隔</span
+                ></label
+              ><textarea
+                id="keywords"
+                rows="2"
+                placeholder="快手早餐，健康早餐，上班族早餐"
+                data-lock
+              ></textarea>
+              <label for="instructions"
+                >你希望怎么写 <span class="field-note">选填</span></label
+              ><textarea
+                id="instructions"
+                rows="3"
+                placeholder="例如：语气自然、步骤清楚，面向厨房新手；不要编造亲身体验。"
+                data-lock
+              ></textarea>
+              <div class="form-bottom">
+                <span class="helper">搜索参考 → 读取正文 → 整理草稿</span>
+                <div class="button-group">
+                  <button
+                    id="cancel-research"
+                    type="button"
+                    class="button quiet"
+                    hidden
+                  >
+                    取消</button
+                  ><button
+                    id="research-button"
+                    type="submit"
+                    class="button primary"
+                    data-lock
+                  >
+                    搜索并生成草稿 <span aria-hidden="true">↗</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+            <div class="sources-section">
+              <div class="subheading">
+                <h3>参考资料 <span id="source-count" class="count">0</span></h3>
+                <button id="regenerate" class="button text-button" data-lock>
+                  按所选资料重新生成 ↗
+                </button>
+              </div>
+              <p class="helper">
+                默认选取前 3 篇，可调整为 1–5
+                篇。只有成功读取正文的资料才会用于写稿。
+              </p>
+              <div id="source-list" class="source-list">
+                <div class="empty-state">
+                  <span class="empty-symbol">⌕</span>
+                  <p>好内容，从了解开始</p>
+                  <small>搜索后，你的参考笔记会出现在这里。</small>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="card" aria-labelledby="draft-title">
+            <div class="section-heading">
+              <div>
+                <span class="section-kicker">02 / EDIT</span>
+                <h2 id="draft-title">把表达，变成你的</h2>
+              </div>
+              <button id="save-draft" class="button quiet small" data-lock>
+                保存草稿
+              </button>
+            </div>
+            <div class="label-row">
+              <label for="title">笔记标题</label
+              ><span id="title-count" class="counter">0 / 20</span>
+            </div>
+            <input id="title" placeholder="一个让人想点开的标题" data-lock />
+            <div class="label-row">
+              <label for="content">正文</label
+              ><span id="content-count" class="counter">0 / 1000</span>
+            </div>
+            <textarea
+              id="content"
+              class="article-input"
+              rows="12"
+              placeholder="把你的发现、观点和实用建议写在这里。\n\n生成后仍可自由编辑；发布前请核对事实，加入自己的表达。"
+              data-lock
+            ></textarea>
+            <label for="tags"
+              >话题标签
+              <span class="field-note">用逗号、空格或 # 分隔</span></label
+            ><input id="tags" placeholder="#早餐灵感 #认真吃早餐" data-lock />
+            <div class="editor-footnote">
+              <span aria-hidden="true">✧</span> AI
+              协助表达，你负责判断。请确认事实、原创性与图片使用权。
+            </div>
+          </section>
+          <section class="card" aria-labelledby="images-title">
+            <div class="section-heading">
+              <div>
+                <span class="section-kicker">03 / VISUALS</span>
+                <h2 id="images-title">让笔记有画面</h2>
+              </div>
+              <span id="image-count" class="pill">0 / 9 张</span>
+            </div>
+            <div id="image-list" class="image-grid"></div>
+            <label for="upload" class="upload-zone" id="upload-zone"
+              ><span class="upload-plus">+</span><strong>选择本地图片</strong
+              ><span
+                >JPEG / PNG / WebP / GIF · 每张不超过 10 MB · 最多 9 张</span
+              ><input
+                type="file"
+                id="upload"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                multiple
+                data-lock
+            /></label>
+            <details class="image-ai">
+              <summary>用 AI 为这篇笔记生成配图 <span>可选</span></summary>
+              <div>
+                <label for="image-prompt">画面描述</label
+                ><textarea
+                  id="image-prompt"
+                  rows="3"
+                  placeholder="描述画面主体、风格、色彩和构图；可在草稿生成后继续调整。"
+                  data-lock
+                ></textarea>
+                <div class="form-bottom">
+                  <span class="helper">需在设置中单独配置生图模型</span
+                  ><button id="generate-image" class="button" data-lock>
+                    生成一张配图 ✦
+                  </button>
+                </div>
+              </div>
+            </details>
+          </section>
+        </div>
+        <aside class="preview-column" aria-label="笔记预览与发布">
+          <div class="preview-sticky">
+            <div class="preview-heading">
+              <span class="section-kicker">LIVE PREVIEW</span
+              ><span><span class="live-dot"></span> 实时预览</span>
+            </div>
+            <div class="phone">
+              <div class="phone-header">
+                <span aria-hidden="true">‹</span><span class="avatar">薯</span
+                ><span id="preview-author">你的创作账号</span
+                ><span class="preview-follow">创作中</span>
+              </div>
+              <div class="preview-cover" id="preview-cover">
+                <div class="preview-placeholder">
+                  <span>把生活的灵感<br />装进一篇笔记</span
+                  ><small>上传或生成图片，即可预览封面</small>
+                </div>
+              </div>
+              <div class="preview-body">
+                <h3 id="preview-title">你的下一篇好笔记</h3>
+                <p id="preview-content">
+                  从左侧的一个选题开始，或者直接写下你想分享的内容。
+                </p>
+                <p id="preview-tags" class="preview-tags"></p>
+                <div class="preview-date">刚刚 · 待发布</div>
+              </div>
+              <div class="phone-footer">
+                <span>说点什么…</span><span aria-hidden="true">♡　☆　♧</span>
+              </div>
+            </div>
+            <p class="preview-disclaimer">
+              预览仅供排版参考，实际展示以小红书为准
+            </p>
+            <section class="publish-panel">
+              <label for="visibility">谁可以看</label
+              ><select id="visibility" data-lock>
+                <option value="公开可见">公开可见</option>
+                <option value="仅自己可见">仅自己可见</option>
+                <option value="仅互关好友可见">仅互关好友可见</option></select
+              ><button
+                id="publish-open"
+                class="button primary publish-button"
+                data-lock
+              >
+                检查并发布 <span aria-hidden="true">→</span>
+              </button>
+              <p>先确认，再发布。不会自动发布任何内容。</p>
+              <div
+                id="publish-validation"
+                class="inline-error"
+                role="status"
+                hidden
+              ></div>
+            </section>
+          </div>
+        </aside>
+      </div>
+      <footer class="page-footer">
+        <span class="brand-mini">红薯创作台</span
+        ><span>让工具处理繁琐，让你专注表达。</span
+        ><button id="clear-draft" class="button text-button" data-lock>
+          清空本地草稿
+        </button>
+      </footer>
+    </main>
+    <dialog id="settings-dialog" class="dialog settings-dialog">
+      <form id="settings-form">
+        <div class="dialog-header">
+          <div>
+            <span class="section-kicker">SET UP YOUR DESK</span>
+            <h2>创作设置</h2>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            data-close="settings-dialog"
+            aria-label="关闭设置"
+          >
+            ×
+          </button>
+        </div>
+        <p class="muted">
+          配置仅保存在当前浏览器。API Key
+          会保存在浏览器本地存储中，请勿在共用设备保存；服务端不保存模型配置。
+        </p>
+        <fieldset>
+          <legend>文字模型 <span class="required">*</span></legend>
+          <label for="text-url">接口地址</label
+          ><input
+            type="url"
+            id="text-url"
+            placeholder="https://api.openai.com/v1"
+            data-lock
+          /><label for="text-key">API Key</label
+          ><input
+            type="password"
+            id="text-key"
+            autocomplete="off"
+            placeholder="填写文字模型的密钥"
+            data-lock
+          /><label for="text-model">模型名称</label>
+          <div class="input-action">
+            <input
+              id="text-model"
+              list="text-models"
+              placeholder="填写模型名称，或读取列表选择"
+              data-lock
+            /><button
+              type="button"
+              id="text-models-button"
+              class="button small"
+              data-lock
+            >
+              读取模型列表
+            </button>
+          </div>
+          <datalist id="text-models"></datalist>
+        </fieldset>
+        <fieldset>
+          <legend>
+            生图模型 <span class="field-note">选填 · 独立配置</span>
+          </legend>
+          <label for="image-url">接口地址</label
+          ><input
+            type="url"
+            id="image-url"
+            placeholder="支持图片生成的兼容接口地址"
+            data-lock
+          /><label for="image-key">API Key</label
+          ><input
+            type="password"
+            id="image-key"
+            autocomplete="off"
+            placeholder="填写生图模型的密钥"
+            data-lock
+          /><label for="image-model">模型名称</label>
+          <div class="input-action">
+            <input
+              id="image-model"
+              list="image-models"
+              placeholder="填写生图模型名称"
+              data-lock
+            /><button
+              type="button"
+              id="image-models-button"
+              class="button small"
+              data-lock
+            >
+              读取模型列表
+            </button>
+          </div>
+          <datalist id="image-models"></datalist>
+        </fieldset>
+        <details class="advanced">
+          <summary>高级：服务访问令牌</summary>
+          <label for="service-token">工作台访问令牌</label
+          ><input
+            type="password"
+            id="service-token"
+            autocomplete="off"
+            placeholder="仅在服务启用访问保护时填写"
+            data-lock
+          />
+          <p class="helper">这是工作台服务的访问凭证，与模型 API Key 不同。</p>
+        </details>
+        <div id="settings-status" class="notice" role="status" hidden></div>
+        <div class="dialog-actions">
+          <button
+            type="button"
+            id="clear-settings"
+            class="button quiet"
+            data-lock
+          >
+            清除已存配置</button
+          ><button type="submit" class="button primary" data-lock>
+            保存设置
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog
+      id="account-dialog"
+      class="dialog account-dialog"
+      aria-labelledby="account-title"
+    >
+      <div class="dialog-header">
+        <div>
+          <span class="section-kicker">CONNECT YOUR ACCOUNT</span>
+          <h2 id="account-title">连接小红书</h2>
+        </div>
+        <button
+          class="icon-button"
+          data-close="account-dialog"
+          aria-label="收起账号窗口，保留登录浏览器"
+        >
+          ×
+        </button>
+      </div>
+      <p class="muted">
+        在下方真实浏览器中完成登录和账号验证。如页面要求验证身份，请使用已登录该账号的小红书
+        App 扫码。
+      </p>
+      <div id="login-browser-placeholder" class="login-browser-placeholder">
+        点击「打开登录浏览器」，即可查看并操作完整登录页面。
+      </div>
+      <iframe
+        id="login-browser-frame"
+        class="login-browser-frame"
+        title="小红书登录和账号安全验证浏览器"
+        referrerpolicy="same-origin"
+        hidden
+      ></iframe>
+      <p id="login-browser-help" class="helper">
+        验证期间收起窗口会断开画面，后台浏览器保留；登录信息保存成功后自动关闭。
+        未完成的登录会话最长保留 20 分钟，二维码是否过期以真实页面为准。
+      </p>
+      <div
+        id="account-status"
+        class="notice"
+        role="status"
+        aria-live="polite"
+        hidden
+      ></div>
+      <div class="dialog-actions account-actions">
+        <a
+          id="login-browser-new-window"
+          class="button"
+          target="_blank"
+          rel="noopener noreferrer"
+          hidden
+          >在新窗口查看</a
+        >
+        <button id="check-login" class="button" disabled>检查登录状态</button>
+        <button id="close-login-browser" class="button" hidden>
+          结束登录窗口
+        </button>
+        <button id="open-login-browser" class="button primary">
+          打开登录浏览器
+        </button>
+      </div>
+    </dialog>
+    <dialog id="publish-dialog" class="dialog">
+      <div class="dialog-header">
+        <div>
+          <span class="section-kicker">ONE LAST LOOK</span>
+          <h2>准备好分享了吗？</h2>
+        </div>
+        <button
+          class="icon-button"
+          data-close="publish-dialog"
+          aria-label="关闭发布确认"
+        >
+          ×
+        </button>
+      </div>
+      <p class="muted">
+        点击「确认发布」会将这篇笔记真实发布到当前小红书账号。请最后核对内容与可见范围。
+      </p>
+      <dl class="publish-summary">
+        <dt>发布账号</dt>
+        <dd id="confirm-account"></dd>
+        <dt>笔记标题</dt>
+        <dd id="confirm-title"></dd>
+        <dt>图片数量</dt>
+        <dd id="confirm-images"></dd>
+        <dt>可见范围</dt>
+        <dd id="confirm-visibility"></dd>
+      </dl>
+      <label class="check-label"
+        ><input
+          type="checkbox"
+          id="publish-agree"
+          data-lock
+        />我已核对正文、配图及事实，确认发布这篇笔记</label
+      >
+      <div id="publish-status" class="notice" role="status" hidden></div>
+      <div class="dialog-actions">
+        <button class="button" data-close="publish-dialog" data-lock>
+          返回编辑</button
+        ><button id="publish-confirm" class="button primary" data-lock>
+          确认发布
+        </button>
+      </div>
+    </dialog>
+    <dialog id="clear-dialog" class="dialog">
+      <div class="dialog-header">
+        <h2>清空当前草稿？</h2>
+        <button class="icon-button" data-close="clear-dialog" aria-label="关闭">
+          ×
+        </button>
+      </div>
+      <p class="muted">
+        将清除当前浏览器的文字、参考资料及图片引用。服务端已保存的图片不会被删除，创作设置也会保留。
+      </p>
+      <div class="dialog-actions">
+        <button class="button" data-close="clear-dialog">保留草稿</button
+        ><button class="button primary" id="clear-draft-confirm" data-lock>
+          确认清空
+        </button>
+      </div>
+    </dialog>
+  </body>
+</html>

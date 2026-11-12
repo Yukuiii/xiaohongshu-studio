@@ -33,17 +33,25 @@ func authMiddleware(token string) gin.HandlerFunc {
 	}
 }
 
+// crossOriginMiddleware 检查业务写请求的浏览器来源。
+func crossOriginMiddleware() gin.HandlerFunc {
+	protection := http.NewCrossOriginProtection()
+	return func(c *gin.Context) {
+		if err := protection.Check(c.Request); err != nil {
+			respondError(c, http.StatusForbidden, "CROSS_ORIGIN_REQUEST", "请从服务自身页面访问", nil)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 // corsMiddleware CORS 中间件
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(http.StatusNoContent)
-			return
-		}
 
 		c.Next()
 	}

@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // setupRoutes 设置路由配置
@@ -23,32 +22,24 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 	// 健康检查
 	router.GET("/health", healthHandler)
 
-	// MCP 端点 - 使用官方 SDK 的 Streamable HTTP Handler
-	mcpHandler := mcp.NewStreamableHTTPHandler(
-		func(r *http.Request) *mcp.Server {
-			return appServer.mcpServer
-		},
-		&mcp.StreamableHTTPOptions{
-			JSONResponse: true, // 支持 JSON 响应
-			// 换取客户端可跳过 initialize 握手直接调工具。代价是服务端无法反向
-			// 请求客户端（sampling / elicitation / roots），眼下一处都没用到；
-			// 要用得先摘掉这行。
-			Stateless: true,
-		},
-	)
-	// 使用标准库中间件拒绝跨站 MCP 请求。
-	mcpHTTPHandler := http.NewCrossOriginProtection().Handler(mcpHandler)
+	registerWebRoutes(router)
+	router.Any("/desktop/*path", gin.WrapH(appServer.desktop))
+
+	// 业务 API 预检公开；未注册的协议路径仍返回 404。
+	router.OPTIONS("/api/v1/*path", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
 	protected := router.Group("")
 	protected.Use(authMiddleware(appServer.authToken))
-
-	protected.Any("/mcp", gin.WrapH(mcpHTTPHandler))
-	protected.Any("/mcp/*path", gin.WrapH(mcpHTTPHandler))
+	protected.Use(crossOriginMiddleware())
 
 	// API 路由组
 	api := protected.Group("/api/v1")
 	{
 		api.GET("/login/status", appServer.checkLoginStatusHandler)
-		api.GET("/login/qrcode", appServer.getLoginQrcodeHandler)
+		api.POST("/login/browser", appServer.openLoginBrowserHandler)
+		api.DELETE("/login/browser", appServer.closeLoginBrowserHandler)
 		api.DELETE("/login/cookies", appServer.deleteCookiesHandler)
 		api.POST("/publish", appServer.publishHandler)
 		api.POST("/publish_video", appServer.publishVideoHandler)
@@ -67,6 +58,11 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 		api.POST("/notifications/list", appServer.listNotificationsHandler)
 		api.POST("/notifications/reply", appServer.replyNotificationHandler)
 		api.POST("/notifications/like", appServer.likeNotificationHandler)
+		api.POST("/ai/models", appServer.aiModelsHandler)
+		api.POST("/ai/compose", appServer.aiComposeHandler)
+		api.POST("/ai/image", appServer.aiImageHandler)
+		api.POST("/images/upload", appServer.uploadImagesHandler)
+		api.GET("/images/:id", appServer.getImageHandler)
 	}
 
 	return router

@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 	"github.com/sirupsen/logrus"
 	"github.com/xpzouying/headless_browser"
 	"github.com/xpzouying/xiaohongshu-mcp/browser"
@@ -20,7 +24,8 @@ import (
 
 // XiaohongshuService 小红书业务服务
 type XiaohongshuService struct {
-	logins loginSessions
+	loginMu sync.Mutex
+	logins  loginSessions
 }
 
 // NewXiaohongshuService 创建小红书服务实例
@@ -43,16 +48,17 @@ type PublishRequest struct {
 
 // LoginStatusResponse 登录状态响应
 type LoginStatusResponse struct {
-	IsLoggedIn bool   `json:"is_logged_in"`
-	Username   string `json:"username,omitempty"` // 当前登录账号的昵称
-	UserID     string `json:"user_id,omitempty"`  // 用户唯一标识（个人主页 URL 中的 ID）
+	IsLoggedIn bool                   `json:"is_logged_in"`
+	Username   string                 `json:"username,omitempty"` // 当前登录账号的昵称
+	UserID     string                 `json:"user_id,omitempty"`  // 用户唯一标识（个人主页 URL 中的 ID）
+	Status     xiaohongshu.LoginPhase `json:"status"`
+	Message    string                 `json:"message"`
 }
 
-// LoginQrcodeResponse 登录扫码二维码
-type LoginQrcodeResponse struct {
-	Timeout    string `json:"timeout"`
-	IsLoggedIn bool   `json:"is_logged_in"`
-	Img        string `json:"img,omitempty"`
+// LoginBrowserResponse 可视化登录浏览器及当前会话进度。
+type LoginBrowserResponse struct {
+	LoginStatusResponse
+	Timeout string `json:"timeout"`
 }
 
 // PublishResponse 发布响应
@@ -99,13 +105,22 @@ type UserProfileResponse struct {
 
 // DeleteCookies 删除 cookies 文件，用于登录重置
 func (s *XiaohongshuService) DeleteCookies(ctx context.Context) error {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	s.logins.close()
 	cookiePath := cookies.GetCookiesFilePath()
 	cookieLoader := cookies.NewLoadCookie(cookiePath)
 	return cookieLoader.DeleteCookies()
 }
 
-// CheckLoginStatus 检查登录状态
+// CheckLoginStatus 活动期间只读取可视化会话，结束后重新检查真实登录态。
 func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatusResponse, error) {
+	state, active := s.logins.snapshot()
+	phase := state.phase
+	if active {
+		return loginSessionResponse(state), nil
+	}
+
 	b := newBrowser()
 	defer b.Close()
 
@@ -113,15 +128,17 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
 	defer page.Close()
 
 	loginAction := xiaohongshu.NewLogin(page)
-
 	isLoggedIn, err := loginAction.CheckLoginStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	response := &LoginStatusResponse{
-		IsLoggedIn: isLoggedIn,
+	if isLoggedIn {
+		phase = xiaohongshu.LoginLoggedIn
+	} else if phase != xiaohongshu.LoginExpired && phase != xiaohongshu.LoginFailed {
+		phase = xiaohongshu.LoginNotLoggedIn
 	}
+	response := loginProgressResponse(phase)
 
 	// 已登录时从当前页读取真实账号信息；读不到只记 warn，不影响状态返回。
 	if isLoggedIn {
@@ -136,71 +153,206 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
 	return response, nil
 }
 
-// GetLoginQrcode 获取登录的扫码二维码
-func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeResponse, error) {
-	b := newBrowser()
-	// 建页和取码都可能 panic。只有后台接手扫码后，才由它关闭浏览器。
-	handedOff := false
-	defer func() {
-		if !handedOff {
-			b.Close()
-		}
-	}()
+func loginProgressResponse(phase xiaohongshu.LoginPhase) *LoginStatusResponse {
+	return &LoginStatusResponse{
+		IsLoggedIn: phase == xiaohongshu.LoginLoggedIn,
+		Status:     phase,
+		Message:    loginPhaseMessage(phase),
+	}
+}
 
-	page := b.NewPage()
-	loginAction := xiaohongshu.NewLogin(page)
+func loginSessionResponse(state loginSessionSnapshot) *LoginStatusResponse {
+	response := loginProgressResponse(state.phase)
+	response.Username = state.user.Nickname
+	response.UserID = state.user.UserID
+	return response
+}
 
-	img, loggedIn, err := loginAction.FetchQrcodeImage(ctx)
-	if err != nil {
+func loginPhaseMessage(phase xiaohongshu.LoginPhase) string {
+	switch phase {
+	case xiaohongshu.LoginWaitingScan:
+		return "请使用手机小红书扫描二维码"
+	case xiaohongshu.LoginWaitingConfirmation:
+		return "扫码成功，请在手机小红书上确认本次网页登录"
+	case xiaohongshu.LoginVerificationRequired:
+		return "请在登录浏览器中通过账号安全验证，使用已登录该账号的小红书 APP 扫码验证身份"
+	case xiaohongshu.LoginSaving:
+		return "手机已确认，正在保存登录信息，请稍候"
+	case xiaohongshu.LoginLoggedIn:
+		return "登录成功"
+	case xiaohongshu.LoginExpired:
+		return "登录浏览器会话已到期，请重新打开登录浏览器"
+	case xiaohongshu.LoginFailed:
+		return "登录状态检查或登录信息保存失败，请结束登录窗口后重试"
+	default:
+		return "尚未登录，请打开登录浏览器并完成登录和账号验证"
+	}
+}
+
+const loginBrowserTimeout = 20 * time.Minute
+
+// OpenLoginBrowser 复用活动浏览器，不导航、不刷新二维码，也不延长会话期限。
+func (s *XiaohongshuService) OpenLoginBrowser(ctx context.Context) (response *LoginBrowserResponse, err error) {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	state, active := s.logins.snapshot()
+	if active && time.Now().Before(state.expiresAt) {
+		return loginBrowserResponse(state), nil
+	}
+	if active {
+		s.logins.expire(state.seq)
+		s.logins.close()
+	}
+	if runtime.GOOS == "linux" && os.Getenv("DISPLAY") == "" {
+		return nil, fmt.Errorf("可视化登录需要 DISPLAY，请使用包含内嵌桌面的应用镜像启动服务")
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	timeout := 4 * time.Minute
-
-	if !loggedIn {
-		s.waitScanInBackground(loginAction, page, b.Close, timeout)
-		handedOff = true
+	var b *headless_browser.Browser
+	handedOff := false
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			response = nil
+			err = fmt.Errorf("打开登录浏览器失败: %v", recovered)
+		}
+	}()
+	defer func() {
+		if b != nil && !handedOff {
+			b.Close()
+		}
+	}()
+	b = browser.NewBrowser(false,
+		browser.WithFingerprintSeed(configs.FingerprintSeed()),
+		browser.WithProxy(configs.Proxy()),
+	)
+	page := b.NewPage()
+	if err := page.Context(ctx).Timeout(5 * time.Second).SetWindow(&proto.BrowserBounds{WindowState: proto.BrowserWindowStateMaximized}); err != nil {
+		logrus.Warnf("无法自动最大化登录窗口，可在浏览器中手动调整: %v", err)
 	}
-
-	return &LoginQrcodeResponse{
-		Timeout: func() string {
-			if loggedIn {
-				return "0s"
-			}
-			return timeout.String()
-		}(),
-		Img:        img,
-		IsLoggedIn: loggedIn,
-	}, nil
+	loginAction := xiaohongshu.NewLogin(page)
+	if err := loginAction.Open(ctx); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.startLoginSession(loginAction, page, b.Close, loginBrowserTimeout)
+	handedOff = true
+	state, _ = s.logins.snapshot()
+	return loginBrowserResponse(state), nil
 }
 
-// waitScanInBackground 在后台等用户扫码，扫上了就存 cookie。
-//
-// 浏览器必须一直活着才检测得到扫码，所以这里不能提前关；但也不能任由它堆积——
-// 再取一次二维码就会把上一个还在等的会话关掉，同一时刻只留一个。
-func (s *XiaohongshuService) waitScanInBackground(
+func loginBrowserResponse(state loginSessionSnapshot) *LoginBrowserResponse {
+	remaining := time.Until(state.expiresAt).Round(time.Second)
+	if remaining < 0 {
+		remaining = 0
+	}
+	return &LoginBrowserResponse{
+		LoginStatusResponse: *loginSessionResponse(state),
+		Timeout:             remaining.String(),
+	}
+}
+
+// CloseLoginBrowser 只结束可视化会话，已保存的 cookie 保持不变。
+func (s *XiaohongshuService) CloseLoginBrowser() {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	s.logins.close()
+}
+
+func (s *XiaohongshuService) startLoginSession(
 	loginAction *xiaohongshu.LoginAction, page *rod.Page, closeBrowser func(), timeout time.Duration,
 ) {
-	ctxTimeout, cancel := context.WithTimeout(context.Background(), timeout)
-	seq := s.logins.start(cancel)
-	logrus.Infof("等待扫码登录，会话 #%d，超时 %s", seq, timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	expiresAt, _ := ctx.Deadline()
+	var closeOnce sync.Once
+	var seq uint64
+	stop := func() {
+		cancel()
+		closeOnce.Do(func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					s.logins.setPhase(seq, xiaohongshu.LoginFailed)
+					logrus.Errorf("关闭登录浏览器失败，会话 #%d: %v", seq, recovered)
+				}
+			}()
+			closeBrowser()
+		})
+	}
+	seq = s.logins.start(stop, expiresAt)
+	logrus.Infof("已打开登录浏览器，会话 #%d，超时 %s", seq, timeout)
 
 	go func() {
-		defer closeBrowser()
-		defer cancel()
-		defer s.logins.finish(seq)
-
-		if loginAction.WaitForLogin(ctxTimeout) {
-			if err := saveCookies(page); err != nil {
-				logrus.Errorf("扫码成功但保存 cookies 失败，会话 #%d: %v", seq, err)
-				return
+		setPhase := func(phase xiaohongshu.LoginPhase) bool {
+			if !s.logins.setPhase(seq, phase) {
+				return false
 			}
-			logrus.Infof("扫码登录成功，cookies 已保存，会话 #%d", seq)
-			return
+			logrus.Infof("%s，会话 #%d", loginPhaseMessage(phase), seq)
+			return true
 		}
+		defer s.logins.finish(seq)
+		defer stop()
+		defer func() {
+			if recovered := recover(); recovered != nil && setPhase(xiaohongshu.LoginFailed) {
+				logrus.Errorf("登录会话 #%d 异常: %v", seq, recovered)
+			}
+		}()
 
-		// 没等到扫码：要么超时，要么被新取的二维码取代
-		logrus.Infof("登录会话 #%d 结束，未检测到扫码（超时或已被新的二维码取代）", seq)
+		err := loginAction.MonitorLogin(ctx, func(phase xiaohongshu.LoginPhase) error {
+			if phase != xiaohongshu.LoginLoggedIn {
+				setPhase(phase)
+				return nil
+			}
+			state, active := s.logins.snapshot()
+			if !active || state.seq != seq || state.phase == xiaohongshu.LoginLoggedIn {
+				return nil
+			}
+			if state.phase != xiaohongshu.LoginSaving && !setPhase(xiaohongshu.LoginSaving) {
+				return nil
+			}
+			saveCtx, cancelSave := context.WithTimeout(ctx, 10*time.Second)
+			defer cancelSave()
+			data, err := readLoginCookies(saveCtx, page)
+			if err != nil {
+				return err
+			}
+			var user xiaohongshu.CurrentUser
+			if current, err := loginAction.CurrentUser(saveCtx); err != nil {
+				logrus.Warnf("读取登录账号信息失败，会话 #%d: %v", seq, err)
+			} else {
+				user = *current
+			}
+			// 读取 cookie 和账号信息期间可能出现验证；落盘前重新检查真实页面。
+			current, err := loginAction.CurrentPhase(saveCtx)
+			if err != nil {
+				return err
+			}
+			if current != xiaohongshu.LoginLoggedIn {
+				setPhase(current)
+				return nil
+			}
+			saved, err := s.logins.save(seq, saveCtx, user, func() error {
+				loader := cookies.NewLoadCookie(cookies.GetCookiesFilePath())
+				return loader.SaveCookies(data)
+			})
+			if saved {
+				logrus.Infof("登录信息已保存，会话 #%d；自动关闭登录浏览器", seq)
+				cancel()
+			}
+			return err
+		})
+		switch {
+		case errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded):
+			s.logins.expire(seq)
+		case errors.Is(err, context.Canceled):
+			// 保存成功、显式关闭或替换后结束监控，保留最终登录状态。
+		case err != nil:
+			if setPhase(xiaohongshu.LoginFailed) {
+				logrus.Errorf("检查或保存登录状态失败，会话 #%d: %v", seq, err)
+			}
+		}
 	}()
 }
 
@@ -630,19 +782,12 @@ func newBrowser() *headless_browser.Browser {
 	)
 }
 
-func saveCookies(page *rod.Page) error {
-	cks, err := page.Browser().GetCookies()
+func readLoginCookies(ctx context.Context, page *rod.Page) ([]byte, error) {
+	cks, err := page.Browser().Context(ctx).GetCookies()
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	data, err := json.Marshal(cks)
-	if err != nil {
-		return err
-	}
-
-	cookieLoader := cookies.NewLoadCookie(cookies.GetCookiesFilePath())
-	return cookieLoader.SaveCookies(data)
+	return json.Marshal(cks)
 }
 
 // withBrowserPage 执行需要浏览器页面的操作的通用函数

@@ -38,7 +38,10 @@ go.work.sum
 .DS_Store
 
 # Build artifacts
-xiaohongshu-mcp
+xiaohongshu-studio
+xiaohongshu-studio-*
+xiaohongshu-login
+xiaohongshu-login-*
 bin/
 
 # Test scripts

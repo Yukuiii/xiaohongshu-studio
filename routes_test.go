@@ -11,197 +11,197 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMCPStatelessSinglePost 固定「/mcp 接受不带 initialize 握手的单次 POST」这一契约。
-//
-// 契约由 routes.go 里一行 Stateless 支撑，丢掉它编译和其他单测都不会报错。
-func TestMCPStatelessSinglePost(t *testing.T) {
-	router := setupRoutes(NewAppServer(NewXiaohongshuService(), ""))
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	post := func(t *testing.T, body string) *http.Response {
-		t.Helper()
-		req, err := http.NewRequest(http.MethodPost, server.URL+"/mcp", strings.NewReader(body))
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json, text/event-stream")
-
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		return resp
-	}
-
-	// 只用 tools/list：它不碰浏览器，而契约丢失时它恰好就是失败点——
-	// 有状态模式下无 session 调用 tools/list 会被回以「握手前不允许调用」。
-	resp := post(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var result struct {
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-		Result struct {
-			Tools []struct {
-				Name string `json:"name"`
-			} `json:"tools"`
-		} `json:"result"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-
-	require.Nil(t, result.Error, "无握手的 tools/list 不应报错")
-	assert.NotEmpty(t, result.Result.Tools, "应返回已注册的工具")
-}
-
-// TestNotificationToolsRegistered 固定通知相关工具已注册到 MCP。
-//
-// 三个工具的注册各是 registerTools 里一段独立代码，漏掉任何一个编译都不会报错，
-// 只有真正调用时才会发现工具不存在。
-func TestNotificationToolsRegistered(t *testing.T) {
-	router := setupRoutes(NewAppServer(NewXiaohongshuService(), ""))
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	req, err := http.NewRequest(http.MethodPost, server.URL+"/mcp",
-		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	var result struct {
-		Result struct {
-			Tools []struct {
-				Name string `json:"name"`
-			} `json:"tools"`
-		} `json:"result"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-
-	names := make(map[string]bool, len(result.Result.Tools))
-	for _, tool := range result.Result.Tools {
-		names[tool.Name] = true
-	}
-
-	for _, want := range []string{"get_unread_count", "list_notifications", "reply_notification", "like_notification"} {
-		assert.True(t, names[want], "工具 %s 应已注册", want)
-	}
-}
-
-// TestNotificationRoutesRegistered 固定通知的 HTTP 路由存在。
-//
-// 读路由表而不是发请求：这些 handler 会真的起浏览器访问小红书，
-// 单测里不能碰。
-func TestNotificationRoutesRegistered(t *testing.T) {
-	router := setupRoutes(NewAppServer(NewXiaohongshuService(), ""))
-
-	registered := make(map[string]bool)
-	for _, r := range router.Routes() {
-		registered[r.Method+" "+r.Path] = true
-	}
-
-	// 列表接口两个参数都可选，GET 也要能进
-	for _, want := range []string{
-		"GET /api/v1/notifications/unread",
-		"GET /api/v1/notifications/list",
-		"POST /api/v1/notifications/list",
-		"POST /api/v1/notifications/reply",
-		"POST /api/v1/notifications/like",
+func TestWorkspaceRemainsPublicWithAuthentication(t *testing.T) {
+	router := setupRoutes(NewAppServer(nil, "secret-token"))
+	for _, asset := range []struct {
+		path        string
+		contentType string
+	}{
+		{"/", "text/html"},
+		{"/web/app.js", "text/javascript"},
+		{"/web/style.css", "text/css"},
 	} {
-		assert.True(t, registered[want], "路由 %s 应已注册", want)
+		t.Run(asset.path, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, asset.path, nil))
+			require.Equal(t, http.StatusOK, recorder.Code)
+			assert.Contains(t, recorder.Header().Get("Content-Type"), asset.contentType)
+		})
 	}
+}
+
+func TestHealthReportsStudioVersionWithoutAuthentication(t *testing.T) {
+	router := setupRoutes(NewAppServer(nil, "secret-token"))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Success bool              `json:"success"`
+		Data    map[string]string `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.True(t, response.Success)
+	assert.Equal(t, map[string]string{
+		"status":    "healthy",
+		"service":   "xiaohongshu-studio",
+		"version":   version,
+		"timestamp": "now",
+	}, response.Data)
 }
 
 func TestProtectedRoutesRequireBearerToken(t *testing.T) {
-	router := setupRoutes(NewAppServer(NewXiaohongshuService(), "secret-token"))
-
-	tests := []struct {
-		name       string
-		method     string
-		path       string
-		wantStatus int
+	router := setupRoutes(NewAppServer(nil, "secret-token"))
+	for _, endpoint := range []struct {
+		method string
+		path   string
 	}{
-		{name: "health remains public", method: http.MethodGet, path: "/health", wantStatus: http.StatusOK},
-		{name: "MCP requires token", method: http.MethodPost, path: "/mcp", wantStatus: http.StatusUnauthorized},
-		{name: "MCP child path requires token", method: http.MethodPost, path: "/mcp/child", wantStatus: http.StatusUnauthorized},
-		{name: "HTTP API requires token", method: http.MethodGet, path: "/api/v1/notifications/unread", wantStatus: http.StatusUnauthorized},
-		{name: "CORS preflight remains public", method: http.MethodOptions, path: "/mcp", wantStatus: http.StatusNoContent},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(tt.method, tt.path, nil)
-
-			router.ServeHTTP(recorder, request)
-
-			assert.Equal(t, tt.wantStatus, recorder.Code)
-		})
-	}
-}
-
-func TestMCPAcceptsConfiguredBearerToken(t *testing.T) {
-	router := setupRoutes(NewAppServer(NewXiaohongshuService(), "secret-token"))
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/mcp",
-		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
-	request.Header.Set("Authorization", "Bearer secret-token")
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json, text/event-stream")
-
-	router.ServeHTTP(recorder, request)
-
-	assert.Equal(t, http.StatusOK, recorder.Code)
-}
-
-func TestMCPRequestBoundaries(t *testing.T) {
-	router := setupRoutes(NewAppServer(NewXiaohongshuService(), ""))
-	tests := []struct {
-		name        string
-		origin      string
-		contentType string
-		wantStatus  int
-	}{
-		{name: "native client", contentType: "application/json", wantStatus: http.StatusOK},
-		{name: "same origin", origin: "http://localhost:18060", contentType: "application/json", wantStatus: http.StatusOK},
-		{name: "JSON with charset", contentType: "application/json; charset=utf-8", wantStatus: http.StatusOK},
-		{name: "cross-site JSON", origin: "https://untrusted.example", contentType: "application/json", wantStatus: http.StatusForbidden},
-		{name: "cross-site simple request", origin: "https://untrusted.example", contentType: "text/plain", wantStatus: http.StatusForbidden},
-		{name: "opaque origin", origin: "null", contentType: "application/json", wantStatus: http.StatusForbidden},
-		{name: "non-JSON content", contentType: "text/plain", wantStatus: http.StatusUnsupportedMediaType},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "http://localhost:18060/mcp",
-				strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
-			request.Header.Set("Content-Type", tt.contentType)
-			request.Header.Set("Accept", "application/json, text/event-stream")
-			if tt.origin != "" {
-				request.Header.Set("Origin", tt.origin)
+		{http.MethodGet, "/api/v1/login/status"},
+		{http.MethodPost, "/api/v1/login/browser"},
+		{http.MethodDelete, "/api/v1/login/browser"},
+		{http.MethodDelete, "/api/v1/login/cookies"},
+		{http.MethodPost, "/api/v1/publish"},
+		{http.MethodPost, "/api/v1/publish_video"},
+		{http.MethodGet, "/api/v1/feeds/list"},
+		{http.MethodGet, "/api/v1/feeds/search"},
+		{http.MethodPost, "/api/v1/feeds/search"},
+		{http.MethodPost, "/api/v1/feeds/detail"},
+		{http.MethodPost, "/api/v1/user/profile"},
+		{http.MethodPost, "/api/v1/feeds/comment"},
+		{http.MethodPost, "/api/v1/feeds/comment/reply"},
+		{http.MethodPost, "/api/v1/feeds/like"},
+		{http.MethodPost, "/api/v1/feeds/favorite"},
+		{http.MethodGet, "/api/v1/user/me"},
+		{http.MethodGet, "/api/v1/notifications/unread"},
+		{http.MethodGet, "/api/v1/notifications/list"},
+		{http.MethodPost, "/api/v1/notifications/list"},
+		{http.MethodPost, "/api/v1/notifications/reply"},
+		{http.MethodPost, "/api/v1/notifications/like"},
+		{http.MethodPost, "/api/v1/ai/models"},
+		{http.MethodPost, "/api/v1/ai/compose"},
+		{http.MethodPost, "/api/v1/ai/image"},
+		{http.MethodPost, "/api/v1/images/upload"},
+		{http.MethodGet, "/api/v1/images/example.png"},
+	} {
+		t.Run(endpoint.method+" "+endpoint.path, func(t *testing.T) {
+			for _, authorization := range []string{"", "Bearer wrong-token", "Basic secret-token"} {
+				request := httptest.NewRequest(endpoint.method, endpoint.path, strings.NewReader(`{}`))
+				request.Header.Set("Content-Type", "application/json")
+				request.Header.Set("Authorization", authorization)
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, request)
+				require.Equal(t, http.StatusUnauthorized, recorder.Code, "authorization: %q", authorization)
+				assert.Equal(t, "Bearer", recorder.Header().Get("WWW-Authenticate"))
+				var response ErrorResponse
+				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+				assert.Equal(t, "UNAUTHORIZED", response.Code)
 			}
-			recorder := httptest.NewRecorder()
-
-			router.ServeHTTP(recorder, request)
-
-			assert.Equal(t, tt.wantStatus, recorder.Code)
 		})
 	}
 }
 
-func TestMCPRejectsNullJSONKey(t *testing.T) {
-	router := setupRoutes(NewAppServer(NewXiaohongshuService(), ""))
-	// 尾随 NUL 的键不能覆盖真实 method 并触发另一个工具。
-	request := httptest.NewRequest(http.MethodPost, "/mcp",
-		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"not-a-method","method\u0000":"tools/list"}`))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json, text/event-stream")
+func TestAPIPreflightRemainsPublic(t *testing.T) {
+	router := setupRoutes(NewAppServer(nil, "secret-token"))
+	request := httptest.NewRequest(http.MethodOptions, "/api/v1/ai/compose", nil)
+	request.Header.Set("Origin", "http://localhost:18060")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	request.Header.Set("Access-Control-Request-Headers", "Authorization, Content-Type")
 	recorder := httptest.NewRecorder()
-
 	router.ServeHTTP(recorder, request)
+	assert.Equal(t, http.StatusNoContent, recorder.Code)
+	assert.Contains(t, recorder.Header().Get("Access-Control-Allow-Headers"), "Authorization")
+}
 
-	assert.Equal(t, http.StatusBadRequest, recorder.Code, "含 NUL 的 JSON 键应被拒绝")
+func TestRemovedProtocolEndpointsReturnNotFound(t *testing.T) {
+	for _, token := range []string{"", "secret-token"} {
+		router := setupRoutes(NewAppServer(nil, token))
+		for _, path := range []string{"/mcp", "/mcp/", "/mcp/child", "/mcp/child/nested"} {
+			for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete, http.MethodOptions} {
+				for _, authorization := range []string{"", "Bearer secret-token"} {
+					t.Run(token+" "+method+" "+path+" "+authorization, func(t *testing.T) {
+						request := httptest.NewRequest(method, path, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+						request.Header.Set("Content-Type", "application/json")
+						request.Header.Set("Authorization", authorization)
+						recorder := httptest.NewRecorder()
+						router.ServeHTTP(recorder, request)
+						assert.Equal(t, http.StatusNotFound, recorder.Code)
+						assert.Empty(t, recorder.Header().Get("WWW-Authenticate"))
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestRESTRejectsCrossSiteWrites(t *testing.T) {
+	for _, token := range []string{"", "workspace-token"} {
+		router := setupRoutes(NewAppServer(nil, token))
+		for _, endpoint := range []struct {
+			method string
+			path   string
+		}{
+			{http.MethodPost, "/api/v1/publish"},
+			{http.MethodDelete, "/api/v1/login/cookies"},
+			{http.MethodPost, "/api/v1/login/browser"},
+			{http.MethodDelete, "/api/v1/login/browser"},
+			{http.MethodPost, "/api/v1/ai/models"},
+			{http.MethodPost, "/api/v1/ai/compose"},
+			{http.MethodPost, "/api/v1/ai/image"},
+			{http.MethodPost, "/api/v1/images/upload"},
+		} {
+			for _, source := range []struct {
+				name        string
+				origin      string
+				fetchSite   string
+				contentType string
+			}{
+				{"cross-site JSON", "https://untrusted.example", "", "application/json"},
+				{"cross-site simple request", "https://untrusted.example", "cross-site", "text/plain"},
+				{"opaque origin", "null", "", "application/json"},
+				{"fetch metadata", "", "cross-site", "application/json"},
+			} {
+				t.Run(token+endpoint.path+"/"+source.name, func(t *testing.T) {
+					request := httptest.NewRequest(endpoint.method, "http://localhost:18060"+endpoint.path, strings.NewReader(`{}`))
+					request.Header.Set("Origin", source.origin)
+					request.Header.Set("Sec-Fetch-Site", source.fetchSite)
+					request.Header.Set("Content-Type", source.contentType)
+					if token != "" {
+						request.Header.Set("Authorization", "Bearer "+token)
+					}
+					recorder := httptest.NewRecorder()
+					router.ServeHTTP(recorder, request)
+					assert.Equal(t, http.StatusForbidden, recorder.Code)
+					assert.Contains(t, recorder.Body.String(), "CROSS_ORIGIN_REQUEST")
+				})
+			}
+		}
+	}
+}
+
+func TestRESTAcceptsSameOriginAndNativeRequests(t *testing.T) {
+	for _, token := range []string{"", "workspace-token"} {
+		router := setupRoutes(NewAppServer(nil, token))
+		for _, path := range []string{"/api/v1/publish", "/api/v1/ai/models"} {
+			for _, origin := range []string{"", "http://localhost:18060"} {
+				t.Run(token+path+"/"+origin, func(t *testing.T) {
+					request := httptest.NewRequest(http.MethodPost, "http://localhost:18060"+path, strings.NewReader(`{`))
+					request.Header.Set("Content-Type", "application/json")
+					request.Header.Set("Origin", origin)
+					if token != "" {
+						request.Header.Set("Authorization", "Bearer "+token)
+					}
+					recorder := httptest.NewRecorder()
+					router.ServeHTTP(recorder, request)
+					assert.Equal(t, http.StatusBadRequest, recorder.Code)
+					assert.Contains(t, recorder.Body.String(), "INVALID_REQUEST")
+				})
+			}
+		}
+	}
+}
+
+func TestExtractedQREndpointIsRemoved(t *testing.T) {
+	router := setupRoutes(NewAppServer(nil, ""))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/login/qrcode", nil))
+	assert.Equal(t, http.StatusNotFound, recorder.Code)
 }

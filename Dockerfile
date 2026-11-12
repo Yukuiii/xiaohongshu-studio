@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 # VERSION 由 CI 通过 --build-arg 传入，本地构建默认 dev
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/app .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/xiaohongshu-studio .
 
 # ---- run stage ----
 FROM ubuntu:22.04
@@ -25,13 +25,12 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 WORKDIR /app
 
-# 1. 先安装必要工具，然后配置阿里云镜像源
-RUN apt-get update && apt-get install -y ca-certificates wget gnupg && \
-    sed -i 's|http://archive.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list && \
-    sed -i 's|http://security.ubuntu.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list
-
-# 2. 安装内置浏览器运行依赖（Chromium 库）和中文字体
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 使用已有 CA 校验证书，再通过官方 HTTPS 源安装桌面与浏览器依赖。
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ARG APT_MIRROR=https://archive.ubuntu.com/ubuntu
+ARG APT_SECURITY_MIRROR=https://security.ubuntu.com/ubuntu
+RUN sed -i "s|http://archive.ubuntu.com/ubuntu|${APT_MIRROR}|g; s|http://security.ubuntu.com/ubuntu|${APT_SECURITY_MIRROR}|g" /etc/apt/sources.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     fonts-liberation \
@@ -80,41 +79,54 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     xdg-utils \
     xz-utils \
+    xvfb x11vnc novnc websockify x11-utils openbox \
+    fcitx5 fcitx5-rime rime-data-luna-pinyin fcitx5-frontend-gtk3 fcitx5-module-xorg \
+    dbus-x11 xsettingsd \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. 创建目录并设置权限。
+# 2. 创建目录并设置权限。
 RUN mkdir -p /app/data/home /app/data/config /app/images && \
     chmod -R 777 /app/data /app/images
 
-# 4. 下载并解压内置浏览器。构建阶段预置，运行时零下载。
+# 3. 下载并解压内置浏览器。构建阶段预置，运行时零下载。
 # 版本号唯一来源：browser/browser_version.txt（Go 也读它，避免两处漂移）。
-# 从自建 CDN 下载中性文件名，并校验 SHA256。
+# 从官方 fingerprint-chromium release 或同结构镜像下载，以仓库固定 SHA256 校验。
 #
 # 解压位置必须与 Go 端 EnsureBrowser 找的缓存路径一致：
 # $XDG_CACHE_HOME/xiaohongshu-mcp/browser/<版本>/，这样运行时零下载、也不需要任何参数。
 # 注意 XDG_CACHE_HOME 指向 /app/cache 而非挂载卷内，否则预置的浏览器会被挂载盖掉。
 ENV XDG_CACHE_HOME=/app/cache
+ARG BROWSER_DOWNLOAD_BASE=https://github.com/adryfish/fingerprint-chromium/releases/download
 COPY browser/browser_version.txt /tmp/browser_version.txt
+COPY browser/browser_checksums.txt /tmp/browser_checksums.txt
 RUN VER="$(cat /tmp/browser_version.txt | tr -d '[:space:]')" && \
-    BASE="https://cdn.one-world.ai/browsers/${VER}" && \
+    BASE="${BROWSER_DOWNLOAD_BASE%/}/${VER}" && \
+    ARCHIVE="ungoogled-chromium-${VER}-1-x86_64_linux.tar.xz" && \
     BROWSER_DIR="${XDG_CACHE_HOME}/xiaohongshu-mcp/browser/${VER}" && \
     mkdir -p "${BROWSER_DIR}" && \
-    curl -fsSL -o /tmp/browser.tar.xz "${BASE}/linux-x64.tar.xz" && \
-    curl -fsSL "${BASE}/SHA256SUMS" | grep " linux-x64.tar.xz$" | awk '{print $1"  /tmp/browser.tar.xz"}' | sha256sum -c - && \
-    tar -xJf /tmp/browser.tar.xz -C "${BROWSER_DIR}" --strip-components=1 && \
-    rm /tmp/browser.tar.xz /tmp/browser_version.txt && \
-    test -x "${BROWSER_DIR}/chrome" && \
+    curl -fsSL -o "/tmp/${ARCHIVE}" "${BASE}/${ARCHIVE}" && \
+    (cd /tmp && sha256sum --check --ignore-missing browser_checksums.txt) && \
+    tar -xJf "/tmp/${ARCHIVE}" -C "${BROWSER_DIR}" && \
+    rm "/tmp/${ARCHIVE}" /tmp/browser_version.txt /tmp/browser_checksums.txt && \
+    test -n "$(find "${BROWSER_DIR}" -type f -name chrome -perm /111 -print -quit)" && \
     chmod -R 755 /app/cache
 
-COPY --from=builder /out/app .
+COPY docker/desktop/start.sh /usr/local/bin/xhs-desktop-start
+COPY docker/desktop/fcitx5-profile /usr/local/share/xhs-fcitx5-profile
+COPY docker/desktop/rime-default.custom.yaml /usr/local/share/xhs-rime-default.custom.yaml
+RUN chmod 755 /usr/local/bin/xhs-desktop-start
+
+COPY --from=builder /out/xiaohongshu-studio .
 
 ENV HOME=/app/data/home
 ENV XDG_CONFIG_HOME=/app/data/config
+ENV DISPLAY=:99 LANG=C.UTF-8 \
+    XMODIFIERS=@im=fcitx GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx \
+    XHS_DESKTOP_URL=http://127.0.0.1:6080
 
 EXPOSE 18060
 
-# 用 tini 回收浏览器退出后被过继过来的子进程，避免堆积僵尸进程。
-# -s 注册为 child subreaper，容器另外带了 init 进程（如 compose 的 init: true）时同样生效
-ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
+# tini 回收浏览器子进程并将退出信号转发给同容器桌面会话。
+ENTRYPOINT ["/usr/bin/tini", "-s", "-g", "--", "dbus-run-session", "--", "/usr/local/bin/xhs-desktop-start"]
 
-CMD ["./app"]
+CMD ["/app/xiaohongshu-studio"]

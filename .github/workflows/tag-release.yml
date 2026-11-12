@@ -1,4 +1,4 @@
-name: Tag and Release
+name: Studio Tag and Release
 
 on:
   push:
@@ -74,15 +74,15 @@ jobs:
         LDFLAGS="-s -w -X main.version=${VERSION}"
 
         # macOS ARM64 (Apple Silicon)
-        CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o xiaohongshu-mcp-darwin-arm64 .
+        CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o xiaohongshu-studio-darwin-arm64 .
         CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o xiaohongshu-login-darwin-arm64 ./cmd/login
 
         # Windows x64
-        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o xiaohongshu-mcp-windows-amd64.exe .
+        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o xiaohongshu-studio-windows-amd64.exe .
         CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o xiaohongshu-login-windows-amd64.exe ./cmd/login
 
         # Linux x64
-        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o xiaohongshu-mcp-linux-amd64 .
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o xiaohongshu-studio-linux-amd64 .
         CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o xiaohongshu-login-linux-amd64 ./cmd/login
 
     - name: Generate changelog
@@ -111,7 +111,7 @@ jobs:
       uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ steps.version.outputs.version }}
-        name: Release ${{ steps.version.outputs.version }}
+        name: Xiaohongshu Studio ${{ steps.version.outputs.version }}
         draft: false
         prerelease: ${{ contains(steps.version.outputs.version, '-') }}
         body: |
@@ -127,12 +127,12 @@ jobs:
 
           ### 📦 下载说明
 
-          **主程序（MCP 服务）：**
-          - **macOS Apple Silicon**: `xiaohongshu-mcp-darwin-arm64`
-          - **Windows x64**: `xiaohongshu-mcp-windows-amd64.exe`
-          - **Linux x64**: `xiaohongshu-mcp-linux-amd64`
+          **主程序（红薯创作台）：**
+          - **macOS Apple Silicon**: `xiaohongshu-studio-darwin-arm64`
+          - **Windows x64**: `xiaohongshu-studio-windows-amd64.exe`
+          - **Linux x64**: `xiaohongshu-studio-linux-amd64`
 
-          **登录工具：**
+          **登录维护工具（可选；日常使用网页扫码）：**
           - **macOS Apple Silicon**: `xiaohongshu-login-darwin-arm64`
           - **Windows x64**: `xiaohongshu-login-windows-amd64.exe`
           - **Linux x64**: `xiaohongshu-login-linux-amd64`
@@ -140,21 +140,22 @@ jobs:
           ### 🔧 使用方法
 
           ```bash
-          # 1. 首先运行登录工具获取 cookie
-          ./xiaohongshu-login-darwin-arm64
+          # macOS 示例：为下载的程序添加执行权限并启动
+          chmod +x ./xiaohongshu-studio-darwin-arm64
+          ./xiaohongshu-studio-darwin-arm64
 
-          # 2. 然后启动 MCP 服务
-          ./xiaohongshu-mcp-darwin-arm64
-
-          # 或指定参数
-          ./xiaohongshu-mcp-darwin-arm64 -headless=false
+          # 需要显示自动化浏览器时
+          ./xiaohongshu-studio-darwin-arm64 -headless=false
           ```
+
+          打开 http://127.0.0.1:18060/，在工作台扫码登录、配置模型和编辑内容。
+          设置 `AUTH_TOKEN` 后，在页面填写相同的访问令牌。
 
           ### ⚠️ 注意事项
 
           - 首次运行时会自动下载无头浏览器（约 150MB），请确保网络连接正常
           - 后续运行无需重复下载浏览器
-          - 登录工具生成的 cookie 保存在 `~/.xiaohongshu/cookies.json`
+          - 登录数据默认保存在运行目录的 `cookies.json`；可通过 `COOKIES_PATH` 指定已有文件，更新时保留数据
 
           ### 📊 构建信息
 
@@ -162,9 +163,9 @@ jobs:
           - **Go Version**: ${{ steps.setup_go.outputs.go-version }}
           - **Build Time**: ${{ github.event.repository.updated_at }}
         files: |
-          xiaohongshu-mcp-darwin-arm64
-          xiaohongshu-mcp-windows-amd64.exe
-          xiaohongshu-mcp-linux-amd64
+          xiaohongshu-studio-darwin-arm64
+          xiaohongshu-studio-windows-amd64.exe
+          xiaohongshu-studio-linux-amd64
           xiaohongshu-login-darwin-arm64
           xiaohongshu-login-windows-amd64.exe
           xiaohongshu-login-linux-amd64

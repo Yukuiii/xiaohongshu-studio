@@ -1,4 +1,4 @@
-name: Docker Images
+name: Studio Docker Image
 
 on:
   pull_request:
@@ -7,6 +7,12 @@ on:
       - .dockerignore
       - docker/**
       - .github/workflows/docker-*.yml
+      - '**/*.go'
+      - go.mod
+      - go.sum
+      - web/**
+      - browser/browser_version.txt
+      - browser/browser_checksums.txt
   push:
     branches: [main]
     paths:
@@ -14,13 +20,19 @@ on:
       - .dockerignore
       - docker/**
       - .github/workflows/docker-*.yml
+      - '**/*.go'
+      - go.mod
+      - go.sum
+      - web/**
+      - browser/browser_version.txt
+      - browser/browser_checksums.txt
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  docker-images:
+  docker-image:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -33,35 +45,26 @@ jobs:
         with:
           use: false
 
-      # 使用同一份 PR 代码构建两种镜像，测试过程中不登录或推送仓库。
-      - name: Build default headless image
+      # 仅构建默认完整应用镜像，测试过程不登录或推送仓库。
+      - name: Build studio image with embedded desktop
         uses: docker/build-push-action@v7
         with:
           builder: ${{ steps.buildx.outputs.name }}
           context: .
           load: true
-          tags: xhs-mcp:ci
+          tags: xhs-studio:ci
           build-args: VERSION=ci
           # PR 缓存与正式发布缓存隔离，避免混用不受信任的构建结果。
-          cache-from: type=gha,scope=ci-headless
-          cache-to: type=gha,scope=ci-headless,mode=max
+          cache-from: type=gha,scope=ci-studio
+          cache-to: type=gha,scope=ci-studio,mode=max
           provenance: false
           sbom: false
 
-      - name: Check headless image remains the default
-        run: |
-          test "$(docker image inspect xhs-mcp:ci --format '{{json .Config.Cmd}}')" = '["./app"]'
-          docker run --rm --entrypoint /bin/sh xhs-mcp:ci -c '! command -v Xvfb && ! command -v x11vnc && ! command -v fcitx5'
-
-      - name: Build optional noVNC image
-        # 默认 docker builder 可以读取上一步加载到本机的基础镜像。
-        run: docker build --builder default --build-arg MCP_IMAGE=xhs-mcp:ci -t xhs-mcp:ci-novnc docker/novnc
-
-      - name: Check noVNC startup, access boundaries and recovery
-        run: python3 docker/novnc/smoke_test.py xhs-mcp:ci-novnc
+      - name: Check embedded desktop, access boundaries and recovery
+        run: python3 docker/desktop/smoke_test.py xhs-studio:ci
 
       # 扫描工具只运行在 CI，不进入任何成品镜像；下载文件按固定 SHA256 校验。
-      - name: Scan images and reject new GUI high or critical vulnerabilities
+      - name: Scan studio image vulnerabilities
         env:
           GRYPE_CHECK_FOR_APP_UPDATE: "false"
           GRYPE_DB_CACHE_DIR: ${{ runner.temp }}/grype-db
@@ -73,9 +76,8 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP" grype
           "$RUNNER_TEMP/grype" db update
           export GRYPE_DB_AUTO_UPDATE=false
-          "$RUNNER_TEMP/grype" docker:xhs-mcp:ci --quiet -o json > "$RUNNER_TEMP/image-audit/headless.json"
-          "$RUNNER_TEMP/grype" docker:xhs-mcp:ci-novnc --quiet -o json > "$RUNNER_TEMP/image-audit/novnc.json"
-          python3 docker/novnc/check_vulnerabilities.py "$RUNNER_TEMP/image-audit/headless.json" "$RUNNER_TEMP/image-audit/novnc.json"
+          "$RUNNER_TEMP/grype" docker:xhs-studio:ci --quiet -o json > "$RUNNER_TEMP/image-audit/studio.json"
+          python3 docker/desktop/check_vulnerabilities.py "$RUNNER_TEMP/image-audit/studio.json"
 
       - name: Save image vulnerability reports
         if: always()
