@@ -1,18 +1,47 @@
-# 红薯创作台
+# 红薯创作台 · Xiaohongshu Studio
 
-[English](./README_EN.md) · [Windows 安装](./docs/windows_guide.md) · [Docker 部署](./docker/README.md) · [HTTP API](./docs/API.md)
+[English](./README_EN.md) · [Docker 部署](./docker/README.md) · [HTTP API](./docs/API.md) · [贡献指南](./CONTRIBUTING.md)
 
-在浏览器中完成小红书选题、搜索取材、写稿、配图和确认发布。启动后打开 **http://localhost:18060/**；如果已有管理员部署，请打开管理员提供的工作台地址。
+面向小红书图文创作的自部署工作台。在浏览器中完成选题搜索、参考整理、AI 写稿、配图和发布确认，并支持多个账号独立保存登录状态、浏览器数据和草稿。
 
-前端使用 Vite + React，左侧「工作台」负责搜索、写稿、配图和发布，「账号」管理多个独立小红书账号及其浏览器数据，「设置」配置模型与服务令牌。在「账号」中添加、选择或重新登录账号，扫码使用真实网页。
+![红薯创作台工作台界面](./docs/screenshots/react-workspace.png)
 
-登录使用完整的可视化浏览器：工作台内嵌 noVNC 展示小红书原页面，扫码、手机确认和账号安全验证均可直接看到并处理。默认 Docker 应用将桌面组件与服务运行在同一个容器，只开放 `18060`，不需要另起 noVNC 容器。部署步骤见 [Docker 部署](./docker/README.md)。
+## 主要功能
 
-![多账号管理界面，本地验收数据](./docs/screenshots/multi-account.png)
+- **搜索取材**：搜索小红书笔记、读取正文，选择参考资料用于写作。
+- **写稿与编辑**：连接自己的文字模型，生成并编辑标题、正文、话题和配图描述，实时预览图文效果。
+- **上传与生图**：上传本地图片，或使用单独配置的图片模型生成配图。
+- **多账号管理**：添加、重命名、切换账号；每个账号使用独立的浏览器环境，保存完整站点数据。
+- **确认发布**：预览后再次确认发布；按账号保存发布保护状态，并协调同账号多个标签页的发布操作。
+- **HTTP API**：通过接口使用账号管理、搜索、图文与视频发布、评论、点赞、收藏及用户资料等能力。
 
-## 启动工作台
+## 快速开始
 
-本创作台需要从**当前仓库源码**运行或构建。上游历史发行包不代表包含本页面。安装 Go（当前 [go.mod](./go.mod) 要求 **1.27.4**）和 **Node.js 24**，在包含 go.mod 的项目目录打开终端，先构建前端：
+### Docker 部署（推荐）
+
+安装并启动 Docker，确保可以使用 Docker Compose，然后执行：
+
+```bash
+git clone https://github.com/Yukuiii/xiaohongshu-studio.git
+cd xiaohongshu-studio/docker
+./up.sh
+```
+
+启动后打开 **http://127.0.0.1:18060/**。
+
+一个容器内包含工作台、Go 服务、Chromium 和 noVNC 登录桌面，宿主机无需安装 Go、Node.js 或浏览器。首次构建需要下载依赖和浏览器，耗时取决于网络。
+
+`up.sh` 会从当前源码构建镜像，以当前提交的 12 位短 SHA 作为标签；存在未提交的已跟踪改动时追加 `-dirty`。例如：
+
+```text
+ghcr.io/yukuiii/xiaohongshu-studio:15156310500a
+```
+
+当前容器镜像使用 `linux/amd64`，Apple Silicon 需要 Docker 的 amd64 模拟支持。数据目录、代理、下载镜像源及远程部署方式见 [Docker 部署文档](./docker/README.md)。
+
+### 从源码运行
+
+准备 **Go 1.27.4** 和 **Node.js 24**。内置浏览器支持 macOS ARM64、Linux AMD64 和 Windows AMD64；Linux 原生扫码登录还需要浏览器运行依赖和桌面环境。在项目根目录执行：
 
 ```bash
 npm --prefix web ci
@@ -20,99 +49,117 @@ npm --prefix web run build
 go run .
 ```
 
-保持终端运行，在浏览器打开 **http://localhost:18060/**。首次启动会安装内置浏览器，请等待终端提示。源码在 macOS/Windows 上运行时，登录会直接弹出本机 Chromium 窗口；如需在工作台页面里操作浏览器，使用上述单应用 Docker 部署。Go 将 `web/dist/` 的页面和哈希资源嵌入程序，编译后的程序和生产容器运行时无需 Node。
+打开 **http://127.0.0.1:18060/**。首次运行会下载内置 Chromium；macOS / Windows 的登录窗口会在运行服务的电脑上打开。需要在工作台内操作登录浏览器时，使用 Docker 部署。
 
-需要构建可执行文件时，先更新前端产物再编译 Go：
+构建可执行文件：
 
 ```bash
-npm --prefix web ci
-npm --prefix web run build
 go build -o xiaohongshu-studio .
 ./xiaohongshu-studio
 ```
 
-Windows 具体步骤见 [Windows 安装指南](./docs/windows_guide.md)。使用容器时按 [Docker 部署说明](./docker/README.md) 从当前源码构建。
+Go 会将 `web/dist/` 嵌入程序，编译前需要先构建前端；生成的可执行文件运行时无需 Node.js。Windows 命令及环境准备见 [Windows 安装指南](./docs/windows_guide.md)。
 
-## 前端开发
+## 首次使用
 
-先按上面的命令安装依赖并构建一次 `web/dist/`，再在两个终端分别运行：
+1. **配置模型**：进入「设置」，填写文字模型的接口地址、API Key 和模型名称。支持 OpenAI 兼容接口，可读取模型列表或手动填写名称。
+2. **连接账号**：进入「账号」，添加或选择账号，打开登录网页，使用小红书 App 扫码并完成手机确认及页面要求的安全验证。
+3. **搜索并写稿**：回到「工作台」，填写选题、搜索关键词和写作要求，搜索资料并生成草稿。可以调整参考资料后重新生成。
+4. **编辑和配图**：检查标题、正文和话题，上传图片或配置图片模型生成配图，调整图片顺序并预览。
+5. **确认发布**：核对当前账号、内容和可见范围，在发布窗口中确认后提交。
+
+模型接口地址需要包含服务商要求的版本路径，例如 `https://api.openai.com/v1`，程序不会自动补 `/v1`。文字和图片可以使用不同服务；生图服务需支持 OpenAI 兼容的 `images/generations` 接口，上传图片无需配置生图服务。选中的参考资料会发送给你配置的文字模型。
+
+当前工作台主要面向图文笔记：标题最多 20 字（英文和数字按半字计），正文最多 1000 字，支持 1–9 张 JPEG、PNG、WebP 或 GIF 图片，每张不超过 10 MiB。视频发布等其他能力见 [HTTP API](./docs/API.md)。
+
+## 多账号与登录
+
+每个账号独立保存 Chromium 的完整用户数据，包括 Cookie、localStorage、IndexedDB、Service Worker、缓存和站点配置，并使用固定的指纹 seed 和独立下载目录。浏览器按需启动，任务之间复用；无头浏览器空闲 10 分钟后关闭，数据继续保留。
+
+账号选择只影响当前页面，任务执行期间禁止切换。同一账号的浏览器任务串行执行，不同账号可以独立运行。
+
+Docker 中的登录浏览器通过 noVNC 嵌入工作台，以全屏方式展示真实小红书页面。登录桌面同一时间供一个账号使用。登录信息保存成功后窗口自动关闭；未完成的登录会话最多保留 20 分钟，也可以点击「结束登录窗口」。
+
+重新登录会先使用候选浏览器数据，确认真实身份与账号绑定一致并保存成功后再启用；取消、失败或扫码错号会保留原来的浏览器数据。站点会话仍可能过期，过期后需要重新登录。
+
+![多账号管理界面，使用本地测试数据](./docs/screenshots/multi-account.png)
+
+## 配置与访问
+
+Docker 部署可在 `docker/.env` 中设置以下变量，保存后在 `docker/` 目录重新执行 `./up.sh`：
+
+| 变量 | 用途 | 默认值 |
+| --- | --- | --- |
+| `AUTH_TOKEN` | 工作台 API 访问令牌 | 未设置时不启用令牌鉴权 |
+| `XHS_WEB_PORT` | 映射到宿主机的端口 | `18060`，绑定 `127.0.0.1` |
+| `XHS_PROXY` | 小红书浏览器访问代理，支持 HTTP、HTTPS、SOCKS5 | 不使用代理 |
+| `XHS_DATA_DIR` | 宿主机持久化数据目录 | `docker/data/` |
+| `XHS_MEDIA_DIR` | 挂载到容器 `/app/images/` 的只读素材目录 | `docker/images/` |
+
+设置 `AUTH_TOKEN` 后，在工作台「设置」中填写相同令牌；HTTP 客户端使用 `Authorization: Bearer <token>`。它与模型 API Key 分开配置，授权访问整个工作台及所有账号。多账号调用时，通过 `X-XHS-Account-ID` 指定账号；只有一个有效账号时可省略。
+
+页面发布使用 Web Locks 协调同账号的多个标签页，需要支持该功能的浏览器，并通过 **HTTPS 或 localhost / 回环地址**访问。发布保护依赖当前浏览器的站点存储。远程服务器可以通过 SSH 转发到本机：
 
 ```bash
-# 终端一：Go API，默认 18060
+ssh -L 18060:127.0.0.1:18060 user@server
+```
+
+随后打开 **http://127.0.0.1:18060/**。反向代理部署时，页面、API 和 `/desktop/` WebSocket 需要保持同源。
+
+## 数据保存与备份
+
+| 数据 | Docker 部署 | 源码运行 |
+| --- | --- | --- |
+| 账号、完整浏览器数据及下载文件 | `docker/data/accounts/` | `XHS_ACCOUNTS_DIR`，默认位于旧 Cookie 文件同目录的 `.xhs-accounts/` |
+| 上传及生成的图片 | `docker/data/uploads/`，按账号保存 | 系统临时目录下的 `xiaohongshu_images/web/<account-id>/` |
+| 草稿及发布保护记录 | 访问工作台的浏览器 localStorage，按账号保存 | 同左 |
+| 模型配置、API Key 及服务令牌 | 访问工作台的浏览器 localStorage | 同左 |
+
+表中 Docker 路径以默认配置为例。备份前先停止服务，并保存完整的 `docker/data/` 或自定义数据目录；浏览器本地的草稿和配置需要单独保留。更换浏览器、访问地址或清除站点数据后，本地草稿不会自动恢复，开发端口与生产端口的数据也不共用。
+
+草稿中的图片引用不能替代图片文件，源码运行时需另行备份临时目录中的图片。浏览器数据恢复时应尽量保持运行环境一致，站点登录态仍可能过期。
+
+「重置浏览器数据」清空该账号的站点数据，保留账号身份绑定、指纹、草稿和素材；「移除账号」会清理该账号的浏览器数据、下载、托管图片和当前浏览器中的草稿。
+
+已有旧版 Cookie 的部署会在首次初始化时迁移到默认账号，之后使用完整浏览器数据保存会话。迁移及离线登录维护说明见 [Docker 文档](./docker/README.md)。
+
+## 本地开发
+
+后端使用 Go、Gin 和 go-rod，前端使用 React 19 和 Vite 8。先按源码运行步骤安装依赖并构建一次前端，再在两个终端分别运行：
+
+```bash
+# 终端一：Go 服务
 go run .
 ```
 
 ```bash
-# 终端二：Vite 热更新，默认 5173
+# 终端二：前端热更新
 npm --prefix web run dev
 ```
 
-开发时访问 **http://localhost:5173/**。Vite 将 `/api`、`/desktop`（含 WebSocket）及 `/health` 代理到 `http://127.0.0.1:18060`，页面、接口与登录桌面通过同一个浏览器来源访问。`5173` 是开发服务；生产使用 Go 的 `18060`。修改前端后重新执行 `npm --prefix web run build`，再重新编译或启动 Go，才能更新内嵌页面。缺少 `web/dist/` 时 Go 编译会失败。
+开发页面为 **http://127.0.0.1:5173/web/**。Vite 将 `/api`、`/desktop`（含 WebSocket）和 `/health` 代理到 Go 服务的 `18060` 端口。修改前端后，重新构建 `web/dist/` 并重启 Go 服务，才能更新生产页面。
 
-
-## 从选题到发布
-
-1. **配置文字模型。** 打开「设置」，填写 OpenAI 兼容服务的接口地址、API Key 和模型名称。例如接口地址为 `https://api.openai.com/v1`；版本路径由服务商决定，程序不会自动补 `/v1`。可以读取模型列表，也可以手动填写名称。
-2. **填写服务访问令牌。** 仅当部署者设置了 `AUTH_TOKEN` 时需要填写。它用于访问工作台服务，与模型 API Key 是两项独立配置。
-3. **添加、选择账号并扫码。** 在左侧「账号」管理备注名、选择账号或添加账号，在对应账号打开真实小红书登录页面。扫码并按手机提示确认；出现安全验证时，按页面要求用已登录该账号的小红书 App 完成验证。确认真实身份与绑定账号一致、浏览器数据落盘后才显示保存成功；重新登录失败会保留原浏览器数据。登录桌面同一时间只显示一个账号。
-4. **搜索取材并写稿。** 填写选题、搜索关键词和写作要求，开始搜索并生成草稿。工作台会搜索笔记、读取正文并交给文字模型整理。查看素材来源，调整选择后可以重新写稿。
-5. **编辑和配图。** 修改标题、正文、话题和画面描述；上传本地图片，或在设置中单独填写支持 OpenAI `images/generations` 的生图服务地址、Key 和模型。未配置生图服务也能上传图片。
-6. **预览并确认发布。** 核对事实、表达、图片顺序和可见范围，在发布确认窗口再次确认。生成草稿不会自动发布。
-
-页面发布使用 Web Locks 协调同账号的多个标签页，需要支持该功能的浏览器，并通过 HTTPS 或 `localhost` / 回环地址访问。远程 HTTP 部署可使用 SSH 转发到本机后打开工作台。
-
-标题最多 20 字（英文和数字按半字计），正文最多 1000 字。图文笔记需要 1–9 张图片，支持 JPEG、PNG、WebP、GIF，每张不超过 10 MiB。超长草稿会保留供编辑，发布前需缩短。
-
-当前页面围绕图文创作。视频发布、评论、点赞、收藏、用户资料等现有能力可通过 [HTTP API](./docs/API.md) 使用。
-
-## 指纹浏览器与下载源
-
-浏览器固定为 [fingerprint-chromium 148.0.7778.215](https://github.com/adryfish/fingerprint-chromium/releases/tag/148.0.7778.215)，保留原有平台伪装、固定指纹 seed 和 Cookie 配置。默认从该项目官方 GitHub Release 下载，不再依赖原项目作者的自建 CDN。已有浏览器缓存可以继续使用。
-
-源码启动时，可用 `XHS_BROWSER_DOWNLOAD_BASE` 指定兼容镜像，目录须保持 `<基址>/<版本>/<官方文件名>`；Docker 构建使用同名含义的 `BROWSER_DOWNLOAD_BASE` 构建参数或 `.env` 配置。所有来源都必须通过仓库固定的上游 SHA256 校验。部署示例见 [Docker 说明](./docker/README.md)。
-
-## 草稿、账号和数据
-
-- 配置、服务令牌和模型密钥仍保存在当前浏览器的 localStorage，共用 `hongshu-workbench.settings.v1`；每账号草稿使用 `hongshu-workbench.draft.v1:<account-id>`，保留原草稿结构；发布保护另存于 `hongshu-workbench.publish.v1:<account-id>`，普通草稿保存不会覆盖其他标签页的新发布状态。旧草稿只向固定旧账号迁入一次，不覆盖目标已有草稿，发布结果未知时的防重状态一并保留。保持原访问地址和浏览器；更换地址、浏览器或清除站点数据不会自动恢复。开发端口 `5173` 与生产端口 `18060` 的存储相互独立。
-- 服务端不持久化模型配置；写稿时会把选中的素材发送给你配置的模型服务。模型配置与服务令牌由整个工作台共用；令牌授权所有账号，账号槽位不是访问者权限隔离。
-- 每个账号保存独立固定 seed、下载目录及完整 Chromium user-data-dir，包括 Cookie、localStorage、IndexedDB、Service Worker、缓存和站点配置。数据根由 `XHS_ACCOUNTS_DIR` 指定，未设时取旧 Cookie 文件目录下的隐藏目录 `.xhs-accounts/`；账号元数据和 profile 位于 `<root>/<account-id>/`。按需启动浏览器、任务间复用，headless 实例空闲 10 分钟后正常退出并保留数据。会话 Cookie 由 profile 内的一次性快照接续，不自动重开旧页面；异常退出后可能需要重新登录。
-- 当前选择属于本页，每个请求通过 `X-XHS-Account-ID` 固定账号；切换不影响其他标签页。工作台任务进行中禁止切换，同一账号任务串行，不同账号独立运行。可视化登录共用一个桌面窗口，登录成功只代表最近验证通过，站点会话仍可能过期。
-- 首次初始化创建固定默认账号；原 `cookies.json` 或 `COOKIES_PATH` 指定的 v1/v2 文件仅用于一次迁移并保留源文件。默认账号优先保留迁移时有效的 `XHS_FP_SEED`，否则使用文件中的 seed 或独立生成；新增账号独立生成 seed。之后以完整 profile 为会话权威。移除默认账号不会再次导入旧数据，也无法补回旧版本未保存的站点数据。
-- 上传和生成的图片按账号保存在服务端系统临时目录 `xiaohongshu_images/web/<account-id>/`；旧图片只迁入固定旧账号并保留源文件。草稿引用不能替代图片文件，系统清理后需重新上传。Docker 将图片持久化到 `data/uploads/web/`，账号数据保存在 `data/accounts/`；备份或迁移前停止服务并保留整个 `data/`。profile 主要适用于同一机器和运行环境，不保证跨系统会话可用。
-- 「重置浏览器数据」清空站点数据，保留账号 ID、身份绑定、seed、草稿和素材；「移除账号」会删除该账号的浏览器数据、下载、托管图片和本浏览器中的草稿，不能在任务或登录进行中操作。兼容的 `DELETE /api/v1/login/cookies` 只清除所选浏览器 Cookie。
-
-## 离线维护登录
-
-先停止使用同一数据根的服务，再从源码目录运行以下命令，将 `ACCOUNT_ID` 替换为账号页或 `GET /api/v1/accounts` 返回的 ID：
+常用检查：
 
 ```bash
-go run ./cmd/login -account ACCOUNT_ID
+npm --prefix web test
+npm --prefix web run build
+go vet ./...
+go test ./...
 ```
 
-CLI 使用与服务相同的 `XHS_ACCOUNTS_DIR`、默认目录规则和进程锁；仅有一个有效账号时可省略 `-account`，零个或多个账号必须明确选择。重新登录在候选 profile 中完成，真实身份匹配且浏览器正常关闭落盘后才启用，失败保留原 profile。
+更多开发说明见 [贡献指南](./CONTRIBUTING.md)。发版使用语义化标签 `vX.Y.Z`，推送标签后触发 Release 和 Docker 镜像发布。
 
 ## 常见问题
 
-**页面打不开：** 确认服务终端仍在运行，使用的是启动日志中的端口；默认地址是 http://localhost:18060/。
+**扫码后仍未登录？** 查看真实登录页面是否还需要手机确认或账号安全验证。二维码过期时在页面内刷新。收起登录面板会保留后台登录窗口，结束会话请使用「结束登录窗口」。
 
-**提示未授权：** 在设置中填写部署者提供的服务令牌。页面公开可打开，业务接口和图片仍受令牌保护。
+**模型请求失败？** 检查接口地址、版本路径、API Key 和模型名称是否匹配；生图模型需要支持对应图片接口。
 
-**模型请求失败：** 检查地址、Key 和模型名称是否属于同一服务；包含服务商需要的版本路径，生图模型需支持对应的图片接口。
+**发布超时或结果未知？** 先到小红书确认笔记是否已发布，再按工作台提示处理发布保护，避免直接重复提交。
 
-**扫码后仍未登录：** 查看「账号」页中的真实浏览器画面。普通扫码后还需手机确认，部分账号会出现额外安全验证；验证未完成前不会标记为登录成功。二维码过期时在小红书原页面内刷新；未完成的会话最长保留 20 分钟，也可主动结束。登录信息保存成功后会自动关闭浏览器。
-
-部署时让页面和 API 使用同一地址；浏览器跨站写请求会被拒绝。服务鉴权配置见 [HTTP API 文档](./docs/API.md)。
+**首次启动下载失败？** 内置 fingerprint-chromium 从官方 GitHub Release 下载，并校验仓库固定的 SHA256。源码运行可配置 `XHS_BROWSER_DOWNLOAD_BASE`，Docker 构建可配置 `BROWSER_DOWNLOAD_BASE`，具体格式见 [Docker 文档](./docker/README.md)。
 
 ## 来源与许可证
 
-本项目基于 [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) 的浏览器自动化与 HTTP 功能改造，当前产品名为「红薯创作台」（xiaohongshu-studio）。原作者版权为 **Copyright 2025 xpzouying**，采用 [Apache License 2.0](./LICENSE)。Go module 路径继续使用上游标识，以兼容现有内部引用。
-
-欢迎按[贡献指南](./CONTRIBUTING.md)提交改进。
-
-## 📄 许可证
-
-本项目采用 [Apache License 2.0](LICENSE) 开源。
-
-你可以自由地使用、修改和分发本项目，包括用于商业用途，只需保留原始的版权声明和许可证文件。详细条款以 [LICENSE](LICENSE) 文件为准。
-
-向本项目提交的贡献，默认按同一许可证授权。
+本项目基于 [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) 的浏览器自动化与 HTTP 功能改造，原作者版权为 **Copyright 2025 xpzouying**。项目采用 [Apache License 2.0](./LICENSE)，保留原项目署名与许可声明。

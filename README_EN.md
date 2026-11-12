@@ -1,16 +1,47 @@
 # Xiaohongshu Studio · 红薯创作台
 
-[中文](./README.md) · [Windows setup](./docs/windows_guide.md) · [Docker deployment](./docker/README.md) · [HTTP API](./docs/API.md)
+[中文](./README.md) · [Docker deployment](./docker/README.md) · [HTTP API](./docs/API.md) · [Contributing](./CONTRIBUTING.md)
 
-A Chinese-language browser workspace for researching Xiaohongshu topics, drafting posts, adding images, and confirming publication. Open **http://localhost:18060/** after starting the service, or use the workspace URL supplied by your administrator.
+A self-hosted workspace for creating Xiaohongshu image posts. Research topics, select references, draft with AI, add images, and confirm publication in your browser. Manage multiple accounts with separate sign-in sessions, browser data, and drafts. The application interface is in Chinese.
 
-The frontend uses Vite + React. The left sidebar provides Workspace (工作台) for research, drafting, images, and publication; Accounts (账号) for multiple Xiaohongshu accounts and their separate browser data; and Settings (设置) for models and the service token. Add, select, or sign into an account from Accounts using the real sign-in page.
+![Xiaohongshu Studio workspace](./docs/screenshots/react-workspace.png)
 
-Sign-in uses the complete Xiaohongshu browser page, including phone confirmation and account-security checks. The default Docker application includes Chromium and the noVNC desktop in one container and exposes only port `18060`; no separate noVNC container is needed. See [Docker deployment](./docker/README.md).
+## Features
 
-## Start the workspace
+- **Research**: Search Xiaohongshu posts, read their content, and choose references for your draft.
+- **Draft and edit**: Connect your own text model to generate titles, body text, tags, and image descriptions, then edit them with a live preview.
+- **Upload and generate images**: Upload local pictures or generate illustrations through a separately configured image model.
+- **Manage accounts**: Add, rename, and switch accounts. Each account has its own browser environment and persistent site data.
+- **Confirm publication**: Review the preview and confirm before submitting. Publication protection state is kept per account, with coordination across tabs using the same account.
+- **HTTP API**: Access account management, search, image and video publication, comments, likes, favorites, user profiles, and other operations programmatically.
 
-Run or build from **this repository's current source**. Historical upstream downloads do not establish availability of this workspace. Install Go (**1.27.4**, as specified in [go.mod](./go.mod)) and **Node.js 24**, then build the frontend from the project directory containing go.mod:
+## Quick start
+
+### Docker deployment (recommended)
+
+Install and start Docker with Docker Compose available, then run:
+
+```bash
+git clone https://github.com/Yukuiii/xiaohongshu-studio.git
+cd xiaohongshu-studio/docker
+./up.sh
+```
+
+Open **http://127.0.0.1:18060/** once the service starts.
+
+A single container includes the workspace, Go service, Chromium, and the noVNC sign-in desktop. The host does not need Go, Node.js, or a browser installation for the service. The first build downloads dependencies and Chromium, so build time depends on your network.
+
+`up.sh` builds from the current source and tags the image with the current commit's 12-character SHA. Uncommitted changes to tracked files add a `-dirty` suffix. For example:
+
+```text
+ghcr.io/yukuiii/xiaohongshu-studio:15156310500a
+```
+
+The container image currently targets `linux/amd64`; Apple Silicon requires Docker's amd64 emulation support. See the [Docker guide](./docker/README.md) for data directories, proxies, download mirrors, and remote deployment.
+
+### Run from source
+
+Install **Go 1.27.4** and **Node.js 24**. The bundled browser supports macOS ARM64, Linux AMD64, and Windows AMD64. Native sign-in on Linux also needs Chromium runtime dependencies and a desktop environment. Run these commands from the project root:
 
 ```bash
 npm --prefix web ci
@@ -18,99 +49,117 @@ npm --prefix web run build
 go run .
 ```
 
-Keep the terminal open and visit **http://localhost:18060/**. First startup installs the bundled browser. Running source directly on macOS/Windows opens a visible local Chromium window for sign-in; use the single-application Docker deployment for the browser embedded in the workspace. Go embeds the page and hashed assets from `web/dist/`; the compiled executable and production container require no Node installation at runtime.
+Open **http://127.0.0.1:18060/**. The first launch downloads the bundled Chromium browser. On macOS and Windows, sign-in opens a local window on the computer running the service. Use Docker to operate the sign-in browser inside the workspace.
 
-To build an executable, refresh the frontend output before compiling Go:
+To build an executable:
 
 ```bash
-npm --prefix web ci
-npm --prefix web run build
 go build -o xiaohongshu-studio .
 ./xiaohongshu-studio
 ```
 
-See the [Windows guide](./docs/windows_guide.md) for PowerShell commands. For containers, follow the [Docker guide](./docker/README.md) to build from the current source.
+Go embeds `web/dist/`, so build the frontend before compiling the backend. The resulting executable does not need Node.js at runtime. See the [Windows setup guide](./docs/windows_guide.md) for platform-specific commands and prerequisites.
 
-## Frontend development
+## First use
 
-Install dependencies and build `web/dist/` once using the commands above, then run these in separate terminals:
+1. **Configure a model**: Open Settings (设置) and enter the text provider's base URL, API key, and model name. OpenAI-compatible APIs are supported; fetch the model list or enter a name manually.
+2. **Connect an account**: Open Accounts (账号), add or select an account, and open its sign-in page. Scan with the Xiaohongshu app and complete phone confirmation and any security checks shown on the page.
+3. **Research and draft**: Return to Workspace (工作台), enter a topic, search keywords, and writing instructions, then search for references and generate a draft. Adjust the selected references to draft again.
+4. **Edit and add images**: Review the title, body, and tags. Upload images or generate them with an image model, arrange their order, and check the preview.
+5. **Confirm publication**: Verify the selected account, content, and visibility, then confirm in the publication dialog.
+
+The provider URL must include any required version path, such as `https://api.openai.com/v1`; the application does not append `/v1`. Text and image models can use different providers. Image generation requires an OpenAI-compatible `images/generations` endpoint; uploading images does not require an image model. Selected reference material is sent to your configured text provider.
+
+The workspace currently focuses on image posts: titles allow 20 counted characters, with English letters and digits counting as half; bodies allow 1,000 characters. Posts use 1–9 JPEG, PNG, WebP, or GIF images, up to 10 MiB each. See the [HTTP API](./docs/API.md) for video publication and other operations.
+
+## Accounts and sign-in
+
+Each account saves a complete Chromium user-data directory, including Cookies, localStorage, IndexedDB, Service Workers, cache, and site configuration. It also has a fixed fingerprint seed and a separate download directory. Browsers start on demand and are reused between tasks. Idle headless browsers close after 10 minutes while retaining their data.
+
+Account selection belongs to the current page, and switching is blocked during a task. Browser tasks run serially within an account; different accounts can run independently.
+
+In Docker, noVNC embeds the real Xiaohongshu sign-in page in the workspace. The browser runs fullscreen, and the shared sign-in desktop serves one account at a time. The window closes automatically after sign-in is saved. Incomplete sessions remain available for up to 20 minutes, or you can use End sign-in window (结束登录窗口).
+
+Signing in again uses a candidate browser profile. The application activates it after verifying that the real identity matches the account binding and saving the browser data. Cancelling, failing, or scanning with the wrong account preserves the previous profile. Site sessions can still expire and require another sign-in.
+
+![Account management with local test data](./docs/screenshots/multi-account.png)
+
+## Configuration and access
+
+For Docker, set these variables in `docker/.env`, then run `./up.sh` again from `docker/`:
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `AUTH_TOKEN` | Service API access token | Token authentication disabled when unset |
+| `XHS_WEB_PORT` | Port mapped to the host | `18060`, bound to `127.0.0.1` |
+| `XHS_PROXY` | Proxy for the Xiaohongshu browser; supports HTTP, HTTPS, and SOCKS5 | No proxy |
+| `XHS_DATA_DIR` | Persistent data directory on the host | `docker/data/` |
+| `XHS_MEDIA_DIR` | Read-only media directory mounted at `/app/images/` | `docker/images/` |
+
+When `AUTH_TOKEN` is set, enter the same token in Settings. HTTP clients send `Authorization: Bearer <token>`. This token is separate from model API keys and grants access to the entire workspace and all accounts. Use `X-XHS-Account-ID` to select an account when multiple accounts exist; it can be omitted when there is exactly one active account.
+
+Publication uses Web Locks to coordinate tabs for the same account. Use a supporting browser over **HTTPS or localhost / a loopback address**. Publication protection depends on the current browser's site storage. For a remote server, forward the service to your computer through SSH:
 
 ```bash
-# Terminal one: Go API, port 18060 by default
+ssh -L 18060:127.0.0.1:18060 user@server
+```
+
+Then open **http://127.0.0.1:18060/**. When using a reverse proxy, keep the page, API, and `/desktop/` WebSocket under the same origin.
+
+## Storage and backups
+
+| Data | Docker deployment | Running from source |
+| --- | --- | --- |
+| Accounts, complete browser profiles, and downloads | `docker/data/accounts/` | `XHS_ACCOUNTS_DIR`; defaults to `.xhs-accounts/` beside the legacy Cookie file |
+| Uploaded and generated images | `docker/data/uploads/`, separated by account | `xiaohongshu_images/web/<account-id>/` under the system temporary directory |
+| Drafts and publication protection records | The visiting browser's localStorage, separated by account | Same |
+| Model configuration, API keys, and the service token | The visiting browser's localStorage | Same |
+
+Docker paths above assume the default configuration. Stop the service before backing up the entire `docker/data/` directory or your custom data directory. Drafts and settings in the visiting browser need to be retained separately. Changing browsers or workspace addresses, or clearing site data, does not restore local drafts automatically. Development and production ports also have separate browser storage.
+
+Image references in drafts do not replace the image files. When running from source, back up the images in the temporary directory separately. Restore browser profiles in the same runtime environment where possible; site sessions can still expire.
+
+Reset browser data (重置浏览器数据) clears an account's site data while retaining its identity binding, fingerprint, drafts, and images. Remove account (移除) deletes its browser data, downloads, managed images, and drafts in the current browser.
+
+On first initialization, deployments with legacy Cookie files migrate them into the default account. Subsequent sessions use complete browser profiles. See the [Docker guide](./docker/README.md) for migration and offline sign-in maintenance.
+
+## Local development
+
+The backend uses Go, Gin, and go-rod; the frontend uses React 19 and Vite 8. Install dependencies and build the frontend once using the source setup commands, then run these in separate terminals:
+
+```bash
+# Terminal one: Go service
 go run .
 ```
 
 ```bash
-# Terminal two: Vite with hot updates, port 5173 by default
+# Terminal two: frontend hot updates
 npm --prefix web run dev
 ```
 
-Visit **http://localhost:5173/** for development. Vite proxies `/api`, `/desktop` (including WebSocket), and `/health` to `http://127.0.0.1:18060`, so the page, API, and login desktop share a browser origin. Port `5173` serves development; Go serves production on `18060`. After frontend changes, run `npm --prefix web run build` and rebuild or restart Go to refresh the embedded page. Go compilation fails if `web/dist/` is missing.
+Open **http://127.0.0.1:5173/web/** for development. Vite proxies `/api`, `/desktop` (including WebSocket), and `/health` to the Go service on port `18060`. Rebuild `web/dist/` and restart Go to update the production page after frontend changes.
 
-
-## From topic to publication
-
-1. **Configure a text model.** Open Settings (设置) and enter an OpenAI-compatible base URL, API key, and model name. Include the provider's version path, for example `https://api.openai.com/v1`; the application does not append `/v1`. Fetch the model list or enter a name manually.
-2. **Enter a service token if required.** When the administrator enables `AUTH_TOKEN`, enter that token in Settings. It is separate from the model provider's API key.
-3. **Add, select, and sign into an account.** Manage account names, choose an account, or add one in Accounts (账号), then open its real Xiaohongshu sign-in page. Scan and confirm on your phone, including any security checks using the mobile app already signed into that account. Sign-in is saved only after the real identity matches the binding and browser data reaches disk. Failed sign-in preserves the previous browser data. The shared login desktop displays one account at a time.
-4. **Research and draft.** Enter a topic, search keywords, and writing instructions. The workspace searches notes, reads their content, and sends the selected sources to your text model. Review source material and change the selection before drafting again.
-5. **Edit and add images.** Edit the title, body, tags, and image description. Upload local pictures or configure a separate image provider's URL, key, and model supporting OpenAI `images/generations`. Uploading images works without an image model.
-6. **Review and confirm.** Check facts, wording, image order, preview, and visibility. Confirm again in the publication dialog. Generating a draft never publishes it automatically.
-
-The page uses Web Locks to coordinate publication across tabs for the same account. Use a supporting browser over HTTPS or `localhost` / a loopback address. For a remote HTTP deployment, forward the service to your local machine through SSH before opening the workspace.
-
-Titles allow 20 counted characters (English letters and digits count as half); bodies allow 1,000 characters. Image posts require 1–9 JPEG, PNG, WebP, or GIF files, at most 10 MiB each. Overlong drafts remain editable and must be shortened before publication.
-
-The current page focuses on image posts. Existing video publication, comments, likes, favorites, and profile operations remain available through the [HTTP API](./docs/API.md).
-
-## Fingerprint browser and downloads
-
-The application pins [fingerprint-chromium 148.0.7778.215](https://github.com/adryfish/fingerprint-chromium/releases/tag/148.0.7778.215), retaining platform spoofing, the fixed fingerprint seed, and Cookie settings. New downloads use that project's official GitHub Release instead of the original application's private CDN. Existing browser caches remain usable.
-
-For source launches, `XHS_BROWSER_DOWNLOAD_BASE` selects a compatible mirror serving `<base>/<version>/<official-filename>`. Docker builds use the `BROWSER_DOWNLOAD_BASE` argument or Compose `.env` setting. Every source is checked against the upstream SHA256 pinned in the repository. See [Docker configuration](./docker/README.md).
-
-## Drafts, accounts, and storage
-
-- Settings, service tokens, and model keys remain in browser localStorage under the shared `hongshu-workbench.settings.v1` key. Each account's draft uses `hongshu-workbench.draft.v1:<account-id>` with the existing payload. Publication protection is stored separately in `hongshu-workbench.publish.v1:<account-id>`, so ordinary draft saves cannot overwrite newer publication state from another tab. Old drafts migrate once to the fixed legacy account, preserve existing destination drafts, and retain duplicate prevention for uncertain publication results. Keep the same browser and workspace address; changing either or clearing site data does not restore data automatically. Ports `5173` and `18060` have separate storage.
-- The server does not persist model configuration. Selected research material is sent to your configured provider. Models and the service token are shared across the workspace; the token grants access to all accounts, and account slots do not isolate visitors' permissions.
-- Each account owns a fixed seed, downloads, and a complete Chromium user-data-dir, including Cookies, localStorage, IndexedDB, Service Workers, cache, and site configuration. `XHS_ACCOUNTS_DIR` sets the root; otherwise it is the hidden `.xhs-accounts/` directory beside the legacy Cookie file. Metadata and profiles live under `<root>/<account-id>/`. Browsers start on demand and are reused between tasks; idle headless instances close after 10 minutes while retaining data. A one-use snapshot inside the profile carries session Cookies across normal shutdowns without reopening old pages; abnormal exits may require sign-in again.
-- Selection belongs to the current page, and every request binds its account using `X-XHS-Account-ID`. Switching does not alter other tabs. The workspace prevents switching during a task; each account serializes browser work, while different accounts run independently. The shared desktop supports one sign-in window at a time. A previously verified account can still have an expired site session.
-- First initialization creates a fixed default account and imports the old v1/v2 `cookies.json` or `COOKIES_PATH` source once, retaining the original file. The default account preserves a valid migration-time `XHS_FP_SEED`, otherwise its file seed or a new seed. New accounts generate independent seeds. Complete profiles become the session authority thereafter. Removing the default account does not reimport legacy data; migration cannot recover site data older versions never saved.
-- Uploaded and generated images use `xiaohongshu_images/web/<account-id>/` in the server's temporary directory. Old images migrate only to the fixed legacy account, retaining source files. Draft references are not image backups; upload again if files are cleared. Docker persists images in `data/uploads/web/` and accounts in `data/accounts/`; stop the service and back up the entire `data/` directory. Profiles are intended for the same machine and runtime environment; sessions are not guaranteed across operating systems.
-- Reset browser data clears site data while retaining the account ID, identity binding, seed, drafts, and images. Remove account deletes its browser data, downloads, managed images, and this browser's draft; neither operation is allowed during a task or sign-in. The compatibility `DELETE /api/v1/login/cookies` operation clears only the selected browser's Cookies.
-
-## Offline sign-in maintenance
-
-Stop the service using the same data root, then run this from the source directory, replacing `ACCOUNT_ID` with an ID from Accounts or `GET /api/v1/accounts`:
+Common checks:
 
 ```bash
-go run ./cmd/login -account ACCOUNT_ID
+npm --prefix web test
+npm --prefix web run build
+go vet ./...
+go test ./...
 ```
 
-The CLI uses the service's `XHS_ACCOUNTS_DIR`, default directory rules, and process lock. Omit `-account` only when exactly one live account exists; zero or multiple accounts require an explicit selection. Sign-in uses a candidate profile and activates it only after verifying identity and shutting down the browser to flush data. Failure preserves the original profile.
+See the [contributing guide](./CONTRIBUTING.md) for more details. Releases use semantic version tags such as `vX.Y.Z`; pushing a version tag triggers Release and Docker image publication.
 
 ## Troubleshooting
 
-**Cannot open the page:** Keep the service running and check its configured port. The default URL is http://localhost:18060/.
+**Sign-in remains incomplete after scanning:** Check the actual sign-in page for phone confirmation or security verification. Refresh an expired QR code in the page. Collapsing the panel keeps the browser running; use End sign-in window (结束登录窗口) to end the session.
 
-**Unauthorized requests:** Enter the administrator's service token in Settings. The page is public, while protected API calls and image reads require authentication.
+**Model requests fail:** Check the base URL, version path, API key, and model name. The image model must support the image endpoint.
 
-**Model requests fail:** Check the provider URL, required version path, key, and model name. Image generation needs a model supporting the image endpoint.
+**Publication times out or has an unknown result:** Check Xiaohongshu to see whether the post was published before following the workspace's publication protection prompts. Avoid submitting it again immediately.
 
-**Sign-in does not complete:** Inspect the actual browser inside the account panel. Scanning can require phone confirmation and additional account-security verification. Refresh an expired QR code in the Xiaohongshu page itself. Pending sessions remain available for up to 20 minutes and can be ended manually; a successful saved login closes the browser automatically.
-
-Serve the page and API from the same origin; cross-site browser write requests are rejected. See the [HTTP API guide](./docs/API.md) for service authentication.
+**The first browser download fails:** The bundled fingerprint-chromium is downloaded from its official GitHub Release and verified against a SHA256 pinned in this repository. Configure `XHS_BROWSER_DOWNLOAD_BASE` for source launches or `BROWSER_DOWNLOAD_BASE` for Docker builds. See the [Docker guide](./docker/README.md) for the required mirror layout.
 
 ## Origin and license
 
-This project builds on the browser automation and HTTP functionality of [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp). The current product is Xiaohongshu Studio (红薯创作台). Original attribution is **Copyright 2025 xpzouying**. Licensed under the [Apache License 2.0](./LICENSE). The Go module path keeps the upstream identifier for compatibility with existing internal imports.
-
-See the [contributing guide](./CONTRIBUTING.md) for improvements.
-
-## 📄 License
-
-This project is open source under the [Apache License 2.0](LICENSE).
-
-You are free to use, modify and distribute this project, including for commercial purposes, as long as you keep the original copyright notice and license file. The [LICENSE](LICENSE) file is the authoritative source for the full terms.
-
-Contributions submitted to this project are licensed under the same license by default.
+This project builds on the browser automation and HTTP functionality of [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp). Original attribution is **Copyright 2025 xpzouying**. The project uses the [Apache License 2.0](./LICENSE) and retains the original attribution and license notices.
