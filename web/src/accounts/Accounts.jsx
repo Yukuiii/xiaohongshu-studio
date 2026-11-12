@@ -290,7 +290,7 @@ export default function Accounts({ account, manager, busy }) {
             </button>
           </div>
           <p className="muted">
-            使用小红书 App 扫描网页中的二维码，并按真实页面提示完成登录。
+            使用小红书 App 扫描网页中的二维码，并按真实页面提示完成登录。内嵌窗口以全屏方式展示，结束时请使用下方「结束登录窗口」。
           </p>
           {embedded ? (
             <div

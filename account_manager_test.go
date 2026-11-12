@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
 	"github.com/xpzouying/xiaohongshu-mcp/accounts"
 )
@@ -215,6 +216,13 @@ func TestLegacyImagesOnlyBelongToImportedAccount(t *testing.T) {
 	require.NoError(t, manager.migrateLegacyImages())
 	_, err = manager.store.Get(id)
 	require.True(t, errors.Is(err, accounts.ErrNotFound))
+}
+
+func TestLoginWindowHidesCloseButtonInEmbeddedDesktop(t *testing.T) {
+	t.Setenv("XHS_DESKTOP_URL", "http://127.0.0.1:6080")
+	require.Equal(t, proto.BrowserWindowStateFullscreen, loginWindowState())
+	t.Setenv("XHS_DESKTOP_URL", "")
+	require.Equal(t, proto.BrowserWindowStateMaximized, loginWindowState(), "原生窗口保留标题栏")
 }
 
 func TestImagePreviewLeasesAreConcurrent(t *testing.T) {
