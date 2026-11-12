@@ -8,7 +8,7 @@ Sign-in uses the complete Xiaohongshu browser page, including phone confirmation
 
 ## Start the workspace
 
-Run or build from **this repository's current source**. Historical upstream downloads do not establish availability of this workspace. Install Go (**1.27.3**, as specified in [go.mod](./go.mod)), then run this in the project directory containing go.mod:
+Run or build from **this repository's current source**. Historical upstream downloads do not establish availability of this workspace. Install Go (**1.27.4**, as specified in [go.mod](./go.mod)), then run this in the project directory containing go.mod:
 
 ```bash
 go run .

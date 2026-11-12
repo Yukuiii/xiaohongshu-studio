@@ -12,9 +12,9 @@ Thank you for your interest in Xiaohongshu Studio! The product is a browser work
 2. 在本地完成开发和测试
 3. 提交 PR 并填写清晰的描述
 
-在当前源码目录使用 `go run .`，打开 **http://localhost:18060/**。Go 版本以 [go.mod](./go.mod) 为准（当前为 1.27.3）。页面资源位于 `web/`，通过 Go 嵌入，无需单独的前端构建。构建程序使用 `go build -o xiaohongshu-studio .`。
+在当前源码目录使用 `go run .`，打开 **http://localhost:18060/**。Go 版本以 [go.mod](./go.mod) 为准（当前为 1.27.4）。页面资源位于 `web/`，通过 Go 嵌入，无需单独的前端构建。构建程序使用 `go build -o xiaohongshu-studio .`。
 
-Run `go run .` from the current source directory and open **http://localhost:18060/**. Use the Go version in [go.mod](./go.mod), currently 1.27.3. Files in `web/` are embedded in Go and require no separate frontend build. Build the executable with `go build -o xiaohongshu-studio .`.
+Run `go run .` from the current source directory and open **http://localhost:18060/**. Use the Go version in [go.mod](./go.mod), currently 1.27.4. Files in `web/` are embedded in Go and require no separate frontend build. Build the executable with `go build -o xiaohongshu-studio .`.
 
 页面流程见 [README](./README.md)，接口契约见 [HTTP API 文档](./docs/API.md)。涉及用户行为或接口的修改需同步更新这些文档；不要把未发布的源码功能描述成上游发行包已有功能。
 
