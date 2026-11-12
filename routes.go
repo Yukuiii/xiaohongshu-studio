@@ -36,6 +36,13 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 
 	// API 路由组
 	api := protected.Group("/api/v1")
+	api.GET("/accounts", appServer.listAccountsHandler)
+	api.POST("/accounts", appServer.createAccountHandler)
+	api.PATCH("/accounts/:id", appServer.renameAccountHandler)
+	api.DELETE("/accounts/:id", appServer.deleteAccountHandler)
+	api.POST("/accounts/:id/reset-profile", appServer.resetAccountHandler)
+	api.POST("/ai/models", appServer.aiModelsHandler)
+	api.Use(appServer.accountMiddleware())
 	{
 		api.GET("/login/status", appServer.checkLoginStatusHandler)
 		api.POST("/login/browser", appServer.openLoginBrowserHandler)
@@ -58,7 +65,6 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 		api.POST("/notifications/list", appServer.listNotificationsHandler)
 		api.POST("/notifications/reply", appServer.replyNotificationHandler)
 		api.POST("/notifications/like", appServer.likeNotificationHandler)
-		api.POST("/ai/models", appServer.aiModelsHandler)
 		api.POST("/ai/compose", appServer.aiComposeHandler)
 		api.POST("/ai/image", appServer.aiImageHandler)
 		api.POST("/images/upload", appServer.uploadImagesHandler)

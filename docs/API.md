@@ -27,6 +27,22 @@ Vite + React 创作台位于 `/`（内嵌的 `web/dist/index.html`），公开�
 
 源码构建先使用 Node.js 24 执行 `npm --prefix web ci`、`npm --prefix web run build`，再编译或运行 Go；缺少 `web/dist/` 时 Go 编译失败，生产运行无需 Node。开发时先构建一次，在两个终端分别运行 `go run .`（18060）与 `npm --prefix web run dev`（5173），访问 `http://localhost:5173/`。Vite 将 `/api`、`/desktop`（含 WebSocket）和 `/health` 代理到 `http://127.0.0.1:18060`，桌面 Cookie 与跨站写请求保护沿用原边界。
 
+## 账号选择与持久化
+
+账号管理接口和 `/api/v1/ai/models` 不要求选择账号。登录、搜索、详情、发布、互动、用户资料、写稿、生图、图片上传与读取等账号业务请求均携带 `X-XHS-Account-ID`，例如：
+
+```bash
+curl http://localhost:18060/api/v1/login/status \
+  -H "Authorization: Bearer your-secret-token" \
+  -H "X-XHS-Account-ID: 11111111111111111111111111111111"
+```
+
+仅有一个有效账号时允许省略此头；零个或多个账号时省略返回 `400 ACCOUNT_REQUIRED`。非法 ID 返回 `400 INVALID_ACCOUNT`，未知或已移除账号返回 `404 ACCOUNT_NOT_FOUND`，不会回退其他账号。以下业务接口示例均适用此规则。`user_id` 请求参数用于指定查询对象，与请求所属账号不同。
+
+账号选择按请求固定，服务不维护全局当前账号；同账号浏览器任务串行，忙时返回 `409 ACCOUNT_BUSY`，不同账号可以独立运行。列表不启动浏览器，`browser_status` 和最近绑定身份不等于登录永不过期。浏览器按需启动并复用，headless 实例空闲 10 分钟后正常关闭；完整 profile 和账号固定 seed 在重启后保留。
+
+`XHS_ACCOUNTS_DIR` 指定数据根；未设时使用旧 Cookie 路径同目录的隐藏目录 `.xhs-accounts/`。服务和维护 CLI 对同一个 root 互斥，CLI 使用前先停止服务。每个账号保存完整 Chromium user-data-dir，旧 v1/v2 Cookie 仅向固定默认账号首次导入，保留源文件；初始化完成后不再扫描，移除默认账号不会复活。旧草稿和托管图片也只迁入固定旧账号，保留原草稿结构、发布结果未知时的防重状态和迁移源。模型配置、服务令牌由整个工作台共用；拥有有效令牌即可访问所有账号，此功能不提供访问者权限隔离。
+
 ## 通用响应格式
 
 除图片读取接口直接返回图片外，API 响应使用统一的 JSON 格式：
@@ -54,9 +70,12 @@ Vite + React 创作台位于 `/`（内嵌的 `web/dist/index.html`），公开�
 | 方法 | 端点 | 描述 |
 |------|------|------|
 | GET | `/health` | 健康检查 |
-| GET | `/api/v1/login/status` | 检查登录状态 |
-| POST/DELETE | `/api/v1/login/browser` | 打开或结束可视化登录浏览器 |
-| DELETE | `/api/v1/login/cookies` | 删除 Cookies（重置登录） |
+| GET/POST | `/api/v1/accounts` | 列出或创建账号 |
+| PATCH/DELETE | `/api/v1/accounts/:id` | 修改备注名或移除账号 |
+| POST | `/api/v1/accounts/:id/reset-profile` | 重置所选账号的完整浏览器数据 |
+| GET | `/api/v1/login/status` | 检查所选账号登录状态 |
+| POST/DELETE | `/api/v1/login/browser` | 打开或结束所选账号的可视化登录浏览器 |
+| DELETE | `/api/v1/login/cookies` | 仅清除所选浏览器 Cookie |
 | POST | `/api/v1/publish` | 发布图文内容 |
 | POST | `/api/v1/publish_video` | 发布视频内容 |
 | GET | `/api/v1/feeds/list` | 获取 Feeds 列表 |
@@ -77,6 +96,53 @@ Vite + React 创作台位于 `/`（内嵌的 `web/dist/index.html`），公开�
 ---
 
 ## API 端点
+
+### 0. 账号管理
+
+`GET /api/v1/accounts` 返回公开账号元数据，不返回 Cookie、seed、profile 或本地路径，也不启动浏览器。成功响应的 `data` 示例：
+
+```json
+{
+  "accounts": [
+    {
+      "id": "11111111111111111111111111111111",
+      "name": "默认账号",
+      "user_id": "verified-user-id",
+      "nickname": "已验证昵称",
+      "created_at": "2026-11-13T00:00:00Z",
+      "updated_at": "2026-11-13T00:00:00Z",
+      "browser_status": "stopped",
+      "busy": false
+    }
+  ],
+  "legacy_account_id": "11111111111111111111111111111111",
+  "active_login": null
+}
+```
+
+`browser_status` 为 `stopped`、`running` 或 `login`；`active_login` 有值时包含当前可视化登录的 `account_id` 和 `session_id`。`legacy_account_id` 是固定迁移目标，移除后仍保留此值，不能将旧数据迁入其他账号。
+
+创建账号和修改备注名：
+
+```http
+POST /api/v1/accounts
+Content-Type: application/json
+
+{"name":"工作账号"}
+```
+
+```http
+PATCH /api/v1/accounts/11111111111111111111111111111111
+Content-Type: application/json
+
+{"name":"新的备注名"}
+```
+
+成功时 `data.account` 为上述公开元数据。创建账号只建立独立槽位和空 profile，随后用返回 ID 打开登录浏览器；重命名不改变真实身份绑定。
+
+`DELETE /api/v1/accounts/:id` 移除账号，清理其完整 profiles、下载目录及托管图片，并保留不含凭证的墓碑防止迟到回调或旧数据迁移复活。工作台同时清理本浏览器该账号草稿。存在任务或登录时返回 `409 ACCOUNT_BUSY`，空闲浏览器先关闭再清理。删除不会转移数据到其他账号。
+
+`POST /api/v1/accounts/:id/reset-profile` 无请求体，正常关闭浏览器后切换至空 profile，保留账号 ID、真实身份绑定、固定 seed、草稿和素材。成功时返回 `data.account`；任务或登录中返回 `409 ACCOUNT_BUSY`。此操作应由用户确认，与仅清 Cookie 的兼容接口不同。
 
 ### 1. 健康检查
 
@@ -132,7 +198,7 @@ GET /api/v1/login/status
 
 `status` 区分 `waiting_scan`（等待扫码）、`waiting_confirmation`（等待手机确认）、`verification_required`（需要账号安全验证）、`saving`（正在保存登录信息）、`logged_in`（已登录）、`expired`（浏览器会话到期）、`failed`（处理失败）、`not_logged_in`（未登录且无活动会话）。`message` 为相应的可读说明。扫码成功或仍有验证弹窗时，`is_logged_in` 为 `false`。
 
-左侧「账号」页的「添加账号」直接调用打开登录浏览器接口并展示真实扫码页面，仍使用服务现有的共享单账号会话。「工作台」用于创作，「设置」用于模型及服务令牌配置。登录区域打开期间串行检查进度，收起登录区域、切换导航或隐藏页面时停止前端轮询。验证未完成时后台浏览器继续保留；登录成功并保存 Cookie 后自动关闭浏览器，前端停止桌面连接、收起登录区域并显示已连接账号。原浏览器配置与草稿存储格式、服务端 Cookie 和桌面授权保持可用。
+「账号」页先创建或选择账号，再使用该 ID 打开真实扫码页面。重新登录使用已关闭 active profile 的候选副本；只有稳定登录、真实 `userID` 与已有绑定一致且未被其他账号绑定，候选浏览器正常关闭落盘后，才原子切换 active 指针并报告成功。未知、错配、重复身份或保存失败均保留原 profile。登录区域打开期间串行检查该账号进度，收起或隐藏页面停止前端轮询；后台窗口可继续保留到期限。成功时关闭浏览器、断开桌面连接并收起登录区域。
 
 #### 2.2 可视化登录浏览器
 
@@ -140,7 +206,7 @@ GET /api/v1/login/status
 POST /api/v1/login/browser
 ```
 
-无请求体。打开或复用当前登录浏览器，不提取二维码图片，也不会因为再次打开弹窗而重新扫码。默认应用镜像在同一个容器内运行 Go 服务、Chromium 和桌面组件，对外只需要工作台端口 `18060`。
+无请求体，使用 `X-XHS-Account-ID` 选择账号。打开或复用该账号的登录浏览器，不提取二维码图片，也不会因为再次查看而重新扫码。noVNC 同一时间只展示一个账号的登录窗口，另一个账号申请时返回 `409 LOGIN_BROWSER_BUSY`；明确结束原窗口后再打开。其他账号的 headless 任务可继续运行。默认应用镜像在同一容器内运行 Go、Chromium 和桌面组件，对外只需端口 `18060`。
 
 成功响应的 `data` 示例：
 
@@ -151,39 +217,31 @@ POST /api/v1/login/browser
   "message": "请在登录浏览器中完成登录和账号验证",
   "timeout": "20m0s",
   "mode": "desktop",
-  "desktop_url": "/desktop/vnc.html?autoconnect=1&resize=scale&path=desktop%2Fwebsockify"
+  "account_id": "11111111111111111111111111111111",
+  "session_id": "current-session-id",
+  "desktop_url": "/desktop/current-session-id/vnc.html?autoconnect=1&resize=scale&path=desktop%2Fcurrent-session-id%2Fwebsockify"
 }
 ```
 
 - `timeout` 是整个浏览器会话的剩余时间（Go duration 字符串），不是二维码的有效期。二维码失效时在真实浏览器页面内刷新。
 - `mode=desktop`：页面通过同源 iframe 展示 noVNC；普通扫码、手机确认、滑块或账号安全验证都在同一个浏览器中完成。
 - `mode=native`：直接以源码运行在 macOS/Windows 时打开本机可见的 Chromium，`desktop_url` 为空。页面内嵌桌面应使用默认应用镜像。
-- 成功保存登录信息后浏览器自动关闭；验证未完成时可继续查看，最长保留 20 分钟。`DELETE /api/v1/login/browser` 可提前结束窗口，保留已经保存的 Cookie；没有活动会话时同样成功。
+- 成功提交完整 profile 后关闭浏览器；验证未完成时可继续查看，最长保留 20 分钟。结束窗口使用 `DELETE /api/v1/login/browser?session_id=<原session_id>` 并携带同一账号头，防止迟到请求关闭新窗口。取消、过期和失败时丢弃候选，保留原 active profile。
 
-`/desktop/*` 是工作台服务内部的桌面代理。打开登录浏览器的授权请求会设置短期、HttpOnly、SameSite=Strict Cookie，供 iframe 与 WebSocket 使用；不把服务令牌放进 URL。桌面页面、静态资源和 WebSocket 都校验桌面 Cookie，并拒绝跨站访问。内部 VNC/桌面端口不映射到宿主机，无需单独部署 noVNC 容器。浏览器须允许本站 Cookie。
+`/desktop/<session-id>/*` 是内部桌面代理，客户端使用响应中的 `desktop_url`。授权请求设置短期、HttpOnly、SameSite=Strict Cookie，票据绑定账号、随机会话 ID 和期限；URL 不包含服务令牌。桌面页面、静态资源和 WebSocket 均核对当前租约与票据，并拒绝跨站访问。窗口结束、过期或失败时撤销授权并断开已有 WebSocket，旧 viewer 不能看到后续账号。内部 VNC/桌面端口不映射到宿主机，浏览器须允许本站 Cookie。
 
 Linux 无桌面且未使用默认应用镜像时，打开接口返回明确错误，不会退回隐藏二维码流程。
 
-#### 2.3 删除 Cookies（重置登录状态）
+#### 2.3 清除所选浏览器 Cookie
 
-删除本地存储的 cookies 文件，重置登录状态。
+`DELETE /api/v1/login/cookies` 携带所选账号头，只清除该账号持久 profile 内的 Cookie；保留 localStorage、IndexedDB、缓存、账号 ID、seed 与身份绑定，不删除旧 Cookie 迁移源，也不影响其他账号。完整清空站点数据请在用户确认后调用 `POST /api/v1/accounts/:id/reset-profile`。账号忙或登录中返回 `409 ACCOUNT_BUSY`。
 
-**请求**
-```
+```http
 DELETE /api/v1/login/cookies
+X-XHS-Account-ID: 11111111111111111111111111111111
 ```
 
-**响应**
-```json
-{
-  "success": true,
-  "data": {
-    "cookie_path": "/path/to/cookies.json",
-    "message": "Cookies 已成功删除，登录状态已重置。下次操作时需要重新登录。"
-  },
-  "message": "删除 cookies 成功"
-}
-```
+成功响应使用通用格式，不返回 Cookie 或本地文件路径。
 
 ---
 
@@ -1000,14 +1058,14 @@ Content-Type: multipart/form-data
     {
       "id": "0123456789abcdef0123456789abcdef.png",
       "name": "封面.png",
-      "path": "/server/temp/xiaohongshu_images/web/0123456789abcdef0123456789abcdef.png",
+      "path": "/server/temp/xiaohongshu_images/web/11111111111111111111111111111111/0123456789abcdef0123456789abcdef.png",
       "url": "/api/v1/images/0123456789abcdef0123456789abcdef.png"
     }
   ]
 }
 ```
 
-`path` 是服务端绝对路径，原样传入发布接口的 `images` 数组。`url` 用于预览：启用鉴权时须携带服务 Token 获取图片，前端使用 Blob URL 展示，不在链接中附带 Token。读取接口仅接受该目录内的随机图片 ID；图片响应为 `private, no-store`。文件保存在服务端临时目录，系统清理后需要重新上传。
+`path` 是服务端该账号目录中的绝对路径，原样传入同一账号发布接口的 `images` 数组。`url` 用于预览：启用鉴权时须携带服务 Token 和相同的 `X-XHS-Account-ID` 获取图片，前端使用 Blob URL 展示，不在链接中附带 Token。跨账号读取返回不存在，发布其他账号托管图片返回 `400 IMAGE_ACCOUNT_MISMATCH`。图片响应为 `private, no-store`。旧托管图片路径仅在固定旧账号内兼容映射，其他账号不会回退到旧共享目录；外部本地素材与 URL 仍按发布接口规则使用。默认源码运行将图片保存在系统临时目录，系统清理后需重新上传；Docker 将其持久化到 `data/uploads/web/<account-id>/`。
 
 #### 8.4 AI 配图
 
@@ -1037,6 +1095,15 @@ Content-Type: multipart/form-data
 | 错误代码 | HTTP 状态码 | 描述 |
 |----------|-------------|------|
 | `INVALID_REQUEST` | 400 | 请求参数错误或格式不正确 |
+| `ACCOUNT_REQUIRED` | 400 | 零个或多个账号时缺少明确账号选择 |
+| `INVALID_ACCOUNT` | 400 | 账号 ID 或备注名无效 |
+| `ACCOUNT_NOT_FOUND` | 404 | 账号未知或已移除 |
+| `ACCOUNT_BUSY` | 409 | 所选账号存在进行中的任务或登录 |
+| `LOGIN_BROWSER_BUSY` | 409 | 共享桌面正用于另一个账号的登录 |
+| `LOGIN_SESSION_CHANGED` | 409 | 结束窗口的 session_id 与当前会话不符 |
+| `ACCOUNT_IDENTITY_MISMATCH` | 409 | 扫码真实身份与已有绑定不同 |
+| `ACCOUNT_ALREADY_EXISTS` | 409 | 该真实身份已绑定其他账号 |
+| `IMAGE_ACCOUNT_MISMATCH` | 400 | 发布图片属于其他账号 |
 | `MISSING_KEYWORD` | 400 | 搜索时缺少关键词参数 |
 | `STATUS_CHECK_FAILED` | 500 | 检查登录状态失败 |
 | `DELETE_COOKIES_FAILED` | 500 | 删除 Cookies 失败 |

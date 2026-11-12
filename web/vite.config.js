@@ -6,6 +6,11 @@ const backend = "http://127.0.0.1:18060";
 export default defineConfig({
   base: "/web/",
   plugins: [react()],
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.js"],
+    restoreMocks: true,
+  },
   server: {
     host: "127.0.0.1",
     port: 5173,

@@ -14,6 +14,7 @@ import (
 
 // AppServer 应用服务器结构体，封装所有服务和处理器
 type AppServer struct {
+	accounts           *AccountManager
 	xiaohongshuService *XiaohongshuService
 	router             *gin.Engine
 	httpServer         *http.Server
@@ -30,9 +31,26 @@ func NewAppServer(xiaohongshuService *XiaohongshuService, authToken string) *App
 	}
 }
 
+// NewAccountAppServer 为生产服务装配多账号管理和桌面撤销。
+func NewAccountAppServer(manager *AccountManager, token string) *AppServer {
+	s := NewAppServer(nil, token)
+	s.accounts = manager
+	s.desktop.sessionActive = manager.visualActive
+	manager.onLoginEnd = s.desktop.revoke
+	return s
+}
+
 // Start 启动服务器
 func (s *AppServer) Start(port string) error {
-	defer s.xiaohongshuService.CloseLoginBrowser()
+	defer func() {
+		if s.accounts != nil {
+			if err := s.accounts.Close(); err != nil {
+				logrus.Errorf("账号浏览器退出未完成: %v", err)
+			}
+		} else if s.xiaohongshuService != nil {
+			s.xiaohongshuService.CloseLoginBrowser()
+		}
+	}()
 	s.router = setupRoutes(s)
 
 	s.httpServer = &http.Server{
@@ -61,6 +79,7 @@ func (s *AppServer) Start(port string) error {
 
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		logrus.Warnf("等待连接关闭超时，强制退出: %v", err)
+		_ = s.httpServer.Close()
 	} else {
 		logrus.Infof("服务器已优雅关闭")
 	}

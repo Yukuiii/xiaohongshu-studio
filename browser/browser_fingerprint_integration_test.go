@@ -15,6 +15,7 @@ func TestFingerprintBrowserSignals(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("部署镜像中的 Linux 指纹回归")
 	}
+	cachedFixtureBrowser(t)
 	t.Setenv("COOKIES_PATH", filepath.Join(t.TempDir(), "cookies.json"))
 	capture := func(seed int) (string, string) {
 		t.Helper()

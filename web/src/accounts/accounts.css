@@ -1,3 +1,17 @@
+.accounts-card.selected {
+  border-color: #d94e61;
+}
+
+.current-account {
+  margin-left: auto;
+  min-width: 0;
+  color: #77716a;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .accounts-intro {
   display: flex;
   align-items: center;
@@ -51,6 +65,7 @@
 
 .accounts-card-actions {
   display: flex;
+  flex: 0 1 460px;
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
@@ -165,6 +180,7 @@
 
   .accounts-card-actions,
   .accounts-login-actions {
+    flex-basis: 100%;
     justify-content: flex-start;
     width: 100%;
   }

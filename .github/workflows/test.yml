@@ -29,6 +29,9 @@ jobs:
           npm --prefix web ci
           npm --prefix web run build
 
+      - name: Frontend tests
+        run: npm --prefix web test
+
       - name: Build
         run: go build ./...
 

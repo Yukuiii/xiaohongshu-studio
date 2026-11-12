@@ -12,9 +12,13 @@ type ImageProcessor struct {
 }
 
 // NewImageProcessor 创建图片处理器
-func NewImageProcessor() *ImageProcessor {
+func NewImageProcessor(savePaths ...string) *ImageProcessor {
+	savePath := configs.GetImagesPath()
+	if len(savePaths) > 0 {
+		savePath = savePaths[0]
+	}
 	return &ImageProcessor{
-		downloader: NewImageDownloader(configs.GetImagesPath()),
+		downloader: NewImageDownloader(savePath),
 	}
 }
 

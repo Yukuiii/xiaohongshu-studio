@@ -30,9 +30,17 @@ The production entry is **http://localhost:18060/**. Go embeds only `web/dist/in
 
 For development, build the frontend once, run `go run .` on port 18060 in one terminal and `npm --prefix web run dev` in another, then visit **http://localhost:5173/**. Vite proxies `/api`, `/desktop` (including WebSocket), and `/health` to `http://127.0.0.1:18060`. Build, test, and release jobs involving the root Go package must run the npm installation and build first; Docker performs these steps in its multistage build.
 
-页面保留左侧「工作台」「账号」「设置」三导航；「添加账号」直接打开真实扫码页面，仍共用服务的单账号会话。保持原浏览器存储键 `hongshu-workbench.settings.v1`、`hongshu-workbench.draft.v1` 及草稿结构，保留服务端 Cookie、桌面授权和发布确认行为。开发与生产端口的浏览器存储相互独立。
+页面保留「工作台」「账号」「设置」三导航。每个账号使用独立的完整 Chromium profile、固定 seed、下载目录及托管图片目录；正常关闭不能删除 user-data-dir。账号选择通过每个请求的 `X-XHS-Account-ID` 固定，不能维护服务全局当前账号；同账号任务串行，headless 实例空闲 10 分钟后关闭并保留数据。维护 CLI 与服务必须使用同一个 `accounts.Store` 根目录锁。
 
-Preserve the Workspace, Accounts, and Settings sidebar navigation. Add account opens the real sign-in page directly and uses the service's existing shared account session. Keep the `hongshu-workbench.settings.v1` and `hongshu-workbench.draft.v1` storage keys and draft format, server Cookies, desktop authorization, and publication confirmation. Development and production ports have separate browser storage.
+Preserve the Workspace, Accounts, and Settings navigation. Each account owns a complete Chromium profile, fixed seed, download directory, and managed images. Normal shutdown must retain user-data-dir. Bind every request using `X-XHS-Account-ID`; do not maintain a service-wide selected account. Serialize work for each account, close idle headless instances after 10 minutes, and retain their data. The maintenance CLI and service must use the same `accounts.Store` root lock.
+
+共享配置继续使用 `hongshu-workbench.settings.v1`，草稿使用 `hongshu-workbench.draft.v1:<account-id>`，保持原 payload 和发布结果未知时的防重状态。旧草稿和图片只迁入固定旧账号，不覆盖目标已有草稿，保留迁移源。切换账号前保存草稿、取消旧请求并丢弃迟到结果；发布确认必须绑定账号。开发与生产端口的浏览器存储相互独立。服务令牌授权整个工作台，账号槽位不构成访问者权限隔离。
+
+Keep shared settings under `hongshu-workbench.settings.v1` and drafts under `hongshu-workbench.draft.v1:<account-id>`, preserving the payload and duplicate prevention after an uncertain publication result. Migrate old drafts and images only to the fixed legacy account, retain sources, and preserve existing destination drafts. Save drafts before switching, cancel old requests, discard late results, and bind publication confirmation to the account. Development and production ports have separate browser storage. A service token authorizes the whole workspace; account slots do not isolate visitors' permissions.
+
+重新登录必须复制已关闭的 active profile 到候选目录，确认真实身份一致、未重复绑定，再正常关闭候选浏览器并原子提交指针。失败不能替换旧 profile。桌面授权绑定账号与 `session_id`，关闭旧窗口时撤销 Cookie 票据及现有 WebSocket；同一 noVNC 桌面只允许一个登录窗口。
+
+For sign-in, copy the stopped active profile into a candidate, verify the real identity and duplicate bindings, then shut down the candidate normally before atomically committing the pointer. Failure must preserve the old profile. Bind desktop authorization to the account and `session_id`, revoke tickets and existing WebSockets when closing a window, and allow one login window at a time on the shared noVNC desktop.
 
 页面流程见 [README](./README.md)，接口契约见 [HTTP API 文档](./docs/API.md)。涉及用户行为或接口的修改需同步更新这些文档；不要把未发布的源码功能描述成上游发行包已有功能。
 
@@ -57,6 +65,10 @@ Each PR should contain **only one feature or one fix**. Split multiple features 
 后端修改运行相关 Go 测试；Web 修改检查页面加载、设置保存、草稿恢复以及相关交互，PR 中记录实际执行的步骤与结果。涉及账号、模型或发布的验证请使用自己的授权配置；不要为演示自动发布真实笔记。发布前的用户确认、服务令牌鉴权和跨站写请求保护必须保留。
 
 Run relevant Go tests for backend changes. For Web changes, check page loading, settings, draft restoration, and affected interactions, and record the actual steps and results in the PR. Use your own authorized account and model settings; do not automatically publish real posts for a demo. Preserve explicit publication confirmation, service-token authentication, and browser-origin protection.
+
+多账号回归应覆盖 A/B 完整 profile 重启隔离、固定 seed、候选身份错配或重复不提交、迁移中断重试、墓碑不复活、进程锁、空闲关闭与删除竞态，以及切换时迟到请求、草稿和未知发布结果保护。先执行 `npm --prefix web test` 和 `npm --prefix web run build`，再对修改文件 `gofmt`，运行 `go build ./...`、`go vet ./...`、`go test ./...`、`go test -race ./...` 和 `go test -tags integration -run '^$' ./...`。真实浏览器测试与人工扫码分别记录覆盖范围；测试通过不代表真实账号登录或发布已验收。
+
+Multi-account regressions should cover A/B profile persistence and isolation, fixed seeds, rejected identity mismatches and duplicate bindings, interrupted migration, tombstones, process locks, idle shutdown and removal races, and late requests, drafts, and uncertain publication results while switching. Run `npm --prefix web test` and `npm --prefix web run build`, format changed Go files, then run `go build ./...`, `go vet ./...`, `go test ./...`, `go test -race ./...`, and `go test -tags integration -run '^$' ./...`. Record real-browser coverage and manual sign-in separately; passing tests does not establish acceptance of real account sign-in or publication.
 
 ### 3. 提供演示截图/视频 | Provide Demo
 

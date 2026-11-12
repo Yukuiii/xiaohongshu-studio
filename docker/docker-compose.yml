@@ -28,6 +28,7 @@ services:
       - ${XHS_DATA_DIR:-./data}/uploads:/tmp/xiaohongshu_images
     environment:
       - COOKIES_PATH=/app/data/cookies.json
+      - XHS_ACCOUNTS_DIR=/app/data/accounts
       - HOME=/app/data/home
       - XDG_CONFIG_HOME=/app/data/config
       - AUTH_TOKEN=${AUTH_TOKEN:-}

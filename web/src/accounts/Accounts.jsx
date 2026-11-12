@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { Dialog, Notice } from "../components.jsx";
 import "./accounts.css";
 
 const statusLabels = {
@@ -11,8 +13,30 @@ const statusLabels = {
   not_logged_in: "未连接",
 };
 
-export default function Accounts({ account, busy }) {
-  const working = Boolean(busy || account.operation);
+export default function Accounts({ account, manager, busy }) {
+  const [dialog, setDialog] = useState(null);
+  const [name, setName] = useState("");
+  useEffect(() => {
+    setDialog(null);
+  }, [manager.selectedId]);
+  const locked = Boolean(busy || manager.managing);
+  const working = Boolean(locked || account.operation);
+  const openDialog = (kind, item) => {
+    setDialog({ kind, item });
+    setName(item?.name || "");
+  };
+  async function submit(event) {
+    event.preventDefault();
+    const id = dialog.item?.id;
+    const ok = await (dialog.kind === "create"
+      ? manager.create(name.trim())
+      : dialog.kind === "rename"
+        ? manager.rename(id, name.trim())
+        : dialog.kind === "reset"
+          ? manager.reset(id)
+          : manager.remove(id));
+    if (ok) setDialog(null);
+  }
   const embedded =
     account.active &&
     account.loginVisible &&
@@ -23,14 +47,6 @@ export default function Accounts({ account, busy }) {
   const label = account.loggedIn
     ? "已连接"
     : statusLabels[account.status?.status] || "未连接";
-  const openLabel =
-    account.operation === "open"
-      ? "正在打开登录网页…"
-      : account.browserSession
-        ? "继续登录"
-        : account.loggedIn
-          ? "打开账号网页"
-          : "添加账号";
 
   return (
     <>
@@ -41,89 +57,212 @@ export default function Accounts({ account, busy }) {
             账号
           </h1>
           <p className="muted">
-            在真实的小红书网页中扫码，完成手机确认和账号安全验证。
+            每个账号独立保存浏览器数据、草稿和发布记录。选中后会检查真实登录状态。
           </p>
         </div>
-        <button
-          type="button"
-          className="button primary"
-          disabled={busy || ["open", "close"].includes(account.operation)}
-          onClick={account.openLogin}
-        >
-          {openLabel}
-        </button>
+        <div className="button-group">
+          <button
+            className="button"
+            disabled={locked || manager.loading}
+            onClick={manager.refresh}
+          >
+            刷新列表
+          </button>
+          <button
+            className="button primary"
+            disabled={locked}
+            onClick={() => openDialog("create")}
+          >
+            添加账号
+          </button>
+        </div>
       </header>
-
-      {account.notice.message && (
-        <div
-          className={`notice ${account.notice.type || ""}`}
-          role="status"
-          aria-live="polite"
-        >
-          {account.notice.message}
-        </div>
-      )}
-
-      <section
-        className="card accounts-card"
-        aria-labelledby="connected-account-name"
-        aria-busy={account.operation === "status"}
-      >
-        <div
-          className={`accounts-avatar${account.loggedIn ? " connected" : ""}`}
-          aria-hidden="true"
-        >
-          {account.loggedIn && account.username
-            ? Array.from(account.username)[0]
-            : "薯"}
-        </div>
-        <div className="accounts-info">
-          <span className="section-kicker">小红书账号</span>
-          <h2 id="connected-account-name">
-            {account.loggedIn
-              ? account.username || "已登录小红书账号"
-              : "连接你的小红书账号"}
-          </h2>
-          <p className="muted">
-            {account.loggedIn
-              ? "当前服务使用此账号进行搜索和发布。"
-              : account.browserSession
-                ? "登录浏览器已保留，点击「继续登录」完成扫码和验证。"
-                : "点击「添加账号」打开登录网页，扫码后即可开始创作。"}
+      <Notice notice={manager.notice} />
+      <Notice notice={account.notice} />
+      {manager.activeLogin &&
+        manager.activeLogin.account_id !== manager.selectedId && (
+          <p className="notice warning">
+            另一个账号保留了扫码窗口。请切换到该账号并结束登录窗口后，再打开新的扫码窗口。
           </p>
-          {account.loggedIn && account.status?.user_id && (
-            <p className="muted accounts-user-id">
-              账号 ID：{account.status.user_id}
+        )}
+      {manager.loading && <p role="status">正在读取账号列表…</p>}
+      {!manager.loading && !manager.accounts.length && (
+        <p className="muted">还没有账号，点击「添加账号」开始扫码。</p>
+      )}
+      <div aria-label="账号列表">
+        {manager.accounts.map((item) => {
+          const selected = manager.selectedId === item.id;
+          const browser =
+            {
+              stopped: "浏览器已停止",
+              running: "浏览器运行中",
+              headless: "浏览器运行中",
+              login: "登录窗口运行中",
+            }[item.browser_status] ||
+            item.browser_status ||
+            "浏览器未启动";
+          return (
+            <section
+              key={item.id}
+              className={`card accounts-card${selected ? " selected" : ""}`}
+              aria-label={`账号 ${item.name}`}
+            >
+              <div
+                className={`accounts-avatar${selected && account.loggedIn ? " connected" : ""}`}
+                aria-hidden="true"
+              >
+                {Array.from(item.nickname || item.name || "薯")[0]}
+              </div>
+              <div className="accounts-info">
+                <span className="section-kicker">
+                  {selected ? "当前创作账号" : "小红书账号"}
+                </span>
+                <h2>{item.name}</h2>
+                <p className="muted">
+                  {item.nickname || "尚未验证身份"}
+                  {item.user_id ? ` · ${item.user_id}` : ""}
+                </p>
+                <p className="helper">
+                  {browser}
+                  {item.busy ? " · 任务进行中" : ""}
+                  {selected ? ` · ${label}` : " · 登录状态待检查"}
+                </p>
+              </div>
+              <div className="accounts-card-actions">
+                <button
+                  className="button small"
+                  disabled={locked || selected}
+                  onClick={() => manager.select(item.id)}
+                >
+                  {selected ? "已选择" : "切换账号"}
+                </button>
+                <button
+                  className="button small"
+                  disabled={locked}
+                  onClick={() => openDialog("rename", item)}
+                >
+                  重命名
+                </button>
+                <button
+                  className="button small"
+                  disabled={
+                    locked || ["open", "close"].includes(account.operation)
+                  }
+                  onClick={() => manager.login(item.id)}
+                >
+                  {selected && account.browserSession ? "继续登录" : "重新登录"}
+                </button>
+                {selected && (
+                  <button
+                    className="button small"
+                    disabled={working}
+                    onClick={account.checkStatus}
+                  >
+                    刷新状态
+                  </button>
+                )}
+                {selected &&
+                  account.browserSession &&
+                  !account.loginVisible && (
+                    <button
+                      className="button small"
+                      disabled={working}
+                      onClick={account.closeLogin}
+                    >
+                      结束登录窗口
+                    </button>
+                  )}
+                <button
+                  className="button small"
+                  disabled={locked || item.busy}
+                  onClick={() => openDialog("reset", item)}
+                >
+                  重置浏览器数据
+                </button>
+                <button
+                  className="button small"
+                  disabled={locked || item.busy}
+                  onClick={() => openDialog("remove", item)}
+                >
+                  移除
+                </button>
+              </div>
+            </section>
+          );
+        })}
+      </div>
+      <Dialog
+        open={Boolean(dialog)}
+        onClose={() => setDialog(null)}
+        busy={locked}
+        id="account-dialog"
+        title={
+          {
+            create: "添加账号",
+            rename: "重命名账号",
+            reset: "重置浏览器数据？",
+            remove: "移除账号？",
+          }[dialog?.kind] || "账号管理"
+        }
+      >
+        <form onSubmit={submit}>
+          {["create", "rename"].includes(dialog?.kind) ? (
+            <>
+              <label htmlFor="account-name">账号备注名</label>
+              <input
+                id="account-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+                maxLength={100}
+                disabled={locked}
+              />
+              {dialog?.kind === "create" && (
+                <p className="muted">
+                  创建后会选中此账号，并直接打开扫码登录网页。
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="muted">
+              {dialog?.kind === "reset"
+                ? `将清空「${dialog.item.name}」的完整浏览器数据，包括 Cookie、站点存储、缓存、权限和配置，需要重新登录。账号 ID、身份绑定、指纹、工作台草稿和素材会保留。`
+                : dialog
+                  ? `将移除「${dialog.item.name}」，并清理该账号的浏览器数据、下载文件、托管图片及本浏览器草稿。其他账号和公共模型设置不受影响。此操作无法撤销。`
+                  : ""}
             </p>
           )}
-        </div>
-        <div className="accounts-card-actions">
-          <span
-            className={`accounts-state${account.loggedIn ? " connected" : ""}`}
-          >
-            <span aria-hidden="true" />
-            {label}
-          </span>
-          <button
-            type="button"
-            className="button small"
-            disabled={working}
-            onClick={account.checkStatus}
-          >
-            {account.operation === "status" ? "正在检查…" : "刷新状态"}
-          </button>
-          {account.browserSession && !account.loginVisible && (
+          <Notice
+            notice={manager.notice.type === "error" ? manager.notice : null}
+          />
+          <div className="dialog-actions">
             <button
               type="button"
-              className="button small"
-              disabled={working}
-              onClick={account.closeLogin}
+              className="button"
+              disabled={locked}
+              onClick={() => setDialog(null)}
             >
-              {account.operation === "close" ? "正在结束…" : "结束登录窗口"}
+              取消
             </button>
-          )}
-        </div>
-      </section>
+            <button
+              type="submit"
+              className="button primary"
+              disabled={
+                locked ||
+                (["create", "rename"].includes(dialog?.kind) && !name.trim())
+              }
+            >
+              {manager.managing
+                ? "正在处理…"
+                : dialog?.kind === "remove"
+                  ? "确认移除"
+                  : dialog?.kind === "reset"
+                    ? "确认重置"
+                    : "保存"}
+            </button>
+          </div>
+        </form>
+      </Dialog>
 
       {account.loginVisible && (
         <section
@@ -136,13 +275,15 @@ export default function Accounts({ account, busy }) {
           <div className="accounts-panel-header">
             <div>
               <span className="section-kicker">连接小红书</span>
-              <h2 id="accounts-login-title">扫码添加账号</h2>
+              <h2 id="accounts-login-title">
+                扫码登录 · {manager.selectedAccount?.name}
+              </h2>
             </div>
             <button
               type="button"
               className="icon-button accounts-collapse"
               aria-label="收起登录网页，保留后台登录浏览器"
-              disabled={busy}
+              disabled={locked}
               onClick={account.hideLogin}
             >
               ×
@@ -156,6 +297,7 @@ export default function Accounts({ account, busy }) {
               className={`accounts-browser${busy ? " accounts-browser-busy" : ""}`}
             >
               <iframe
+                key={account.sessionId}
                 className="accounts-browser-frame"
                 src={account.desktopURL}
                 title="小红书登录和账号安全验证浏览器"

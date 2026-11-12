@@ -36,6 +36,22 @@ func imageStorageDir() (string, error) {
 	return filepath.Abs(filepath.Join(configs.GetImagesPath(), "web"))
 }
 
+func imageStorageDirForAccount(id string) (string, error) {
+	base, err := imageStorageDir()
+	if err != nil || id == "" {
+		return base, err
+	}
+	if len(id) != 32 {
+		return "", errors.New("账号标识无效")
+	}
+	for _, ch := range id {
+		if !(ch >= '0' && ch <= '9') && !(ch >= 'a' && ch <= 'f') {
+			return "", errors.New("账号标识无效")
+		}
+	}
+	return filepath.Join(base, id), nil
+}
+
 func imageExtension(data []byte) (string, error) {
 	if len(data) == 0 || len(data) > maxImageBytes {
 		return "", errors.New("每张图片必须非空且不超过 10MiB")
@@ -72,11 +88,15 @@ func imageExtension(data []byte) (string, error) {
 }
 
 func saveWorkbenchImage(data []byte, name string) (workbenchImage, error) {
+	return saveAccountImage(data, name, "")
+}
+
+func saveAccountImage(data []byte, name, accountID string) (workbenchImage, error) {
 	ext, err := imageExtension(data)
 	if err != nil {
 		return workbenchImage{}, err
 	}
-	dir, err := imageStorageDir()
+	dir, err := imageStorageDirForAccount(accountID)
 	if err != nil {
 		return workbenchImage{}, errors.New("无法确定图片保存位置")
 	}
@@ -143,7 +163,7 @@ func (s *AppServer) uploadImagesHandler(c *gin.Context) {
 			respondError(c, http.StatusBadRequest, "INVALID_IMAGE", "无法读取上传图片", nil)
 			return
 		}
-		image, err := saveWorkbenchImage(data, header.Filename)
+		image, err := saveAccountImage(data, header.Filename, requestAccountID(c))
 		if err != nil {
 			respondError(c, http.StatusBadRequest, "INVALID_IMAGE", err.Error(), nil)
 			return
@@ -160,7 +180,7 @@ func (s *AppServer) getImageHandler(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "INVALID_IMAGE_ID", "图片标识无效", nil)
 		return
 	}
-	dir, err := imageStorageDir()
+	dir, err := imageStorageDirForAccount(requestAccountID(c))
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "IMAGE_READ_FAILED", "无法读取图片", nil)
 		return

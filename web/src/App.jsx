@@ -5,6 +5,16 @@ import Accounts from "./accounts/Accounts.jsx";
 import { useAccount } from "./accounts/useAccount.js";
 import { useWorkbench } from "./useWorkbench.js";
 
+const ACCOUNT_KEY = "hongshu-workbench.account.v1";
+
+function savedAccount() {
+  try {
+    return localStorage.getItem(ACCOUNT_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
 const pages = { workspace: "工作台", accounts: "账号", settings: "设置" };
 const currentPage = () =>
   Object.hasOwn(pages, location.hash.slice(1))
@@ -49,15 +59,255 @@ function NavIcon({ page }) {
 export default function App() {
   const [page, setPage] = useState(currentPage);
   const wb = useWorkbench();
+  const [accounts, setAccounts] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [legacyId, setLegacyId] = useState(null);
+  const [activeLogin, setActiveLogin] = useState(null);
+  const [listNotice, setListNotice] = useState({ message: "", type: "" });
+  const [managing, setManaging] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loginAfterSelect, setLoginAfterSelect] = useState(null);
+  const preferredId = useRef(savedAccount());
+  const listRequest = useRef(null);
+  const mutation = useRef(false);
+  const latest = useRef(null);
+  latest.current = { wb, selectedId };
   const account = useAccount({
     api: wb.api,
     active: page === "accounts",
-    busy: wb.busy,
+    busy: wb.busy || Boolean(managing),
+    context: wb.context,
+    activeLogin,
+    onLoginSession: (session, id) =>
+      setActiveLogin((previous) => {
+        if (!session) return previous?.account_id === id ? null : previous;
+        return previous?.account_id === session.account_id &&
+          previous?.session_id === session.session_id
+          ? previous
+          : session;
+      }),
   });
+  const selectedAccount = accounts.find((item) => item.id === selectedId);
+
+  function selectAccount(
+    id,
+    items = accounts,
+    legacy = legacyId,
+    { remember = true, discard = false } = {},
+  ) {
+    if (id === latest.current.selectedId && wb.context.accountId === id)
+      return true;
+    if (wb.busy || (id && !items.some((item) => item.id === id))) return false;
+    if (!wb.activateAccount(id, legacy, { discard })) {
+      setListNotice({
+        message:
+          "草稿未能保存，已保留当前账号。请复制重要内容或恢复本地存储后重试。",
+        type: "error",
+      });
+      return false;
+    }
+    account.invalidate();
+    setSelectedId(id);
+    if (id && remember) {
+      preferredId.current = id;
+      try {
+        localStorage.setItem(ACCOUNT_KEY, id);
+      } catch {
+        /* 选择仍在本页生效。 */
+      }
+    }
+    setListNotice({ message: "", type: "" });
+    return true;
+  }
+
+  async function reloadAccounts(initial = false) {
+    listRequest.current?.abort();
+    const controller = new AbortController();
+    listRequest.current = controller;
+    const token = wb.settings.token;
+    setLoading(true);
+    try {
+      const data = await wb.api("/accounts", {
+        signal: controller.signal,
+        token,
+      });
+      if (
+        controller.signal.aborted ||
+        latest.current.wb.settings.token !== token
+      )
+        return;
+      const items = Array.isArray(data?.accounts) ? data.accounts : [];
+      setAccounts(items);
+      setLegacyId(data.legacy_account_id || null);
+      setActiveLogin(data.active_login || null);
+      if (initial) {
+        const preferred = preferredId.current;
+        const next = preferred
+          ? items.find((item) => item.id === preferred)
+          : items.length === 1
+            ? items[0]
+            : null;
+        if (next) selectAccount(next.id, items, data.legacy_account_id);
+        else
+          setListNotice({
+            message: preferred
+              ? "上次选择的账号已不可用，请明确选择其他账号或添加账号。"
+              : "请选择创作账号，或添加账号后扫码登录。",
+            type: "warning",
+          });
+      } else if (
+        latest.current.selectedId &&
+        !items.some((item) => item.id === latest.current.selectedId)
+      ) {
+        if (selectAccount(null, items, data.legacy_account_id))
+          setListNotice({
+            message: "当前账号已被移除，请重新选择账号。",
+            type: "warning",
+          });
+      }
+    } catch (error) {
+      if (!controller.signal.aborted)
+        setListNotice({ message: error.message, type: "error" });
+    } finally {
+      if (listRequest.current === controller && !controller.signal.aborted)
+        setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setSelectedId(null);
+    setAccounts([]);
+    setActiveLogin(null);
+    setLoginAfterSelect(null);
+    account.invalidate();
+    reloadAccounts(true);
+    return () => listRequest.current?.abort();
+  }, [wb.settings.token]);
+
+  useEffect(() => {
+    if (
+      loginAfterSelect &&
+      selectedId === loginAfterSelect &&
+      wb.context.accountId === selectedId &&
+      !managing
+    ) {
+      setLoginAfterSelect(null);
+      account.openLogin();
+    }
+  }, [loginAfterSelect, selectedId, wb.context, managing]);
+
+  async function manage(operation, action) {
+    if (latest.current.wb.busy || mutation.current) return false;
+    mutation.current = true;
+    listRequest.current?.abort();
+    setLoading(false);
+    setManaging(operation);
+    setListNotice({ message: "", type: "" });
+    const scope = latest.current.wb.context;
+    const token = latest.current.wb.settings.token;
+    const managementAPI = async (path, options) => {
+      const data = await wb.api(path, { ...options, token });
+      if (
+        latest.current.wb.context !== scope ||
+        latest.current.wb.settings.token !== token
+      )
+        throw new DOMException("账号上下文已变更", "AbortError");
+      return data;
+    };
+    try {
+      await action(managementAPI);
+      return true;
+    } catch (error) {
+      if (error.name !== "AbortError")
+        setListNotice({ message: error.message, type: "error" });
+      return false;
+    } finally {
+      mutation.current = false;
+      setManaging("");
+    }
+  }
+
+  const manager = {
+    accounts,
+    selectedId,
+    selectedAccount,
+    loading,
+    managing,
+    notice: listNotice,
+    activeLogin,
+    refresh: () => reloadAccounts(),
+    select: (id) => {
+      if (!mutation.current) selectAccount(id);
+    },
+    login: (id) => {
+      if (!mutation.current && selectAccount(id)) setLoginAfterSelect(id);
+    },
+    create: (name) =>
+      manage("create", async (api) => {
+        if (!wb.flushDraft())
+          throw new Error("草稿未能保存，暂时无法切换账号。");
+        const data = await api("/accounts", { method: "POST", body: { name } });
+        const items = [...accounts, data.account];
+        setAccounts(items);
+        if (selectAccount(data.account.id, items))
+          setLoginAfterSelect(data.account.id);
+      }),
+    rename: (id, name) =>
+      manage("rename", async (api) => {
+        const data = await api(`/accounts/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: { name },
+        });
+        setAccounts((items) =>
+          items.map((item) => (item.id === id ? data.account : item)),
+        );
+      }),
+    reset: (id) =>
+      manage("reset", async (api) => {
+        const data = await api(
+          `/accounts/${encodeURIComponent(id)}/reset-profile`,
+          { method: "POST" },
+        );
+        setAccounts((items) =>
+          items.map((item) => (item.id === id ? data.account : item)),
+        );
+        if (id === selectedId) {
+          account.invalidate();
+          account.checkStatus();
+        }
+        setListNotice({
+          message: "浏览器数据已重置。账号身份、草稿和素材已保留，请重新登录。",
+          type: "",
+        });
+      }),
+    remove: (id) =>
+      manage("remove", async (api) => {
+        if (id === selectedId && !wb.flushDraft())
+          throw new Error("草稿未能保存，账号尚未移除。");
+        await api(`/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
+        if (id === selectedId)
+          selectAccount(null, accounts, legacyId, { discard: true });
+        setAccounts((items) => items.filter((item) => item.id !== id));
+        try {
+          localStorage.removeItem(`hongshu-workbench.draft.v1:${id}`);
+          localStorage.removeItem(`hongshu-workbench.publish.v1:${id}`);
+        } catch {
+          throw new Error(
+            "账号已移除，但本浏览器草稿未能清理，请在浏览器设置中清除此站点的数据。",
+          );
+        }
+        setListNotice({
+          message:
+            "账号及其浏览器数据、下载文件、托管图片和本浏览器草稿已移除。",
+          type: "",
+        });
+      }),
+  };
+  const uiBusy = wb.busy || Boolean(managing);
   const route = useRef(null);
   route.current = {
     page,
-    busy: wb.busy,
+    busy: uiBusy,
     closeWorkspaceDialogs: wb.closeWorkspaceDialogs,
   };
   const previousPage = useRef(page);
@@ -88,11 +338,11 @@ export default function App() {
   }, [page]);
 
   function navigate(next) {
-    if (!wb.busy) location.hash = next;
+    if (!uiBusy) location.hash = next;
   }
 
   return (
-    <div className={`app-shell${wb.busy ? " working" : ""}`}>
+    <div className={`app-shell${uiBusy ? " working" : ""}`}>
       <aside className="sidebar" aria-label="主导航">
         <a
           className="brand"
@@ -116,7 +366,7 @@ export default function App() {
               className="nav-item"
               data-page={key}
               aria-current={page === key ? "page" : undefined}
-              disabled={wb.busy}
+              disabled={uiBusy}
               onClick={() => navigate(key)}
             >
               <NavIcon page={key} />
@@ -136,6 +386,11 @@ export default function App() {
       </aside>
       <header className="topbar">
         <span className="page-label">{pages[page]}</span>
+        <span className="current-account" aria-label="当前账号">
+          {selectedAccount
+            ? `当前账号 · ${selectedAccount.name}${selectedAccount.nickname ? ` / ${selectedAccount.nickname}` : ""}`
+            : "尚未选择账号"}
+        </span>
         <span id="save-status" className="save-status" role="status">
           {wb.saveStatus}
         </span>
@@ -152,11 +407,41 @@ export default function App() {
           aria-labelledby="workspace-title"
           hidden={page !== "workspace"}
         >
-          <Workspace
-            workbench={wb}
-            account={account}
-            openSettings={() => navigate("settings")}
-          />
+          {selectedId ? (
+            <Workspace
+              workbench={wb}
+              account={account}
+              selectedAccount={selectedAccount}
+              openSettings={() => navigate("settings")}
+            />
+          ) : (
+            <section className="card">
+              <p className="eyebrow">连接你的创作身份</p>
+              <h1 id="workspace-title" tabIndex={-1}>
+                请选择创作账号
+              </h1>
+              <p className="muted">
+                每个账号拥有独立草稿和发布记录。选择账号后即可继续创作，模型设置和服务访问令牌共用。
+              </p>
+              {listNotice.message && <p role="status">{listNotice.message}</p>}
+              <div className="button-group">
+                <button
+                  className="button primary"
+                  disabled={uiBusy}
+                  onClick={() => navigate("accounts")}
+                >
+                  前往账号页
+                </button>
+                <button
+                  className="button"
+                  disabled={uiBusy}
+                  onClick={() => navigate("settings")}
+                >
+                  打开设置
+                </button>
+              </div>
+            </section>
+          )}
         </section>
         <section
           className="page-view"
@@ -164,7 +449,7 @@ export default function App() {
           aria-labelledby="accounts-title"
           hidden={page !== "accounts"}
         >
-          <Accounts account={account} busy={wb.busy} />
+          <Accounts account={account} manager={manager} busy={wb.busy} />
         </section>
         <section
           className="page-view"

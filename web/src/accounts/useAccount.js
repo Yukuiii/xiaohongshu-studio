@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 const pendingStatuses = new Set([
   "waiting_scan",
@@ -24,18 +30,22 @@ function isLoggedIn(data) {
   );
 }
 
-function desktopAddress(value) {
+function desktopAddress(value, sessionId) {
   const url = new URL(value, window.location.origin);
   if (
     url.origin !== window.location.origin ||
     url.username ||
     url.password ||
     url.hash ||
-    url.pathname !== "/desktop/vnc.html" ||
+    !/^[a-zA-Z0-9_-]+$/.test(sessionId || "") ||
+    url.pathname !== `/desktop/${sessionId}/vnc.html` ||
+    url.searchParams.size !== 3 ||
     [...url.searchParams.keys()].some(
       (key) => !["autoconnect", "resize", "path"].includes(key),
     ) ||
-    url.searchParams.get("path") !== "desktop/websockify"
+    url.searchParams.get("autoconnect") !== "1" ||
+    url.searchParams.get("resize") !== "scale" ||
+    url.searchParams.get("path") !== `desktop/${sessionId}/websockify`
   ) {
     throw new Error("服务返回的登录浏览器地址无效，请检查服务配置。");
   }
@@ -44,6 +54,7 @@ function desktopAddress(value) {
 
 const initialState = {
   status: null,
+  sessionId: "",
   notice: { message: "", type: "" },
   loginVisible: false,
   browserSession: false,
@@ -54,12 +65,19 @@ const initialState = {
   polling: false,
 };
 
-export function useAccount({ api, active, busy }) {
+export function useAccount({
+  api,
+  active,
+  busy,
+  context,
+  activeLogin,
+  onLoginSession,
+}) {
   const [state, setState] = useState(initialState);
   const [pageVisible, setPageVisible] = useState(() => !document.hidden);
   const stateRef = useRef(state);
-  const inputs = useRef({ api, active, busy });
-  inputs.current = { api, active, busy };
+  const inputs = useRef({ api, active, busy, context, onLoginSession });
+  inputs.current = { api, active, busy, context, onLoginSession };
   const mounted = useRef(true);
   const visible = useRef(!document.hidden);
   const request = useRef(null);
@@ -90,6 +108,7 @@ export function useAccount({ api, active, busy }) {
   const accountVisible = useCallback(
     () =>
       mounted.current &&
+      inputs.current.context?.accountId &&
       inputs.current.active &&
       visible.current &&
       !document.hidden,
@@ -114,8 +133,15 @@ export function useAccount({ api, active, busy }) {
   }, [cancelRequest, update]);
 
   const applyStatus = useCallback(
-    (data, version) => {
-      if (!mounted.current || version < appliedSequence.current) return;
+    (data, version, scope) => {
+      if (
+        !mounted.current ||
+        inputs.current.context !== scope ||
+        version < appliedSequence.current
+      )
+        return;
+      if (data?.account_id !== scope.accountId)
+        throw new Error("登录响应与当前账号不一致，请刷新状态。");
       appliedSequence.current = version;
       const loggedIn = isLoggedIn(data);
       const pending = pendingStatuses.has(data?.status);
@@ -124,6 +150,7 @@ export function useAccount({ api, active, busy }) {
         ["expired", "failed", "not_logged_in"].includes(data?.status);
       const patch = {
         status: data,
+        sessionId: data.session_id || "",
         polling: pending,
         notice: {
           message: loggedIn
@@ -141,6 +168,12 @@ export function useAccount({ api, active, busy }) {
         patch.mode = "";
         patch.desktopURL = "";
       }
+      if (pending && data.session_id)
+        inputs.current.onLoginSession?.(
+          { account_id: scope.accountId, session_id: data.session_id },
+          scope.accountId,
+        );
+      else if (ended) inputs.current.onLoginSession?.(null, scope.accountId);
       if (loggedIn) patch.loginVisible = false;
       update(patch);
     },
@@ -153,6 +186,7 @@ export function useAccount({ api, active, busy }) {
       const current = {
         controller: new AbortController(),
         version: ++sequence.current,
+        scope: inputs.current.context,
       };
       request.current = current;
       update({ operation });
@@ -164,6 +198,7 @@ export function useAccount({ api, active, busy }) {
   const currentRequest = useCallback(
     (current) =>
       request.current === current &&
+      inputs.current.context === current.scope &&
       !current.controller.signal.aborted &&
       current.version >= appliedSequence.current &&
       accountVisible(),
@@ -188,8 +223,11 @@ export function useAccount({ api, active, busy }) {
       try {
         const data = await inputs.current.api("/login/status", {
           signal: current.controller.signal,
+          accountId: current.scope.accountId,
+          token: current.scope.token,
         });
-        if (currentRequest(current)) applyStatus(data, current.version);
+        if (currentRequest(current))
+          applyStatus(data, current.version, current.scope);
       } catch (error) {
         if (!currentRequest(current) || error.name === "AbortError") return;
         update({
@@ -235,19 +273,35 @@ export function useAccount({ api, active, busy }) {
       const data = await inputs.current.api("/login/browser", {
         method: "POST",
         signal: current.controller.signal,
+        accountId: current.scope.accountId,
+        token: current.scope.token,
       });
       if (!currentRequest(current) || !stateRef.current.loginVisible) return;
       if (!["desktop", "native"].includes(data?.mode)) {
         throw new Error("服务未返回可用的登录浏览器模式，请检查服务配置。");
       }
       const desktopURL =
-        data.mode === "desktop" ? desktopAddress(data.desktop_url) : "";
+        data.mode === "desktop"
+          ? desktopAddress(data.desktop_url, data.session_id)
+          : "";
       if (current.version < appliedSequence.current) return;
-      update({ mode: data.mode, desktopURL, browserConnected: true });
-      applyStatus(data, current.version);
+      if (!data.session_id || data.account_id !== current.scope.accountId)
+        throw new Error("服务未返回匹配的账号登录会话，请刷新状态。");
+      update({
+        mode: data.mode,
+        desktopURL,
+        browserConnected: true,
+        sessionId: data.session_id,
+      });
+      applyStatus(data, current.version, current.scope);
     } catch (error) {
       if (!currentRequest(current) || error.name === "AbortError") return;
-      update({ notice: { message: error.message, type: "error" } });
+      update({
+        ...(error.code === "LOGIN_BROWSER_BUSY"
+          ? { browserSession: false, loginVisible: false }
+          : {}),
+        notice: { message: error.message, type: "error" },
+      });
     } finally {
       finishRequest(current);
     }
@@ -282,14 +336,24 @@ export function useAccount({ api, active, busy }) {
       notice: { message: "正在结束登录窗口…", type: "busy" },
     });
     try {
-      await inputs.current.api("/login/browser", {
-        method: "DELETE",
-        signal: current.controller.signal,
-      });
+      const sessionId = stateRef.current.sessionId;
+      if (!sessionId)
+        throw new Error("尚未取得登录会话，请刷新状态后再结束窗口。");
+      await inputs.current.api(
+        `/login/browser?session_id=${encodeURIComponent(sessionId)}`,
+        {
+          method: "DELETE",
+          signal: current.controller.signal,
+          accountId: current.scope.accountId,
+          token: current.scope.token,
+        },
+      );
       if (!currentRequest(current)) return;
+      inputs.current.onLoginSession?.(null, current.scope.accountId);
       update({
         loginVisible: false,
         browserSession: false,
+        sessionId: "",
         mode: "",
         desktopURL: "",
         status: isLoggedIn(stateRef.current.status)
@@ -314,7 +378,9 @@ export function useAccount({ api, active, busy }) {
   }, [accountVisible, currentRequest, finishRequest, startRequest, update]);
 
   const requireLogin = useCallback(
-    async (signal) => {
+    async (signal, scope = inputs.current.context) => {
+      if (!scope?.accountId || scope !== inputs.current.context)
+        throw new DOMException("账号上下文已变更", "AbortError");
       const controller = new AbortController();
       const abort = () => controller.abort();
       signal?.addEventListener("abort", abort, { once: true });
@@ -326,10 +392,16 @@ export function useAccount({ api, active, busy }) {
           throw new DOMException("请求已取消", "AbortError");
         const data = await inputs.current.api("/login/status", {
           signal: controller.signal,
+          accountId: scope.accountId,
+          token: scope.token,
         });
-        if (controller.signal.aborted || !mounted.current)
+        if (
+          controller.signal.aborted ||
+          !mounted.current ||
+          inputs.current.context !== scope
+        )
           throw new DOMException("请求已取消", "AbortError");
-        applyStatus(data, version);
+        applyStatus(data, version, scope);
         if (!isLoggedIn(data)) {
           throw new Error(
             `${data?.message || "小红书尚未登录。"} 请前往左侧「账号」页，添加账号并完成登录和账号验证后继续。`,
@@ -360,6 +432,21 @@ export function useAccount({ api, active, busy }) {
     });
   }, [accountVisible, update]);
 
+  const invalidate = useCallback(() => {
+    cancelRequest();
+    requiredRequests.current.forEach((controller) => controller.abort());
+    requiredRequests.current.clear();
+    appliedSequence.current = ++sequence.current;
+    update(initialState);
+  }, [cancelRequest, update]);
+
+  useLayoutEffect(() => {
+    invalidate();
+    if (activeLogin?.account_id === context?.accountId) {
+      update({ browserSession: true, sessionId: activeLogin.session_id });
+    }
+  }, [context, invalidate]);
+
   useEffect(() => {
     mounted.current = true;
     const suspend = () => {
@@ -387,14 +474,27 @@ export function useAccount({ api, active, busy }) {
   }, [cancelRequest, pause]);
 
   useEffect(() => {
+    if (!context?.accountId || active) return;
+    const controller = new AbortController();
+    requireLogin(controller.signal, context).catch(() => {});
+    return () => controller.abort();
+  }, [context, requireLogin]);
+
+  useEffect(() => {
     if (!active) pause();
-    else if (!busy && pageVisible && !stateRef.current.browserSession)
+    else if (
+      context?.accountId &&
+      !busy &&
+      pageVisible &&
+      (!stateRef.current.browserSession || !stateRef.current.status)
+    )
       readStatus(false);
-  }, [active, busy, pageVisible, pause, readStatus]);
+  }, [active, busy, pageVisible, context, pause, readStatus]);
 
   useEffect(() => {
     clearTimer();
     if (
+      context?.accountId &&
       active &&
       pageVisible &&
       state.loginVisible &&
@@ -409,6 +509,7 @@ export function useAccount({ api, active, busy }) {
   }, [
     active,
     busy,
+    context,
     pageVisible,
     state.loginVisible,
     state.browserSession,
@@ -429,6 +530,7 @@ export function useAccount({ api, active, busy }) {
     browserConnected: state.browserConnected,
     mode: state.mode,
     desktopURL: state.desktopURL,
+    sessionId: state.sessionId,
     operation: state.operation,
     openLogin,
     hideLogin,
@@ -436,5 +538,6 @@ export function useAccount({ api, active, busy }) {
     checkStatus,
     requireLogin,
     onFrameError,
+    invalidate,
   };
 }
