@@ -16,8 +16,10 @@ const statusLabels = {
 export default function Accounts({ account, manager, busy }) {
   const [dialog, setDialog] = useState(null);
   const [name, setName] = useState("");
+  const [originalSize, setOriginalSize] = useState(false);
   useEffect(() => {
     setDialog(null);
+    setOriginalSize(false);
   }, [manager.selectedId]);
   const locked = Boolean(busy || manager.managing);
   const working = Boolean(locked || account.operation);
@@ -44,6 +46,12 @@ export default function Accounts({ account, manager, busy }) {
     account.mode === "desktop" &&
     Boolean(account.desktopURL);
   const native = account.browserConnected && account.mode === "native";
+  let desktopURL = account.desktopURL;
+  if (embedded && originalSize) {
+    const url = new URL(desktopURL, window.location.origin);
+    url.searchParams.set("resize", "off");
+    desktopURL = `${url.pathname}${url.search}`;
+  }
   const label = account.loggedIn
     ? "已连接"
     : statusLabels[account.status?.status] || "未连接";
@@ -280,9 +288,6 @@ export default function Accounts({ account, manager, busy }) {
               account.operation === "open" || account.operation === "close"
             }
           >
-            <p className="muted">
-              使用小红书 App 扫描网页中的二维码，并按真实页面提示完成登录。关闭弹窗会保留后台登录浏览器，结束时请使用「结束登录窗口」。
-            </p>
             <Notice notice={account.notice} />
             {embedded ? (
               <div
@@ -291,7 +296,7 @@ export default function Accounts({ account, manager, busy }) {
                 <iframe
                   key={account.sessionId}
                   className="accounts-browser-frame"
-                  src={account.desktopURL}
+                  src={desktopURL}
                   title="小红书登录和账号安全验证浏览器"
                   referrerPolicy="same-origin"
                   onError={account.onFrameError}
@@ -316,11 +321,23 @@ export default function Accounts({ account, manager, busy }) {
             )}
             <p className="helper accounts-browser-help">
               {native
-                ? "请在运行本服务的电脑上弹出的 Chromium 浏览器中完成扫码、手机确认和账号安全验证。登录信息保存成功后，浏览器会自动关闭。"
-                : "关闭弹窗或隐藏标签页会断开画面和前端检查，后台浏览器继续保留。登录信息保存成功后会自动关闭，未完成的会话最长保留 20 分钟，二维码是否过期以真实页面为准。"}
+                ? "请在运行本服务的电脑上完成扫码和安全验证，登录信息保存成功后窗口会自动关闭。"
+                : originalSize
+                  ? "当前按原始大小显示，可滚动查看二维码。关闭弹窗会保留后台会话。"
+                  : "二维码较小时可切换「原始大小」。关闭弹窗会保留会话，结束时请使用「结束登录窗口」。"}
             </p>
           </div>
           <div className="accounts-login-actions">
+            {embedded && (
+              <button
+                type="button"
+                className="button"
+                disabled={locked}
+                onClick={() => setOriginalSize((value) => !value)}
+              >
+                {originalSize ? "适应窗口" : "原始大小"}
+              </button>
+            )}
             {embedded &&
               (busy ? (
                 <button type="button" className="button" disabled>
@@ -329,7 +346,7 @@ export default function Accounts({ account, manager, busy }) {
               ) : (
                 <a
                   className="button"
-                  href={account.desktopURL}
+                  href={desktopURL}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

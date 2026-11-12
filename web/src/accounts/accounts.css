@@ -93,11 +93,11 @@
 }
 
 .dialog.accounts-login-dialog {
-  width: calc(100% - 32px);
-  max-width: 1200px;
-  height: min(900px, calc(100dvh - 32px));
-  max-height: calc(100dvh - 32px);
-  padding: 24px;
+  width: calc(100% - 16px);
+  max-width: none;
+  height: calc(100dvh - 16px);
+  max-height: calc(100dvh - 16px);
+  padding: 16px;
   overflow: hidden;
 }
 
@@ -108,10 +108,12 @@
 
 .accounts-login-dialog .dialog-header {
   flex-shrink: 0;
+  margin-bottom: 8px;
 }
 
 .accounts-login-dialog .dialog-header h2 {
   min-width: 0;
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
@@ -123,7 +125,7 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   min-height: 0;
   overflow: auto;
 }
@@ -132,6 +134,11 @@
 .accounts-login-dialog .accounts-login-body > .notice {
   flex-shrink: 0;
   margin: 0;
+}
+
+.accounts-login-dialog .accounts-login-body > .notice {
+  padding: 8px 12px;
+  line-height: 1.5;
 }
 
 .accounts-browser {
@@ -190,8 +197,8 @@
   flex-shrink: 0;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 20px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 @media (max-width: 760px) {
@@ -213,13 +220,6 @@
   .accounts-login-actions {
     justify-content: flex-start;
     width: 100%;
-  }
-
-  .dialog.accounts-login-dialog {
-    width: calc(100% - 16px);
-    height: calc(100dvh - 16px);
-    max-height: calc(100dvh - 16px);
-    padding: 16px;
   }
 
   .accounts-login-dialog .dialog-header h2 {

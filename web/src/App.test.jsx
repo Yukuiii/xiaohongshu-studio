@@ -232,6 +232,49 @@ describe("账号选择界面", () => {
     },
   );
 
+  it("原始大小切换仅调整显示比例，保留登录会话且不重新打开浏览器", async () => {
+    accountsPage();
+    const fetch = service([A], "desktop");
+    render(<App />);
+    const row = await screen.findByRole("region", { name: "账号 账号A" });
+    fireEvent.click(within(row).getByRole("button", { name: "重新登录" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "扫码登录 · 账号A",
+    });
+    const frame = await within(dialog).findByTitle(
+      "小红书登录和账号安全验证浏览器",
+    );
+    const original = new URL(frame.getAttribute("src"), location.origin);
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "原始大小" }),
+    );
+    const unscaled = new URL(frame.getAttribute("src"), location.origin);
+    expect(unscaled.searchParams.get("resize")).toBe("off");
+    expect(unscaled.pathname).toBe(original.pathname);
+    expect(unscaled.searchParams.get("path")).toBe(
+      original.searchParams.get("path"),
+    );
+    expect(
+      within(dialog).getByRole("link", { name: "在新窗口查看" }),
+    ).toHaveAttribute("href", `${unscaled.pathname}${unscaled.search}`);
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "适应窗口" }),
+    );
+    expect(frame).toHaveAttribute(
+      "src",
+      `${original.pathname}${original.search}`,
+    );
+    expect(
+      fetch.mock.calls.filter(
+        ([url, options]) =>
+          url === "/api/v1/login/browser" && options.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(
+      fetch.mock.calls.some(([, options]) => options.method === "DELETE"),
+    ).toBe(false);
+  });
+
   it("登录检查失败时在弹窗中提示，确认登录成功后自动收起", async () => {
     accountsPage();
     const fetch = service([A], "desktop");
