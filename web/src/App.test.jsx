@@ -22,7 +22,7 @@ const ok = (data) => ({
   json: async () => ({ success: true, data }),
 });
 
-function service(accounts = [A, B]) {
+function service(accounts = [A, B], mode = "native") {
   const fetch = vi.fn(async (url, options) => {
     if (url === "/api/v1/accounts" && options.method === "POST")
       return ok({ account: { id: "C", name: "新账号" } });
@@ -32,7 +32,13 @@ function service(accounts = [A, B]) {
       return ok({
         account_id: options.headers["X-XHS-Account-ID"],
         session_id: "session-C",
-        mode: "native",
+        mode,
+        ...(mode === "desktop"
+          ? {
+              desktop_url:
+                "/desktop/session-C/vnc.html?autoconnect=1&resize=scale&path=desktop/session-C/websockify",
+            }
+          : {}),
         status: "waiting_scan",
         is_logged_in: false,
       });
@@ -155,6 +161,124 @@ describe("账号选择界面", () => {
         url === "/api/v1/login/browser" && options.method === "POST",
     );
     expect(open[1].headers["X-XHS-Account-ID"]).toBe("C");
+    const dialog = await screen.findByRole("dialog", {
+      name: "扫码登录 · 新账号",
+    });
+    expect(dialog).toHaveAttribute("open");
+    expect(
+      within(dialog).getByText(/登录浏览器已在运行本服务的电脑上打开/),
+    ).toBeVisible();
+  });
+
+  it.each(["关闭按钮", "Esc"])(
+    "%s 收起扫码弹窗后保留后台会话，继续登录可重新打开并主动结束",
+    async (dismiss) => {
+      accountsPage();
+      const fetch = service([A], "desktop");
+      render(<App />);
+      const row = await screen.findByRole("region", { name: "账号 账号A" });
+      fireEvent.click(within(row).getByRole("button", { name: "重新登录" }));
+      const dialog = await screen.findByRole("dialog", {
+        name: "扫码登录 · 账号A",
+      });
+      const frame = await within(dialog).findByTitle(
+        "小红书登录和账号安全验证浏览器",
+      );
+      expect(dialog).toHaveAttribute("open");
+      expect(frame.closest("dialog")).toBe(dialog);
+      expect(
+        within(dialog).getByText("请在登录网页中使用小红书 App 扫码登录。"),
+      ).toBeVisible();
+      const address = frame.getAttribute("src");
+      if (dismiss === "Esc") {
+        fireEvent(dialog, new Event("cancel", { cancelable: true }));
+      } else {
+        fireEvent.click(
+          within(dialog).getByRole("button", {
+            name: "收起登录网页，保留后台登录浏览器",
+          }),
+        );
+      }
+      expect(
+        screen.queryByRole("dialog", { name: "扫码登录 · 账号A" }),
+      ).not.toBeInTheDocument();
+      expect(frame).not.toBeInTheDocument();
+      expect(
+        fetch.mock.calls.some(([, options]) => options.method === "DELETE"),
+      ).toBe(false);
+
+      fireEvent.click(within(row).getByRole("button", { name: "继续登录" }));
+      const reopened = await screen.findByRole("dialog", {
+        name: "扫码登录 · 账号A",
+      });
+      expect(
+        await within(reopened).findByTitle("小红书登录和账号安全验证浏览器"),
+      ).toHaveAttribute("src", address);
+      fireEvent.click(
+        within(reopened).getByRole("button", { name: "结束登录窗口" }),
+      );
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", { name: "扫码登录 · 账号A" }),
+        ).not.toBeInTheDocument(),
+      );
+      const close = fetch.mock.calls.find(
+        ([url, options]) =>
+          url === "/api/v1/login/browser?session_id=session-C" &&
+          options.method === "DELETE",
+      );
+      expect(close).toBeDefined();
+      expect(close[1].headers["X-XHS-Account-ID"]).toBe("A");
+    },
+  );
+
+  it("登录检查失败时在弹窗中提示，确认登录成功后自动收起", async () => {
+    accountsPage();
+    const fetch = service([A], "desktop");
+    const original = fetch.getMockImplementation();
+    let status = "not_logged_in";
+    fetch.mockImplementation((url, options) => {
+      if (url.endsWith("/login/status") && status === "error")
+        return Promise.resolve({
+          ok: false,
+          status: 503,
+          json: async () => ({ success: false, message: "暂时无法检查登录" }),
+        });
+      if (url.endsWith("/login/status") && status === "logged_in")
+        return Promise.resolve(
+          ok({
+            account_id: "A",
+            status: "logged_in",
+            is_logged_in: true,
+            username: "作者A",
+          }),
+        );
+      return original(url, options);
+    });
+    render(<App />);
+    const row = await screen.findByRole("region", { name: "账号 账号A" });
+    fireEvent.click(within(row).getByRole("button", { name: "重新登录" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "扫码登录 · 账号A",
+    });
+    await within(dialog).findByTitle("小红书登录和账号安全验证浏览器");
+    status = "error";
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "检查登录状态" }),
+    );
+    expect(
+      await within(dialog).findByText(/暂时无法检查登录/),
+    ).toBeVisible();
+    status = "logged_in";
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "检查登录状态" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "扫码登录 · 账号A" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText(/小红书登录成功，登录信息已保存/)).toBeVisible();
   });
 
   it("令牌变化重新加载账号，旧列表响应不能替换新令牌下的选择", async () => {

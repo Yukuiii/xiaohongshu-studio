@@ -92,28 +92,52 @@
   color: #337451;
 }
 
-.accounts-login-panel {
-  margin-top: 24px;
+.dialog.accounts-login-dialog {
+  width: calc(100% - 32px);
+  max-width: 1200px;
+  height: min(900px, calc(100dvh - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 24px;
+  overflow: hidden;
 }
 
-.accounts-panel-header {
+.accounts-login-dialog[open] {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 20px;
+  flex-direction: column;
 }
 
-.accounts-panel-header h2 {
-  margin: 8px 0 0;
-}
-
-.accounts-collapse {
+.accounts-login-dialog .dialog-header {
   flex-shrink: 0;
-  font-size: 24px;
+}
+
+.accounts-login-dialog .dialog-header h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.accounts-login-dialog .icon-button {
+  flex-shrink: 0;
+}
+
+.accounts-login-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.accounts-login-dialog .accounts-login-body > p,
+.accounts-login-dialog .accounts-login-body > .notice {
+  flex-shrink: 0;
+  margin: 0;
 }
 
 .accounts-browser {
   position: relative;
+  flex: 1 0 240px;
+  min-height: 240px;
   overflow: hidden;
   border: 1px solid #e7e3de;
   border-radius: 12px;
@@ -123,7 +147,8 @@
 .accounts-browser-frame {
   display: block;
   width: 100%;
-  height: clamp(420px, 65vh, 760px);
+  height: 100%;
+  min-height: 240px;
   border: 0;
   background: white;
 }
@@ -144,6 +169,7 @@
 
 .accounts-browser-placeholder {
   display: grid;
+  flex: 1 0 220px;
   min-height: 220px;
   place-items: center;
   padding: 32px;
@@ -161,6 +187,7 @@
 
 .accounts-login-actions {
   display: flex;
+  flex-shrink: 0;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 12px;
@@ -178,14 +205,24 @@
     flex-basis: calc(100% - 96px);
   }
 
+  .accounts-card-actions {
+    flex-basis: 100%;
+  }
+
   .accounts-card-actions,
   .accounts-login-actions {
-    flex-basis: 100%;
     justify-content: flex-start;
     width: 100%;
   }
 
-  .accounts-browser-frame {
-    height: 480px;
+  .dialog.accounts-login-dialog {
+    width: calc(100% - 16px);
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: 16px;
+  }
+
+  .accounts-login-dialog .dialog-header h2 {
+    font-size: 18px;
   }
 }

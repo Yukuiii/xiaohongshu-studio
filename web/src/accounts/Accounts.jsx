@@ -78,7 +78,7 @@ export default function Accounts({ account, manager, busy }) {
         </div>
       </header>
       <Notice notice={manager.notice} />
-      <Notice notice={account.notice} />
+      {!account.loginVisible && <Notice notice={account.notice} />}
       {manager.activeLogin &&
         manager.activeLogin.account_id !== manager.selectedId && (
           <p className="notice warning">
@@ -265,68 +265,61 @@ export default function Accounts({ account, manager, busy }) {
       </Dialog>
 
       {account.loginVisible && (
-        <section
-          className="card accounts-login-panel"
-          aria-labelledby="accounts-login-title"
-          aria-busy={
-            account.operation === "open" || account.operation === "close"
-          }
+        <Dialog
+          open={account.active}
+          onClose={account.hideLogin}
+          busy={locked}
+          id="account-login-dialog"
+          title={`扫码登录 · ${manager.selectedAccount?.name || ""}`}
+          className="accounts-login-dialog"
+          closeLabel="收起登录网页，保留后台登录浏览器"
         >
-          <div className="accounts-panel-header">
-            <div>
-              <span className="section-kicker">连接小红书</span>
-              <h2 id="accounts-login-title">
-                扫码登录 · {manager.selectedAccount?.name}
-              </h2>
-            </div>
-            <button
-              type="button"
-              className="icon-button accounts-collapse"
-              aria-label="收起登录网页，保留后台登录浏览器"
-              disabled={locked}
-              onClick={account.hideLogin}
-            >
-              ×
-            </button>
+          <div
+            className="accounts-login-body"
+            aria-busy={
+              account.operation === "open" || account.operation === "close"
+            }
+          >
+            <p className="muted">
+              使用小红书 App 扫描网页中的二维码，并按真实页面提示完成登录。关闭弹窗会保留后台登录浏览器，结束时请使用「结束登录窗口」。
+            </p>
+            <Notice notice={account.notice} />
+            {embedded ? (
+              <div
+                className={`accounts-browser${busy ? " accounts-browser-busy" : ""}`}
+              >
+                <iframe
+                  key={account.sessionId}
+                  className="accounts-browser-frame"
+                  src={account.desktopURL}
+                  title="小红书登录和账号安全验证浏览器"
+                  referrerPolicy="same-origin"
+                  onError={account.onFrameError}
+                  tabIndex={busy ? -1 : 0}
+                />
+                {busy && (
+                  <div className="accounts-browser-cover" role="status">
+                    正在执行工作台任务，请稍候再操作登录网页。
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="accounts-browser-placeholder" role="status">
+                {account.operation === "open"
+                  ? "正在打开真实登录网页，请稍候…"
+                  : native
+                    ? "登录浏览器已在运行本服务的电脑上打开，请切换到该窗口完成登录和账号验证。"
+                    : account.browserSession
+                      ? "后台登录浏览器会保留，点击「继续登录」可重新连接真实网页。"
+                      : "点击「打开登录网页」，查看并操作完整的小红书登录页面。"}
+              </div>
+            )}
+            <p className="helper accounts-browser-help">
+              {native
+                ? "请在运行本服务的电脑上弹出的 Chromium 浏览器中完成扫码、手机确认和账号安全验证。登录信息保存成功后，浏览器会自动关闭。"
+                : "关闭弹窗或隐藏标签页会断开画面和前端检查，后台浏览器继续保留。登录信息保存成功后会自动关闭，未完成的会话最长保留 20 分钟，二维码是否过期以真实页面为准。"}
+            </p>
           </div>
-          <p className="muted">
-            使用小红书 App 扫描网页中的二维码，并按真实页面提示完成登录。内嵌窗口以全屏方式展示，结束时请使用下方「结束登录窗口」。
-          </p>
-          {embedded ? (
-            <div
-              className={`accounts-browser${busy ? " accounts-browser-busy" : ""}`}
-            >
-              <iframe
-                key={account.sessionId}
-                className="accounts-browser-frame"
-                src={account.desktopURL}
-                title="小红书登录和账号安全验证浏览器"
-                referrerPolicy="same-origin"
-                onError={account.onFrameError}
-                tabIndex={busy ? -1 : 0}
-              />
-              {busy && (
-                <div className="accounts-browser-cover" role="status">
-                  正在执行工作台任务，请稍候再操作登录网页。
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="accounts-browser-placeholder" role="status">
-              {account.operation === "open"
-                ? "正在打开真实登录网页，请稍候…"
-                : native
-                  ? "登录浏览器已在运行本服务的电脑上打开，请切换到该窗口完成登录和账号验证。"
-                  : account.browserSession
-                    ? "后台登录浏览器会保留，点击「继续登录」可重新连接真实网页。"
-                    : "点击「打开登录网页」，查看并操作完整的小红书登录页面。"}
-            </div>
-          )}
-          <p className="helper accounts-browser-help">
-            {native
-              ? "请在运行本服务的电脑上弹出的 Chromium 浏览器中完成扫码、手机确认和账号安全验证。登录信息保存成功后，浏览器会自动关闭。"
-              : "收起网页、切换页面或隐藏标签页会断开画面和前端检查，后台浏览器继续保留。登录信息保存成功后会自动关闭，未完成的会话最长保留 20 分钟，二维码是否过期以真实页面为准。"}
-          </p>
           <div className="accounts-login-actions">
             {embedded &&
               (busy ? (
@@ -374,7 +367,7 @@ export default function Accounts({ account, manager, busy }) {
                   : "打开登录网页"}
             </button>
           </div>
-        </section>
+        </Dialog>
       )}
     </>
   );

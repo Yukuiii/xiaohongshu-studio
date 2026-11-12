@@ -14,7 +14,16 @@ export function Notice({ notice, id }) {
   );
 }
 
-export function Dialog({ open, onClose, busy, id, title, children }) {
+export function Dialog({
+  open,
+  onClose,
+  busy,
+  id,
+  title,
+  children,
+  className = "",
+  closeLabel = "关闭窗口",
+}) {
   const ref = useRef(null);
   useLayoutEffect(() => {
     if (open && !ref.current.open) ref.current.showModal();
@@ -24,7 +33,7 @@ export function Dialog({ open, onClose, busy, id, title, children }) {
     <dialog
       ref={ref}
       id={id}
-      className="dialog"
+      className={`dialog ${className}`.trim()}
       aria-labelledby={`${id}-title`}
       onCancel={(event) => {
         event.preventDefault();
@@ -36,7 +45,7 @@ export function Dialog({ open, onClose, busy, id, title, children }) {
         <button
           type="button"
           className="icon-button"
-          aria-label="关闭窗口"
+          aria-label={closeLabel}
           disabled={busy}
           onClick={onClose}
         >
