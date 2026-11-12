@@ -52,7 +52,7 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           context: .
           load: true
-          tags: xhs-studio:ci
+          tags: xiaohongshu-studio:${{ github.sha }}
           build-args: VERSION=ci
           # PR 缓存与正式发布缓存隔离，避免混用不受信任的构建结果。
           cache-from: type=gha,scope=ci-studio
@@ -61,7 +61,7 @@ jobs:
           sbom: false
 
       - name: Check embedded desktop, access boundaries and recovery
-        run: python3 docker/desktop/smoke_test.py xhs-studio:ci
+        run: python3 docker/desktop/smoke_test.py "xiaohongshu-studio:${GITHUB_SHA}"
 
       # 扫描工具只运行在 CI，不进入任何成品镜像；下载文件按固定 SHA256 校验。
       - name: Scan studio image vulnerabilities
@@ -76,7 +76,7 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP" grype
           "$RUNNER_TEMP/grype" db update
           export GRYPE_DB_AUTO_UPDATE=false
-          "$RUNNER_TEMP/grype" docker:xhs-studio:ci --quiet -o json > "$RUNNER_TEMP/image-audit/studio.json"
+          "$RUNNER_TEMP/grype" "docker:xiaohongshu-studio:${GITHUB_SHA}" --quiet -o json > "$RUNNER_TEMP/image-audit/studio.json"
           python3 docker/desktop/check_vulnerabilities.py "$RUNNER_TEMP/image-audit/studio.json"
 
       - name: Save image vulnerability reports

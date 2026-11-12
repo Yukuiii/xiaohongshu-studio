@@ -8,14 +8,16 @@
 
 ```bash
 cd docker
-docker compose up -d --build
+./up.sh
 ```
+
+`up.sh` 用当前提交的 12 位短 SHA 作为镜像标签；工作区有未提交的已跟踪改动时追加 `-dirty`。例如 `ghcr.io/yukuiii/xiaohongshu-studio:f7a6aac291e1`。也可设置 `XHS_IMAGE_TAG` 覆盖标签，程序内 `/health` 返回的版本同步使用该标签。
 
 打开 [红薯创作台](http://127.0.0.1:18060/)，在左侧「账号」点击「添加账号」直接扫码并完成账号安全验证，在「设置」配置模型，再回「工作台」编辑草稿和确认发布。首次构建需要下载 npm/Go 依赖、系统软件包和内置浏览器；系统依赖与浏览器安装在应用复制之前，后续 Go 更改可复用这些缓存层。
 
-镜像和服务名为 `xiaohongshu-studio`，本地镜像标签为 `xiaohongshu-studio:local`。当前内置浏览器镜像支持 `linux/amd64`；Apple Silicon 需要 Docker 的 amd64 模拟支持。
+镜像使用完整仓库名 `ghcr.io/yukuiii/xiaohongshu-studio`，本地构建标签为当前提交的短 SHA；服务名和容器名为 `xiaohongshu-studio`。当前内置浏览器镜像支持 `linux/amd64`；Apple Silicon 需要 Docker 的 amd64 模拟支持。
 
-Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix web run build`，再将 `web/dist/` 复制到 Go 构建阶段并嵌入二进制。最终 Ubuntu 运行镜像只复制 Go 程序和桌面组件，不包含 Node 或 npm；宿主机无需安装 Node。构建上下文排除宿主的 `node_modules/` 与 `dist/`，每次使用锁文件生成容器内产物。修改前端后执行 `docker compose up -d --build` 即可更新。
+Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix web run build`，再将 `web/dist/` 复制到 Go 构建阶段并嵌入二进制。最终 Ubuntu 运行镜像只复制 Go 程序和桌面组件，不包含 Node 或 npm；宿主机无需安装 Node。构建上下文排除宿主的 `node_modules/` 与 `dist/`，每次使用锁文件生成容器内产物。修改前端后执行 `./up.sh` 即可更新。
 
 ## 数据与素材
 
@@ -38,7 +40,7 @@ Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix 
 | --- | --- |
 | 查看日志 | `docker compose logs -f` |
 | 停止服务并保留数据 | `docker compose down` |
-| 更新当前源码后重新构建 | `docker compose up -d --build` |
+| 更新当前源码后重新构建 | `./up.sh` |
 
 ## 访问令牌、端口与代理
 
@@ -47,6 +49,8 @@ Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix 
 ```dotenv
 AUTH_TOKEN=replace-with-your-own-secret
 XHS_WEB_PORT=18060
+# 可选：固定镜像标签；默认由 ./up.sh 使用当前提交号。
+# XHS_IMAGE_TAG=f7a6aac291e1
 ```
 
 保存后执行 `docker compose up -d`，在工作台填写相同令牌。根页面和健康检查公开，HTTP API 及图片资源需要 `Authorization: Bearer <token>`。未设置 `AUTH_TOKEN` 时不启用 API 令牌鉴权；令牌授权整个工作台，与模型 API Key 是独立配置。账号业务请求通过 `X-XHS-Account-ID` 明确归属，仅有一个有效账号时兼容省略。登录浏览器由 Go 签发绑定账号与会话的短时 HttpOnly cookie，桌面页面与 WebSocket 通过同源 `/desktop/<session-id>/` 路径访问；结束窗口时带原 `session_id`，旧票据和 WebSocket 随会话结束撤销。URL 不携带服务令牌，跨站请求会被拒绝。
@@ -94,11 +98,14 @@ BROWSER_DOWNLOAD_BASE=https://your-mirror.example/fingerprint-chromium/releases/
 在项目根目录单独构建完整应用镜像：
 
 ```bash
-docker build --builder "$(docker context show)" --platform linux/amd64 -t xiaohongshu-studio:local .
+tag=$(git rev-parse --short=12 HEAD)
+docker build --builder "$(docker context show)" --platform linux/amd64 \
+  --build-arg VERSION="$tag" \
+  -t "ghcr.io/yukuiii/xiaohongshu-studio:$tag" .
 ```
 
 本地开发前端可按 [贡献指南](../CONTRIBUTING.md) 用 Node.js 24 构建一次后，分别启动 `go run .` 与 `npm --prefix web run dev`。Vite 的 `5173` 端口将 `/api`、`/desktop`（含 WebSocket）及 `/health` 代理到 Go 的 `18060`；容器生产部署仍只需公开 `18060`。
 
-Docker 发布 workflow 使用当前仓库的 `GITHUB_TOKEN` 和 `packages:write` 权限，推送到 `ghcr.io/<小写仓库所有者>/<小写仓库名>`，只发布版本 tag 与 `latest` 两个标签，均包含完整桌面组件。仓库需允许 Actions 发布 Packages。这里描述的是发布配置，不代表当前分支已有可下载镜像。容器检查与实际覆盖边界见 [验证说明](desktop/docs/verification.md)。
+Docker 发布 workflow 使用当前仓库的 `GITHUB_TOKEN` 和 `packages:write` 权限，推送到 `ghcr.io/<小写仓库所有者>/<小写仓库名>`，只发布版本 tag 与 `latest` 两个标签，均包含完整桌面组件；本地提交标签与发布版本标签共用同一仓库名。仓库需允许 Actions 发布 Packages。这里描述的是发布配置，不代表当前分支已有可下载镜像。容器检查与实际覆盖边界见 [验证说明](desktop/docs/verification.md)。
 
 浏览器资产校验 workflow 默认关闭。维护者设置仓库 Actions Variable `ENABLE_BROWSER_UPDATES=true` 后，才会定时或从默认分支手动校验仓库当前固定版本的官方三平台资产及 SHA256。它只有只读仓库权限，不探测 latest、不自动升级、不提交版本、不创建 Issue。升级需人工确认三平台资产齐全，并一起审阅版本文件和固定校验清单，避免升级到缺少 macOS 资产的版本。
