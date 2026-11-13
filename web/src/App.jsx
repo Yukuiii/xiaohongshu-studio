@@ -474,9 +474,7 @@ export default function App() {
           {wb.saveStatus}
         </span>
       </header>
-      <main
-        className={`workspace${page === "workspace" ? " creation-workspace" : ""}`}
-      >
+      <main className="workspace">
         {!wb.persistenceAvailable && (
           <div id="storage-notice" className="notice warning" role="status">
             浏览器本地存储不可用或空间不足。你仍可继续本次创作，但刷新可能丢失配置和草稿，请先复制重要内容。
