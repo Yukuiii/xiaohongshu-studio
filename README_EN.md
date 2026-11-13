@@ -19,25 +19,46 @@ A self-hosted workspace for creating Xiaohongshu image posts. Research topics, s
 
 ### Docker deployment (recommended)
 
-Install and start Docker with Docker Compose available, then run:
+Install and start Docker, then run the published image directly; no repository checkout is required:
 
 ```bash
-git clone https://github.com/Yukuiii/xiaohongshu-studio.git
-cd xiaohongshu-studio/docker
-docker compose up -d --pull always --no-build
+docker run -d \
+  --tty \
+  --name xiaohongshu-studio \
+  --hostname xiaohongshu-studio \
+  --platform linux/amd64 \
+  --restart unless-stopped \
+  --stop-timeout 60 \
+  --shm-size=1g \
+  -p 127.0.0.1:18060:18060 \
+  -v "$PWD/xiaohongshu-studio-data:/app/data" \
+  -v "$PWD/xiaohongshu-studio-data/uploads:/tmp/xiaohongshu_images" \
+  -e COOKIES_PATH=/app/data/cookies.json \
+  -e XHS_ACCOUNTS_DIR=/app/data/accounts \
+  -e XHS_DB_PATH=/app/data/studio.db \
+  -e HOME=/app/data/home \
+  -e XDG_CONFIG_HOME=/app/data/config \
+  --cap-drop ALL \
+  --cap-add DAC_OVERRIDE \
+  --security-opt no-new-privileges:true \
+  ghcr.io/yukuiii/xiaohongshu-studio:latest
 ```
 
 Open **http://127.0.0.1:18060/** once the service starts.
 
-A single container includes the workspace, Go service, Chromium, and the noVNC sign-in desktop. The host does not need Go, Node.js, or a browser installation for the service. The first start pulls the prebuilt `ghcr.io/yukuiii/xiaohongshu-studio:latest` image, so no local build is required; the image is large, and download time depends on your network.
+Data is stored in `xiaohongshu-studio-data/` in the current directory; run from the same directory next time, or replace both `-v` paths with fixed absolute paths. To pin a release, replace the final `:latest` with `:v0.1.0`. To use existing media, append `-v /absolute/path/images:/app/images:ro`; for an API token, append `-e AUTH_TOKEN=...` and enter the same value in the workspace; for a proxy, append `-e XHS_PROXY=...`. To update, run `docker pull ghcr.io/yukuiii/xiaohongshu-studio:latest`, then `docker rm -f xiaohongshu-studio` and rerun the command above; the data directory is preserved.
 
-Pin a release version with `XHS_IMAGE_TAG`:
+A single container includes the workspace, Go service, Chromium, and the noVNC sign-in desktop. The host does not need Go, Node.js, or a browser installation for the service. The image is large, so the first pull depends on your network.
+
+To build from the current source:
 
 ```bash
-XHS_IMAGE_TAG=v0.1.0 docker compose up -d --pull always --no-build
+git clone https://github.com/Yukuiii/xiaohongshu-studio.git
+cd xiaohongshu-studio/docker
+./up.sh
 ```
 
-To build from the current source, run `./up.sh`. It tags the image with the current commit's 12-character SHA. Uncommitted changes to tracked files add a `-dirty` suffix. For example:
+`up.sh` tags the image with the current commit's 12-character SHA. Uncommitted changes to tracked files add a `-dirty` suffix. For example:
 
 ```text
 ghcr.io/yukuiii/xiaohongshu-studio:15156310500a

@@ -6,7 +6,36 @@
 
 安装并启动 Docker。使用已发布镜像时不需要本机安装 Go/Node，也不要求完整源码；从源码构建时需要完整的当前项目源码。
 
-### 使用已发布镜像（推荐）
+### 直接运行镜像（推荐，不需要源码）
+
+```bash
+docker run -d \
+  --tty \
+  --name xiaohongshu-studio \
+  --hostname xiaohongshu-studio \
+  --platform linux/amd64 \
+  --restart unless-stopped \
+  --stop-timeout 60 \
+  --shm-size=1g \
+  -p 127.0.0.1:18060:18060 \
+  -v "$PWD/xiaohongshu-studio-data:/app/data" \
+  -v "$PWD/xiaohongshu-studio-data/uploads:/tmp/xiaohongshu_images" \
+  -e COOKIES_PATH=/app/data/cookies.json \
+  -e XHS_ACCOUNTS_DIR=/app/data/accounts \
+  -e XHS_DB_PATH=/app/data/studio.db \
+  -e HOME=/app/data/home \
+  -e XDG_CONFIG_HOME=/app/data/config \
+  --cap-drop ALL \
+  --cap-add DAC_OVERRIDE \
+  --security-opt no-new-privileges:true \
+  ghcr.io/yukuiii/xiaohongshu-studio:latest
+```
+
+默认使用 `ghcr.io/yukuiii/xiaohongshu-studio:latest`。固定发布版本时，把最后的 `:latest` 换成 `:v0.1.0`。数据保存在当前目录的 `xiaohongshu-studio-data/`；后续请在同一目录运行，或把两个 `-v` 路径改成固定的绝对路径。已有图片素材可追加 `-v /绝对路径/images:/app/images:ro`，需要 API 令牌时追加 `-e AUTH_TOKEN=...`，需要代理时追加 `-e XHS_PROXY=...`。更新镜像时执行 `docker pull ghcr.io/yukuiii/xiaohongshu-studio:latest`，再 `docker rm -f xiaohongshu-studio` 并重新执行上面的 `docker run`；数据目录会保留。
+
+打开 [红薯创作台](http://127.0.0.1:18060/)，在左侧「账号」点击「添加账号」直接扫码并完成账号安全验证，在「设置」配置模型，再回「工作台」编辑草稿和确认发布。
+
+### 已有源码时使用 Compose
 
 在 `docker/` 目录执行：
 
@@ -19,8 +48,6 @@ docker compose up -d --pull always --no-build
 ```bash
 XHS_IMAGE_TAG=v0.1.0 docker compose up -d --pull always --no-build
 ```
-
-打开 [红薯创作台](http://127.0.0.1:18060/)，在左侧「账号」点击「添加账号」直接扫码并完成账号安全验证，在「设置」配置模型，再回「工作台」编辑草稿和确认发布。
 
 ### 从源码构建
 
@@ -61,6 +88,8 @@ Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix 
 | 停止服务并保留数据 | `docker compose down` |
 | 更新到最新发布镜像 | `docker compose up -d --pull always --no-build` |
 | 更新当前源码后重新构建 | `./up.sh` |
+
+直接运行镜像时，容器名为 `xiaohongshu-studio`，用 `docker logs -f`、`docker stop`、`docker rm` 管理；更新镜像后需要重建容器。
 
 ## 访问令牌、端口与代理
 

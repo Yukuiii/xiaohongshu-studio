@@ -19,25 +19,46 @@
 
 ### Docker 部署（推荐）
 
-安装并启动 Docker，确保可以使用 Docker Compose，然后执行：
+安装并启动 Docker，然后直接运行发布镜像，不需要 clone 仓库：
 
 ```bash
-git clone https://github.com/Yukuiii/xiaohongshu-studio.git
-cd xiaohongshu-studio/docker
-docker compose up -d --pull always --no-build
+docker run -d \
+  --tty \
+  --name xiaohongshu-studio \
+  --hostname xiaohongshu-studio \
+  --platform linux/amd64 \
+  --restart unless-stopped \
+  --stop-timeout 60 \
+  --shm-size=1g \
+  -p 127.0.0.1:18060:18060 \
+  -v "$PWD/xiaohongshu-studio-data:/app/data" \
+  -v "$PWD/xiaohongshu-studio-data/uploads:/tmp/xiaohongshu_images" \
+  -e COOKIES_PATH=/app/data/cookies.json \
+  -e XHS_ACCOUNTS_DIR=/app/data/accounts \
+  -e XHS_DB_PATH=/app/data/studio.db \
+  -e HOME=/app/data/home \
+  -e XDG_CONFIG_HOME=/app/data/config \
+  --cap-drop ALL \
+  --cap-add DAC_OVERRIDE \
+  --security-opt no-new-privileges:true \
+  ghcr.io/yukuiii/xiaohongshu-studio:latest
 ```
 
 启动后打开 **http://127.0.0.1:18060/**。
 
-一个容器内包含工作台、Go 服务、Chromium 和 noVNC 登录桌面，宿主机无需安装 Go、Node.js 或浏览器。首次启动会拉取预构建镜像 `ghcr.io/yukuiii/xiaohongshu-studio:latest`，不需要在本机构建；镜像较大，下载耗时取决于网络。
+数据保存在当前目录的 `xiaohongshu-studio-data/`，后续请在同一目录运行，或把两个 `-v` 路径改成固定的绝对路径。固定发布版本时，把最后的 `:latest` 换成 `:v0.1.0`。如需使用已有图片素材，追加 `-v /绝对路径/images:/app/images:ro`；如需 API 令牌，追加 `-e AUTH_TOKEN=...` 并在工作台填写相同值；如需代理，追加 `-e XHS_PROXY=...`。更新镜像时执行 `docker pull ghcr.io/yukuiii/xiaohongshu-studio:latest`，再 `docker rm -f xiaohongshu-studio` 并重新执行上面的 `docker run`；数据目录会保留。
 
-固定发布版本时使用 `XHS_IMAGE_TAG`：
+一个容器内包含工作台、Go 服务、Chromium 和 noVNC 登录桌面，宿主机无需安装 Go、Node.js 或浏览器。镜像较大，首次拉取耗时取决于网络。
+
+需要从当前源码构建镜像时：
 
 ```bash
-XHS_IMAGE_TAG=v0.1.0 docker compose up -d --pull always --no-build
+git clone https://github.com/Yukuiii/xiaohongshu-studio.git
+cd xiaohongshu-studio/docker
+./up.sh
 ```
 
-需要从当前源码构建镜像时，使用 `./up.sh`。它会以当前提交的 12 位短 SHA 作为标签；存在未提交的已跟踪改动时追加 `-dirty`。例如：
+`up.sh` 会以当前提交的 12 位短 SHA 作为标签；存在未提交的已跟踪改动时追加 `-dirty`。例如：
 
 ```text
 ghcr.io/yukuiii/xiaohongshu-studio:15156310500a
