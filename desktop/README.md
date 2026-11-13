@@ -33,6 +33,9 @@ npm --prefix desktop run dev
 
 # 构建安装包（macOS 生成 .app/.dmg；Windows 生成 NSIS 与 MSI 安装包）
 npm --prefix desktop run build
+
+# 指定安装包版本；v 前缀会自动去掉，未设置时使用 tauri.conf.json 的 0.1.0
+VERSION=v1.2.3 npm --prefix desktop run build
 ```
 
 ## 运行期数据目录

@@ -278,7 +278,21 @@ function prepareSidecar(cfg) {
   );
 }
 
+// 将 VERSION 注入 Tauri 安装包版本；去掉前缀 v，非语义化版本时沿用 tauri.conf.json。
+function prepareTauriVersion() {
+  const raw = (process.env.VERSION || "").trim();
+  const version = raw.replace(/^v/, "");
+  const override = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)
+    ? { version }
+    : {};
+  fs.writeFileSync(
+    path.join(tauriDir, "tauri.build.json"),
+    `${JSON.stringify(override, null, 2)}\n`,
+  );
+}
+
 const cfg = targetConfig();
+prepareTauriVersion();
 if (!skipSidecar) {
   prepareSidecar(cfg);
 }

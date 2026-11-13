@@ -65,4 +65,5 @@ desktop/node_modules/
 desktop/src-tauri/target/
 desktop/src-tauri/binaries/
 desktop/src-tauri/resources/browser/
+desktop/src-tauri/tauri.build.json
 desktop/src-tauri/gen/schemas/

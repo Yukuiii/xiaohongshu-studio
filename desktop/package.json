@@ -9,7 +9,7 @@
   "scripts": {
     "prepare:assets": "node scripts/prepare.mjs",
     "dev": "node scripts/prepare.mjs && tauri dev",
-    "build": "node scripts/prepare.mjs --build-web && tauri build"
+    "build": "node scripts/prepare.mjs --build-web && tauri build --config src-tauri/tauri.build.json"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.4"
