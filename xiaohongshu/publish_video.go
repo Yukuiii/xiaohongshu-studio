@@ -28,19 +28,9 @@ type PublishVideoContent struct {
 func NewPublishVideoAction(page *rod.Page) (*PublishAction, error) {
 	pp := page.Timeout(300 * time.Second)
 
-	if err := ensureCreatorSession(pp); err != nil {
+	if err := openCreatorPublishPage(pp); err != nil {
 		return nil, err
 	}
-
-	if err := pp.Navigate(urlOfPublic); err != nil {
-		return nil, errors.Wrap(err, "导航到发布页面失败")
-	}
-
-	// 使用 WaitLoad 代替 WaitIdle（更宽松）
-	if err := pp.WaitLoad(); err != nil {
-		logrus.Warnf("等待页面加载出现问题: %v，继续尝试", err)
-	}
-	time.Sleep(2 * time.Second)
 
 	if err := pp.WaitDOMStable(time.Second, 0.1); err != nil {
 		logrus.Warnf("等待 DOM 稳定出现问题: %v，继续尝试", err)
