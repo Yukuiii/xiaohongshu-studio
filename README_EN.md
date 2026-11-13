@@ -24,14 +24,20 @@ Install and start Docker with Docker Compose available, then run:
 ```bash
 git clone https://github.com/Yukuiii/xiaohongshu-studio.git
 cd xiaohongshu-studio/docker
-./up.sh
+docker compose up -d --pull always --no-build
 ```
 
 Open **http://127.0.0.1:18060/** once the service starts.
 
-A single container includes the workspace, Go service, Chromium, and the noVNC sign-in desktop. The host does not need Go, Node.js, or a browser installation for the service. The first build downloads dependencies and Chromium, so build time depends on your network.
+A single container includes the workspace, Go service, Chromium, and the noVNC sign-in desktop. The host does not need Go, Node.js, or a browser installation for the service. The first start pulls the prebuilt `ghcr.io/yukuiii/xiaohongshu-studio:latest` image, so no local build is required; the image is large, and download time depends on your network.
 
-`up.sh` builds from the current source and tags the image with the current commit's 12-character SHA. Uncommitted changes to tracked files add a `-dirty` suffix. For example:
+Pin a release version with `XHS_IMAGE_TAG`:
+
+```bash
+XHS_IMAGE_TAG=v0.1.0 docker compose up -d --pull always --no-build
+```
+
+To build from the current source, run `./up.sh`. It tags the image with the current commit's 12-character SHA. Uncommitted changes to tracked files add a `-dirty` suffix. For example:
 
 ```text
 ghcr.io/yukuiii/xiaohongshu-studio:15156310500a
@@ -95,7 +101,7 @@ Signing in again uses a candidate browser profile. The application activates it 
 
 ## Configuration and access
 
-For Docker, set these variables in `docker/.env`, then run `./up.sh` again from `docker/`:
+For Docker, set these variables in `docker/.env`, then run `docker compose up -d` (published image) or `./up.sh` (source build) from `docker/`:
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
@@ -173,7 +179,7 @@ See the [contributing guide](./CONTRIBUTING.md) for more details. Releases use s
 
 **Publication times out or has an unknown result:** Check Xiaohongshu to see whether the post was published before following the workspace's publication protection prompts. Avoid submitting it again immediately.
 
-**The first browser download fails:** The bundled fingerprint-chromium is downloaded from its official GitHub Release and verified against a SHA256 pinned in this repository. Configure `XHS_BROWSER_DOWNLOAD_BASE` for source launches or `BROWSER_DOWNLOAD_BASE` for Docker builds. See the [Docker guide](./docker/README.md) for the required mirror layout.
+**The first browser download fails:** The published image already includes the browser. For source launches or local image builds, the bundled fingerprint-chromium is downloaded from its official GitHub Release and verified against a SHA256 pinned in this repository. Configure `XHS_BROWSER_DOWNLOAD_BASE` for source launches or `BROWSER_DOWNLOAD_BASE` for Docker builds. See the [Docker guide](./docker/README.md) for the required mirror layout.
 
 ## Origin and license
 

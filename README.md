@@ -24,14 +24,20 @@
 ```bash
 git clone https://github.com/Yukuiii/xiaohongshu-studio.git
 cd xiaohongshu-studio/docker
-./up.sh
+docker compose up -d --pull always --no-build
 ```
 
 启动后打开 **http://127.0.0.1:18060/**。
 
-一个容器内包含工作台、Go 服务、Chromium 和 noVNC 登录桌面，宿主机无需安装 Go、Node.js 或浏览器。首次构建需要下载依赖和浏览器，耗时取决于网络。
+一个容器内包含工作台、Go 服务、Chromium 和 noVNC 登录桌面，宿主机无需安装 Go、Node.js 或浏览器。首次启动会拉取预构建镜像 `ghcr.io/yukuiii/xiaohongshu-studio:latest`，不需要在本机构建；镜像较大，下载耗时取决于网络。
 
-`up.sh` 会从当前源码构建镜像，以当前提交的 12 位短 SHA 作为标签；存在未提交的已跟踪改动时追加 `-dirty`。例如：
+固定发布版本时使用 `XHS_IMAGE_TAG`：
+
+```bash
+XHS_IMAGE_TAG=v0.1.0 docker compose up -d --pull always --no-build
+```
+
+需要从当前源码构建镜像时，使用 `./up.sh`。它会以当前提交的 12 位短 SHA 作为标签；存在未提交的已跟踪改动时追加 `-dirty`。例如：
 
 ```text
 ghcr.io/yukuiii/xiaohongshu-studio:15156310500a
@@ -95,7 +101,7 @@ Docker 中点击登录会打开接近全屏的 noVNC 弹窗，展示真实小红
 
 ## 配置与访问
 
-Docker 部署可在 `docker/.env` 中设置以下变量，保存后在 `docker/` 目录重新执行 `./up.sh`：
+Docker 部署可在 `docker/.env` 中设置以下变量，保存后在 `docker/` 目录重新执行 `docker compose up -d`（使用发布镜像）或 `./up.sh`（源码构建）：
 
 | 变量 | 用途 | 默认值 |
 | --- | --- | --- |
@@ -171,7 +177,7 @@ go test ./...
 
 **发布超时或结果未知？** 先到小红书确认笔记是否已发布，再按工作台提示处理发布保护，避免直接重复提交。
 
-**首次启动下载失败？** 内置 fingerprint-chromium 从官方 GitHub Release 下载，并校验仓库固定的 SHA256。源码运行可配置 `XHS_BROWSER_DOWNLOAD_BASE`，Docker 构建可配置 `BROWSER_DOWNLOAD_BASE`，具体格式见 [Docker 文档](./docker/README.md)。
+**首次启动下载失败？** 使用发布镜像时浏览器已内置；从源码运行或本地构建镜像时，内置 fingerprint-chromium 从官方 GitHub Release 下载，并校验仓库固定的 SHA256。源码运行可配置 `XHS_BROWSER_DOWNLOAD_BASE`，Docker 构建可配置 `BROWSER_DOWNLOAD_BASE`，具体格式见 [Docker 文档](./docker/README.md)。
 
 ## 来源与许可证
 

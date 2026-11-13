@@ -1,8 +1,9 @@
 services:
   xiaohongshu-studio:
-    image: ghcr.io/yukuiii/xiaohongshu-studio:${XHS_IMAGE_TAG:-local}
+    # 默认使用已发布镜像；./up.sh 会覆盖为提交号并强制本地构建。
+    image: ghcr.io/yukuiii/xiaohongshu-studio:${XHS_IMAGE_TAG:-latest}
     platform: linux/amd64
-    pull_policy: build
+    pull_policy: missing
     build:
       context: ..
       dockerfile: Dockerfile
