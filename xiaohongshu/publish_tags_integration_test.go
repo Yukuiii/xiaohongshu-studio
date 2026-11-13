@@ -67,7 +67,7 @@ func TestInputTagsCreatesTopic(t *testing.T) {
 	loggedIn, err := login.CheckLoginStatus(ctx)
 	require.NoError(t, err, "登录态检查失败")
 	if !loggedIn {
-		t.Fatal("未登录：COOKIES_PATH 指向的 cookies 已失效，需重新扫码")
+		t.Fatal("未登录：数据目录下的 cookies 已失效，需重新扫码")
 	}
 
 	action, err := NewPublishImageAction(page)

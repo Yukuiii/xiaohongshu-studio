@@ -268,7 +268,7 @@ function prepareSidecar(cfg) {
   console.log(`构建 Go Sidecar (${cfg.goos}/${cfg.goarch}): ${out}`);
   run(
     "go",
-    ["build", `-ldflags=-s -w -X main.version=${version}`, "-o", out, "."],
+    ["build", "-tags", "desktop", `-ldflags=-s -w -X main.version=${version}`, "-o", out, "."],
     repoRoot,
     {
       CGO_ENABLED: "0",

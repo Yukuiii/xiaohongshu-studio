@@ -37,10 +37,7 @@ func testPNG(t *testing.T) []byte {
 
 func isolateImageStorage(t *testing.T) {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("TMPDIR", dir)
-	t.Setenv("TMP", dir)
-	t.Setenv("TEMP", dir)
+	isolateDataRoot(t)
 }
 
 func uploadImageRequest(t *testing.T, data ...[]byte) *http.Request {

@@ -231,12 +231,7 @@ fn resolve_browser_dir(app: &AppHandle, data_dir: &Path) -> Result<PathBuf, Stri
 
 struct BackendPaths {
     data_dir: PathBuf,
-    accounts_dir: PathBuf,
-    db_path: PathBuf,
-    images_dir: PathBuf,
-    cookies_path: PathBuf,
     log_path: PathBuf,
-    browser_dir: PathBuf,
 }
 
 fn prepare_backend_paths(app: &AppHandle) -> Result<BackendPaths, String> {
@@ -245,16 +240,12 @@ fn prepare_backend_paths(app: &AppHandle) -> Result<BackendPaths, String> {
         .app_local_data_dir()
         .map_err(|e| format!("无法确定本地数据目录: {e}"))?;
     fs::create_dir_all(&data_dir).map_err(|e| format!("创建本地数据目录失败: {e}"))?;
-    let browser_dir = resolve_browser_dir(app, &data_dir)?;
+    // macOS 解压到 browser/current，Windows 直接使用安装目录中的 browser。
+    resolve_browser_dir(app, &data_dir)?;
 
     Ok(BackendPaths {
-        accounts_dir: data_dir.join("accounts"),
-        db_path: data_dir.join("studio.db"),
-        images_dir: data_dir.join("uploads"),
-        cookies_path: data_dir.join("cookies.json"),
         log_path: data_dir.join("studio.log"),
         data_dir,
-        browser_dir,
     })
 }
 
@@ -293,11 +284,6 @@ fn spawn_and_wait_addr(
     let mut cmd = Command::new(sidecar);
     cmd.args(["-port", listen_addr, "-watch-stdin", "-print-addr"])
         .current_dir(&paths.data_dir)
-        .env("XHS_ACCOUNTS_DIR", &paths.accounts_dir)
-        .env("XHS_DB_PATH", &paths.db_path)
-        .env("XHS_IMAGES_DIR", &paths.images_dir)
-        .env("COOKIES_PATH", &paths.cookies_path)
-        .env("XHS_BROWSER_DIR", &paths.browser_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

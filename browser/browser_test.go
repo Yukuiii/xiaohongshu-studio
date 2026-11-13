@@ -20,6 +20,7 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/xpzouying/xiaohongshu-mcp/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -86,9 +87,9 @@ func TestOptions_Defaults(t *testing.T) {
 }
 
 func TestCookieImportDoesNotFallbackAcrossProfiles(t *testing.T) {
-	cookieFile := filepath.Join(t.TempDir(), "cookies.json")
+	root := testutil.IsolateDataRoot(t)
+	cookieFile := filepath.Join(root, "cookies.json")
 	require.NoError(t, os.WriteFile(cookieFile, []byte(`[{"name":"legacy","value":"global","domain":"127.0.0.1","path":"/"}]`), 0o600))
-	t.Setenv("COOKIES_PATH", cookieFile)
 
 	legacy, err := (&browserConfig{}).loadCookies()
 	require.NoError(t, err)

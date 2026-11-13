@@ -57,9 +57,13 @@ $env:AUTH_TOKEN = "替换为自己的服务访问令牌"
 5. 编辑标题、正文与话题，上传图片；需要 AI 配图时单独配置生图服务。
 6. 检查预览、图片顺序和可见范围，在发布窗口再次确认。
 
-完整使用说明、图片限制和数据保存位置见[首页](../README.md)。每个账号使用独立的完整 Chromium profile、固定 seed、下载及素材目录，浏览器空闲 10 分钟后退出并保留数据。`XHS_ACCOUNTS_DIR` 指定账号数据根；默认是旧 Cookie 文件同级的隐藏目录 `.xhs-accounts/`。升级请停止服务并保留整个数据根；`cookies.json` 或 `COOKIES_PATH` 只作为旧版本首次导入源，源文件保留，移除旧账号不会再次导入。
+完整使用说明、图片限制和数据保存位置见[首页](../README.md)。每个账号使用独立的完整 Chromium profile、固定 seed、下载及素材目录，浏览器空闲 10 分钟后退出并保留数据。本指南从仓库根目录启动，数据固定保存在当前工作目录的 `data/`，包括 `data/accounts/`、`data/studio.db` 和 `data/uploads/`；升级前请停止服务并保留整个数据目录。
 
-账号元数据、模型配置、草稿和发布防重记录保存在服务端 SQLite 数据库；默认位于账号目录同级的 `studio.db`，可用 `XHS_DB_PATH` 指定，所有账号共用。API Key 不会从服务端返回浏览器；工作台访问令牌仍保存在当前浏览器，授权整个工作台，不限制访问者可操作的账号。草稿按账号保存在服务端，发布结果未知时的防重记录同样跨浏览器共享。每个账号仍使用独立 Chromium profile，浏览器正常退出时会清理可重建缓存。旧版 JSON 和浏览器 localStorage 草稿不会迁入新数据库。
+Windows 桌面安装版沿用 `%LOCALAPPDATA%\com.xiaohongshu.studio\` 下的 `accounts/`、`studio.db`、`uploads/` 和 `studio.log`，浏览器使用安装包内与应用 exe 同级的 `browser/`；Docker 沿用 `/app/data`。桌面和 Docker 数据路径不变，无需搬迁。
+
+账号元数据、模型配置、草稿和发布防重记录保存在服务端 SQLite 数据库，所有账号共用。API Key 不会从服务端返回浏览器；工作台访问令牌仍保存在当前浏览器，授权整个工作台，不限制访问者可操作的账号。草稿按账号保存在服务端，发布结果未知时的防重记录同样跨浏览器共享。每个账号仍使用独立 Chromium profile，浏览器正常退出时会清理可重建缓存。
+
+源码旧 `.xhs-accounts/`、根目录 `studio.db` 和临时图片不会自动迁移，旧数据原样保留。全新数据库不创建默认账号，也不自动导入旧 JSON、Cookie 文件或浏览器 localStorage 草稿；请重新添加账号、扫码登录并配置模型。`data/cookies.json` 仅供底层 Cookie 文件 API 兼容使用。
 
 重置浏览器数据保留账号身份、seed、草稿和素材，移除账号则清理该账号的数据。跨机器或操作系统复制 profile 不保证会话继续有效。
 

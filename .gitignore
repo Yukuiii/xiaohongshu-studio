@@ -52,6 +52,9 @@ test_*.sh
 .xhs-settings.json
 .xhs-settings-*.tmp
 cookies.json
+studio.db
+studio.db-*
+data/
 docker/data/
 docker/images/
 docker/docker-compose.override.yml

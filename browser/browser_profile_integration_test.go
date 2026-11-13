@@ -21,6 +21,7 @@ import (
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
+	"github.com/xpzouying/xiaohongshu-mcp/internal/testutil"
 )
 
 func cachedFixtureBrowser(t *testing.T) string {
@@ -195,9 +196,8 @@ func TestProfileStoragePersistsAndIsolatesAccounts(t *testing.T) {
 	cachedFixtureBrowser(t)
 	server := profileFixtureServer(t)
 	root := t.TempDir()
-	legacy := filepath.Join(root, "global-cookies.json")
+	legacy := filepath.Join(testutil.IsolateDataRoot(t), "cookies.json")
 	require.NoError(t, os.WriteFile(legacy, []byte(`[{"name":"global","value":"stale","domain":"127.0.0.1","path":"/"}]`), 0o600))
-	t.Setenv("COOKIES_PATH", legacy)
 
 	type account struct {
 		name, profile, download string
@@ -291,9 +291,8 @@ func TestProfileSessionCookiesSurviveRestartWithoutRestoringPages(t *testing.T) 
 				{Name: "persistent", Value: "saved", Domain: "127.0.0.1", Path: "/", Expires: proto.TimeSinceEpoch(time.Now().Add(24 * time.Hour).Unix())},
 			})
 			require.NoError(t, err)
-			legacy := filepath.Join(root, "legacy.json")
+			legacy := filepath.Join(testutil.IsolateDataRoot(t), "cookies.json")
 			require.NoError(t, os.WriteFile(legacy, imported, 0o600))
-			t.Setenv("COOKIES_PATH", legacy)
 			open := func(options ...Option) *Browser {
 				t.Helper()
 				opts := []Option{WithUserDataDir(profile), WithFingerprintSeed(23088)}
@@ -396,9 +395,8 @@ func TestProfileLogoutAndCrashCannotReviveSessionCookies(t *testing.T) {
 				{Name: "persistent", Value: "keep", Domain: "127.0.0.1", Path: "/", Expires: proto.TimeSinceEpoch(time.Now().Add(24 * time.Hour).Unix())},
 			})
 			require.NoError(t, err)
-			legacy := filepath.Join(root, "legacy.json")
+			legacy := filepath.Join(testutil.IsolateDataRoot(t), "cookies.json")
 			require.NoError(t, os.WriteFile(legacy, imported, 0o600))
-			t.Setenv("COOKIES_PATH", legacy)
 			b := openFixtureProfile(t, profile, "", WithCookies(imported))
 			shutdownFixture(t, b)
 			b = openFixtureProfile(t, profile, "")

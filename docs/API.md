@@ -4,6 +4,8 @@
 
 红薯创作台提供浏览器创作页面与标准 HTTP API。本文档保留登录、内容、用户、互动以及模型和图片接口的调用说明；日常创作可直接打开 `http://localhost:18060/`。
 
+本文对应当前源码；固定数据布局调整尚未包含在当前 `v0.1.0` 发布包中。
+
 **Base URL**: `http://localhost:18060`
 
 **注意**: 以下响应示例仅展示主要字段结构，完整的字段信息请通过实际API调用查看。
@@ -45,7 +47,9 @@ curl http://localhost:18060/api/v1/account/verify \
 
 页面初始化、切换账号和切换页面读取账号列表缓存，不自动调用 `/login/session` 或 `/account/verify`；账号页可见期间每 60 秒静默刷新列表。登录成功、清 Cookie、重置 profile 和实时身份检查会及时更新缓存；扫码失败或取消保留原 active profile 的缓存。登录弹窗扫码期间轮询 `/login/session`；手动刷新状态和业务任务前的主动核验使用 `/account/verify` 实时检查。
 
-`XHS_ACCOUNTS_DIR` 指定账号和 profile 数据根；未设时使用旧 Cookie 路径同目录的隐藏目录 `.xhs-accounts/`。元数据数据库默认位于数据根同级的 `studio.db`，可用 `XHS_DB_PATH` 指定。服务和维护 CLI 对同一个 root 互斥，CLI 使用前先停止服务。每个账号保存完整 Chromium user-data-dir；账号浏览器正常退出和服务启动时会清理 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留 Cookie、Local Storage、IndexedDB、Service Worker 和浏览器配置。模型配置、服务令牌由整个工作台共用；拥有有效令牌即可访问所有账号，此功能不提供访问者权限隔离。
+源码及 Docker 的数据根固定为当前工作目录下的 `data/`，Docker 工作目录为 `/app`，因此使用 `/app/data`；桌面端直接使用系统应用数据目录，具体位置见[桌面端说明](../desktop/README.md#运行期数据目录)。数据根中的 `accounts/` 保存各账号的完整 Chromium user-data-dir，`studio.db` 保存元数据，`uploads/` 保存上传和生成的图片。账号浏览器正常退出和服务启动时会清理 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留 Cookie、Local Storage、IndexedDB、Service Worker 和浏览器配置。模型配置、服务令牌由整个工作台共用；拥有有效令牌即可访问所有账号，此功能不提供访问者权限隔离。
+
+SQLite 数据库包含 `accounts`、`settings`、`drafts`、`publish_protection` 四张表。全新数据库不创建默认账号，也不自动导入旧 JSON、Cookie 文件或浏览器 localStorage 草稿。源码旧 `.xhs-accounts/`、根目录 `studio.db` 和临时图片不会自动迁移，旧文件保留；Docker 和桌面端的数据路径不变，无需搬迁。数据根下的 `cookies.json` 仅供底层 Cookie 文件 API 兼容使用，不会自动恢复账号。
 
 ## 通用响应格式
 
@@ -115,7 +119,7 @@ curl http://localhost:18060/api/v1/account/verify \
   "accounts": [
     {
       "id": "11111111111111111111111111111111",
-      "name": "默认账号",
+      "name": "工作账号",
       "user_id": "verified-user-id",
       "nickname": "已验证昵称",
       "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/example.webp",
@@ -132,7 +136,7 @@ curl http://localhost:18060/api/v1/account/verify \
 }
 ```
 
-`avatar` 来自最近一次身份核验的头像地址，缺失时前端使用昵称首字占位。`browser_status` 为 `stopped`、`running` 或 `login`；`active_login` 有值时包含当前可视化登录的 `account_id` 和 `session_id`。`legacy_account_id` 是固定迁移目标，移除后仍保留此值，不能将旧数据迁入其他账号。
+`avatar` 来自最近一次身份核验的头像地址，缺失时前端使用昵称首字占位。`browser_status` 为 `stopped`、`running` 或 `login`；`active_login` 有值时包含当前可视化登录的 `account_id` 和 `session_id`。`legacy_account_id` 为旧图片路径兼容字段，当前返回最早创建的存活账号 ID，无账号时为空字符串；不表示会自动导入旧账号、Cookie 或草稿。
 
 `login_checked_at` 为 `null` 表示尚无明确检查结果，不能据此认为旧账号登录已失效。工作台对已登录账号隐藏重新登录入口；已绑定账号只有在 `is_logged_in=false` 且检查时间非空时才显示“重新登录”，未知状态可先点击“刷新状态”。新账号保留首次登录入口，已有登录窗口通过“继续登录”复用原会话。
 
@@ -154,7 +158,7 @@ Content-Type: application/json
 
 成功时 `data.account` 为上述公开元数据。创建账号只建立独立槽位和空 profile，随后用返回 ID 打开登录浏览器；重命名不改变真实身份绑定。
 
-`DELETE /api/v1/accounts/:id` 移除账号，清理其完整 profiles、下载目录及托管图片，并保留不含凭证的墓碑防止迟到回调或旧数据迁移复活。工作台同时清理该账号的服务端草稿和发布防重记录。存在任务或登录时返回 `409 ACCOUNT_BUSY`，空闲浏览器先关闭再清理。删除不会转移数据到其他账号。
+`DELETE /api/v1/accounts/:id` 移除账号，清理其完整 profiles、下载目录及托管图片，并保留不含凭证的墓碑，防止迟到回调重新写入已移除账号。工作台同时清理该账号的服务端草稿和发布防重记录。存在任务或登录时返回 `409 ACCOUNT_BUSY`，空闲浏览器先关闭再清理。删除不会转移数据到其他账号。
 
 `POST /api/v1/accounts/:id/reset-profile` 无请求体，正常关闭浏览器后切换至空 profile，保留账号 ID、真实身份绑定、固定 seed、服务端草稿和素材。成功时返回 `data.account`；任务或登录中返回 `409 ACCOUNT_BUSY`。此操作应由用户确认，与仅清 Cookie 的兼容接口不同。
 
@@ -274,7 +278,7 @@ Linux 无桌面且未使用默认应用镜像时，打开接口返回明确错�
 
 #### 2.4 清除所选浏览器 Cookie
 
-`DELETE /api/v1/login/cookies` 携带所选账号头，只清除该账号持久 profile 内的 Cookie；保留 localStorage、IndexedDB、缓存、账号 ID、seed 与身份绑定，不删除旧 Cookie 迁移源，也不影响其他账号。完整清空站点数据请在用户确认后调用 `POST /api/v1/accounts/:id/reset-profile`。账号忙或登录中返回 `409 ACCOUNT_BUSY`。
+`DELETE /api/v1/login/cookies` 携带所选账号头，只清除该账号持久 profile 内的 Cookie；保留 localStorage、IndexedDB、缓存、账号 ID、seed 与身份绑定，也不影响其他账号。完整清空站点数据请在用户确认后调用 `POST /api/v1/accounts/:id/reset-profile`。账号忙或登录中返回 `409 ACCOUNT_BUSY`。
 
 ```http
 DELETE /api/v1/login/cookies
@@ -1071,7 +1075,7 @@ Content-Type: application/json
 
 ### 8. Web 创作台
 
-页面依次调用已有的搜索和笔记详情接口获取素材，再调用写稿接口。所有新接口沿用服务 Bearer Token；模型服务商的 API Key 与工作台访问令牌分开配置。模型配置保存在服务端 SQLite 数据库，Docker 默认使用 `/app/data/studio.db`；可通过 `XHS_DB_PATH` 指定数据库路径。
+页面依次调用已有的搜索和笔记详情接口获取素材，再调用写稿接口。所有新接口沿用服务 Bearer Token；模型服务商的 API Key 与工作台访问令牌分开配置。模型配置保存在服务端 SQLite 数据库，源码为 `data/studio.db`，Docker 为 `/app/data/studio.db`，桌面端为系统应用数据目录下的 `studio.db`。
 
 #### 8.1 模型配置与列表
 
@@ -1104,7 +1108,7 @@ Content-Type: application/json
 - 省略 `api_key` 时仅保留同一规范化接口地址的原密钥；更换接口地址需要同时提供新密钥。
 - 配置某一类模型时需完整填写地址、模型名和密钥；禁用该类模型时将三个字段都置空。`DELETE` 清空文字和生图配置，返回已初始化的空配置。
 - `only_if_uninitialized: true` 可用于旧浏览器首次迁移；已有配置时返回 `409 SETTINGS_ALREADY_INITIALIZED`。清空操作保留初始化标记，旧浏览器不能再次导入。
-- 模型 API Key 不从读取、保存或清空响应返回；服务访问令牌不写入此文件。配置文件使用 `0600` 权限和原子替换保存。
+- 模型 API Key 不从读取、保存或清空响应返回；服务访问令牌不写入数据库。SQLite 数据库使用 `0600` 权限，通过事务保存配置。
 
 写稿、生图请求省略 `config` 时，分别使用服务端的文字、生图配置；也继续兼容每次显式传入完整配置：
 
@@ -1184,14 +1188,14 @@ Content-Type: multipart/form-data
     {
       "id": "0123456789abcdef0123456789abcdef.png",
       "name": "封面.png",
-      "path": "/server/temp/xiaohongshu_images/web/11111111111111111111111111111111/0123456789abcdef0123456789abcdef.png",
+      "path": "/app/data/uploads/web/11111111111111111111111111111111/0123456789abcdef0123456789abcdef.png",
       "url": "/api/v1/images/0123456789abcdef0123456789abcdef.png"
     }
   ]
 }
 ```
 
-`path` 是服务端该账号目录中的绝对路径，原样传入同一账号发布接口的 `images` 数组。`url` 用于预览：启用鉴权时须携带服务 Token 和相同的 `X-XHS-Account-ID` 获取图片，前端使用 Blob URL 展示，不在链接中附带 Token。跨账号读取返回不存在，发布其他账号托管图片返回 `400 IMAGE_ACCOUNT_MISMATCH`。图片响应为 `private, no-store`。旧托管图片路径仅在固定旧账号内兼容映射，其他账号不会回退到旧共享目录；外部本地素材与 URL 仍按发布接口规则使用。默认源码运行将图片保存在系统临时目录，系统清理后需重新上传；Docker 将其持久化到 `data/uploads/web/<account-id>/`。
+`path` 是服务端该账号目录中的绝对路径，原样传入同一账号发布接口的 `images` 数组。`url` 用于预览：启用鉴权时须携带服务 Token 和相同的 `X-XHS-Account-ID` 获取图片，前端使用 Blob URL 展示，不在链接中附带 Token。跨账号读取返回不存在，发布其他账号托管图片返回 `400 IMAGE_ACCOUNT_MISMATCH`。图片响应为 `private, no-store`。外部本地素材与 URL 仍按发布接口规则使用。图片固定保存在数据根的 `uploads/web/<account-id>/`，源码运行时为当前工作目录下的 `data/uploads/web/<account-id>/`，Docker 中为 `/app/data/uploads/web/<account-id>/`；旧临时图片不会自动迁入。
 
 #### 8.4 AI 配图
 

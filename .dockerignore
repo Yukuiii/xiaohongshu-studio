@@ -20,6 +20,8 @@ docker/**
 .DS_Store
 
 cookies.json
+data/
+desktop/
 **/.xhs-accounts
 **/studio.db
 **/studio.db-wal

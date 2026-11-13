@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,7 +18,7 @@ import (
 	"github.com/xpzouying/xiaohongshu-mcp/accounts"
 	"github.com/xpzouying/xiaohongshu-mcp/browser"
 	"github.com/xpzouying/xiaohongshu-mcp/configs"
-	"github.com/xpzouying/xiaohongshu-mcp/cookies"
+	"github.com/xpzouying/xiaohongshu-mcp/datadir"
 	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
@@ -913,8 +912,5 @@ func loginWindowState() proto.BrowserWindowState {
 }
 
 func defaultAccountsRoot() string {
-	if root := os.Getenv("XHS_ACCOUNTS_DIR"); root != "" {
-		return root
-	}
-	return filepath.Join(filepath.Dir(cookies.GetCookiesFilePath()), ".xhs-accounts")
+	return datadir.Path("accounts")
 }

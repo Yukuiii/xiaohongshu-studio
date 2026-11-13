@@ -73,8 +73,7 @@ func setLoginFixtureCookie(t *testing.T, b *rod.Browser, value string) {
 
 func TestLoginBrowserLocalVerificationAndAutoClose(t *testing.T) {
 	b, page := newLoginSessionFixture(t)
-	cookiePath := filepath.Join(t.TempDir(), "cookies.json")
-	t.Setenv("COOKIES_PATH", cookiePath)
+	cookiePath := filepath.Join(isolateDataRoot(t), "cookies.json")
 	require.NoError(t, page.SetDocumentContent(sessionFixtureVerification))
 	setLoginFixtureCookie(t, b, "first")
 	service := NewXiaohongshuService()
@@ -131,8 +130,7 @@ func TestLoginBrowserLocalVerificationAndAutoClose(t *testing.T) {
 
 func TestLoginBrowserLocalExpiry(t *testing.T) {
 	b, page := newLoginSessionFixture(t)
-	cookiePath := filepath.Join(t.TempDir(), "cookies.json")
-	t.Setenv("COOKIES_PATH", cookiePath)
+	cookiePath := filepath.Join(isolateDataRoot(t), "cookies.json")
 	require.NoError(t, page.SetDocumentContent(`<main>请使用小红书扫码登录</main>`))
 	service := NewXiaohongshuService()
 	var closed atomic.Int32
@@ -149,9 +147,8 @@ func TestLoginBrowserLocalExpiry(t *testing.T) {
 
 func TestLoginBrowserLocalSaveFailure(t *testing.T) {
 	b, page := newLoginSessionFixture(t)
-	parent := filepath.Join(t.TempDir(), "file-not-directory")
-	require.NoError(t, os.WriteFile(parent, []byte("fixture"), 0600))
-	t.Setenv("COOKIES_PATH", filepath.Join(parent, "cookies.json"))
+	cookiePath := filepath.Join(isolateDataRoot(t), "cookies.json")
+	require.NoError(t, os.MkdirAll(cookiePath, 0o700))
 	require.NoError(t, page.SetDocumentContent(sessionFixtureLoggedIn))
 	service := NewXiaohongshuService()
 	var closed atomic.Int32
@@ -186,7 +183,7 @@ func TestLoginBrowserClosesBrowserOnNavigationFailure(t *testing.T) {
 	configs.SetProxy(proxy.URL)
 	profileDir := t.TempDir()
 	defaults.Dir = profileDir
-	t.Setenv("COOKIES_PATH", filepath.Join(t.TempDir(), "cookies.json"))
+	isolateDataRoot(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	service := NewXiaohongshuService()
@@ -219,8 +216,7 @@ func TestLoginBrowserLocalRetriesTransientCookieContext(t *testing.T) {
 		client.CDPClient = inner
 		return client
 	})
-	cookiePath := filepath.Join(t.TempDir(), "cookies.json")
-	t.Setenv("COOKIES_PATH", cookiePath)
+	cookiePath := filepath.Join(isolateDataRoot(t), "cookies.json")
 	require.NoError(t, page.SetDocumentContent(sessionFixtureLoggedIn))
 	service := NewXiaohongshuService()
 	service.startLoginSession(xiaohongshu.NewLogin(page), page, func() { _ = b.Close() }, loginBrowserTimeout)

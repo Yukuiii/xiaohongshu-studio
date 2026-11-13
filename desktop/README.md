@@ -49,6 +49,8 @@ VERSION=v1.2.3 npm --prefix desktop run build
 
 - `accounts/`：各账号独立浏览器 Profile
 - `studio.db`：SQLite 数据库
-- `uploads/`：本地上传与生成图片缓存（对应 `XHS_IMAGES_DIR`）
+- `uploads/`：本地上传与生成图片
 - `studio.log`：后端标准错误日志
-- `browser/current/`（macOS 首次启动从内置 `chromium.tar.gz` 原地解压一次）
+- `browser/current/`（仅 macOS，首次启动从内置 `chromium.tar.gz` 原地解压一次）
+
+Windows 使用安装包内、与应用 exe 同级的 `browser/`。桌面数据沿用上述路径，升级无需搬迁数据。

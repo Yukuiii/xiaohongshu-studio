@@ -86,7 +86,7 @@ Docker 中点击登录会打开接近全屏的 noVNC 弹窗，展示真实小红
 
 设置 `AUTH_TOKEN` 后，在工作台「设置」中填写相同令牌；它与模型 API Key 分开配置，授权访问整个工作台及所有账号。HTTP API 见 [API 文档](./docs/API.md)。
 
-页面发布使用 Web Locks 协调同账号的多个标签页，需要支持该功能的浏览器，并通过 **HTTPS 或 localhost / 回环地址**访问。发布保护依赖当前浏览器的站点存储。远程服务器可以通过 SSH 转发到本机：
+页面发布使用 Web Locks 协调同账号的多个标签页，需要支持该功能的浏览器，并通过 **HTTPS 或 localhost / 回环地址**访问。发布防重记录保存在服务端，跨浏览器共享。远程服务器可以通过 SSH 转发到本机：
 
 ```bash
 ssh -L 18060:127.0.0.1:18060 user@server
@@ -98,22 +98,22 @@ ssh -L 18060:127.0.0.1:18060 user@server
 
 | 数据 | Docker 部署 | 源码运行 |
 | --- | --- | --- |
-| 账号、完整浏览器数据及下载文件 | `xiaohongshu-studio-data/accounts/` | `XHS_ACCOUNTS_DIR`，默认位于旧 Cookie 文件同目录的 `.xhs-accounts/` |
-| 账号元数据、模型配置、草稿及发布防重记录 | `xiaohongshu-studio-data/studio.db`（SQLite） | `XHS_DB_PATH`，默认位于账号目录同级的 `studio.db` |
-| 上传及生成的图片 | `xiaohongshu-studio-data/uploads/`，按账号保存 | 系统临时目录下的 `xiaohongshu_images/web/<account-id>/` |
+| 账号、完整浏览器数据及下载文件 | `xiaohongshu-studio-data/accounts/` | `data/accounts/` |
+| 账号元数据、模型配置、草稿及发布防重记录 | `xiaohongshu-studio-data/studio.db`（SQLite） | `data/studio.db` |
+| 上传及生成的图片 | `xiaohongshu-studio-data/uploads/`，按账号保存 | `data/uploads/`，按账号保存 |
 | 工作台访问令牌 | 访问工作台的浏览器 localStorage | 同左 |
 
-直接运行时数据在 `xiaohongshu-studio-data/`，Compose 部署在 `docker/data/`。备份前先停止服务，并保存完整的数据目录，其中包含模型密钥和登录凭据。服务运行中备份 SQLite 时使用 `VACUUM INTO`，或先停止服务再复制数据库和 WAL 文件。访问令牌仍只保存在浏览器，需要单独保留。
+直接运行镜像时数据在 `xiaohongshu-studio-data/`，Compose 部署在 `docker/data/`，源码运行在当前工作目录的 `data/`。备份前先停止服务，并保存完整的数据目录，其中包含模型密钥和登录凭据。服务运行中备份 SQLite 时使用 `VACUUM INTO`，或先停止服务再复制数据库和 WAL 文件。访问令牌仍只保存在浏览器，需要单独保留。
 
 每个账号使用完整 Chromium profile；正常关闭浏览器和启动服务时会删除 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留 Cookie、Local Storage、IndexedDB、Service Worker 和浏览器配置，因此清理后仍能保持登录态。
 
 旧浏览器中的模型配置只会自动迁移到尚未初始化的服务端，成功后移除旧缓存；已有服务端配置优先。换浏览器时，填写工作台访问令牌即可读取服务器上的模型地址和名称。已保存的 API Key 不会返回浏览器，编辑时留空可保留同一接口的原密钥。
 
-草稿中的图片引用不能替代图片文件，源码运行时需另行备份临时目录中的图片。浏览器数据恢复时应尽量保持运行环境一致，站点登录态仍可能过期。
+草稿中的图片引用不能替代图片文件，请一并备份 `uploads/`。浏览器数据恢复时应尽量保持运行环境一致，站点登录态仍可能过期。
 
 「重置浏览器数据」清空该账号的站点数据，保留账号身份绑定、指纹、服务端草稿和素材；「移除账号」会清理该账号的浏览器数据、下载、托管图片以及服务端的草稿和发布记录。
 
-此版本不再读取旧的 `state.json`、`account.json`、`settings.json` 和浏览器 localStorage 草稿。升级到该版本需要重新添加账号、扫码登录并配置模型。
+源码运行不自动迁移旧 `.xhs-accounts/`、根目录 `studio.db` 或临时图片，旧数据原样保留；Docker 和桌面端的数据路径不变。全新数据库不创建默认账号，也不导入旧 JSON、Cookie 或浏览器 localStorage 草稿，需要重新添加账号、扫码登录并配置模型。
 
 ## 常见问题
 
@@ -123,7 +123,7 @@ ssh -L 18060:127.0.0.1:18060 user@server
 
 **发布超时或结果未知？** 先到小红书确认笔记是否已发布，再按工作台提示处理发布保护，避免直接重复提交。
 
-**首次启动下载失败？** 使用发布镜像时浏览器已内置；从源码运行或本地构建镜像时，内置 fingerprint-chromium 从官方 GitHub Release 下载，并校验仓库固定的 SHA256。源码运行可配置 `XHS_BROWSER_DOWNLOAD_BASE`，Docker 构建可配置 `BROWSER_DOWNLOAD_BASE`，具体格式见 [Docker 文档](./docker/README.md)。
+**首次启动下载失败？** 使用发布镜像时浏览器已内置；源码运行可配置 `XHS_BROWSER_DOWNLOAD_BASE`，本地镜像构建的下载地址在 Compose 配置中修改，具体见 [Docker 文档](./docker/README.md)。
 
 ## 来源与许可证
 

@@ -7,12 +7,12 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 
 	"github.com/sirupsen/logrus"
 	"github.com/xpzouying/xiaohongshu-mcp/accounts"
 	"github.com/xpzouying/xiaohongshu-mcp/browser"
 	"github.com/xpzouying/xiaohongshu-mcp/configs"
+	"github.com/xpzouying/xiaohongshu-mcp/datadir"
 	"github.com/xpzouying/xiaohongshu-mcp/db"
 )
 
@@ -20,10 +20,7 @@ import (
 var version = "dev"
 
 func defaultDBPath() string {
-	if path := os.Getenv("XHS_DB_PATH"); path != "" {
-		return path
-	}
-	return filepath.Join(filepath.Dir(defaultAccountsRoot()), "studio.db")
+	return datadir.Path("studio.db")
 }
 
 // watchReaderEOF 在输入流结束或出错时触发取消，用于父进程退出后自动收尾。

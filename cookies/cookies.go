@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/xpzouying/xiaohongshu-mcp/datadir"
 )
 
 // sessionFile 是 v2 的文件结构。v1 是一个裸 cookie 数组，没有外层对象。
@@ -17,9 +18,6 @@ type sessionFile struct {
 	SavedAt string          `json:"saved_at,omitempty"`
 	Cookies json.RawMessage `json:"cookies"`
 }
-
-// localCookiesPath 当前目录下的默认文件名。
-const localCookiesPath = "cookies.json"
 
 type Cookier interface {
 	LoadCookies() ([]byte, error)
@@ -124,25 +122,7 @@ func (c *localCookie) DeleteCookies() error {
 	return os.Remove(c.path)
 }
 
-// GetCookiesFilePath 获取 cookies 文件路径。
-// 为了向后兼容，如果旧路径 /tmp/cookies.json 存在，则继续使用；
-// 否则使用当前目录下的 cookies.json
+// GetCookiesFilePath 返回数据根下的 cookies 文件路径。
 func GetCookiesFilePath() string {
-	// 显式指定优先，无条件——环境里的残留文件不能盖掉用户明说的配置
-	if path := os.Getenv("COOKIES_PATH"); path != "" {
-		return path
-	}
-
-	// 本地目录
-	if _, err := os.Stat(localCookiesPath); err == nil {
-		return localCookiesPath
-	}
-
-	// 旧路径 /tmp/cookies.json，仅为老用户兜底
-	oldPath := filepath.Join(os.TempDir(), "cookies.json")
-	if _, err := os.Stat(oldPath); err == nil {
-		return oldPath
-	}
-
-	return localCookiesPath
+	return datadir.Path("cookies.json")
 }

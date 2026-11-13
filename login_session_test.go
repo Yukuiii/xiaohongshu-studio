@@ -246,8 +246,7 @@ func TestLoginSessionStatusUsesActiveSession(t *testing.T) {
 }
 
 func TestCloseLoginBrowserPreservesCookies(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "cookies.json")
-	t.Setenv("COOKIES_PATH", path)
+	path := filepath.Join(isolateDataRoot(t), "cookies.json")
 	data := []byte(`{"seed":123,"cookies":[]}`)
 	require.NoError(t, os.WriteFile(path, data, 0600))
 	service := NewXiaohongshuService()
@@ -264,8 +263,7 @@ func TestCloseLoginBrowserPreservesCookies(t *testing.T) {
 }
 
 func TestDeleteCookiesClosesLoginBrowser(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "cookies.json")
-	t.Setenv("COOKIES_PATH", path)
+	path := filepath.Join(isolateDataRoot(t), "cookies.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"seed":123,"cookies":[]}`), 0600))
 	service := NewXiaohongshuService()
 	closed := false

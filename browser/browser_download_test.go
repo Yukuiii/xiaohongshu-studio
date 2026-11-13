@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/xpzouying/xiaohongshu-mcp/internal/testutil"
 )
 
 type browserDownloadTransport func(*http.Request) (*http.Response, error)
@@ -205,7 +207,9 @@ func TestEnsureBrowserUsesBundledDirWithoutDownloading(t *testing.T) {
 	var requests []string
 	interceptBrowserDownloads(t, &requests)
 
-	bundledDir := t.TempDir()
+	root := testutil.IsolateDataRoot(t)
+	t.Setenv("XHS_BROWSER_DIR", filepath.Join(t.TempDir(), "ignored"))
+	bundledDir := filepath.Join(root, "browser", "current")
 	bundledBinary := filepath.Join(bundledDir, "Chromium.app", "Contents", "MacOS", binary)
 	if err := os.MkdirAll(filepath.Dir(bundledBinary), 0o755); err != nil {
 		t.Fatal(err)
@@ -213,7 +217,6 @@ func TestEnsureBrowserUsesBundledDirWithoutDownloading(t *testing.T) {
 	if err := os.WriteFile(bundledBinary, []byte("bundled browser"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("XHS_BROWSER_DIR", "  "+bundledDir+"  ")
 
 	got, err := EnsureBrowser()
 	if err != nil || got != bundledBinary {
@@ -224,23 +227,50 @@ func TestEnsureBrowserUsesBundledDirWithoutDownloading(t *testing.T) {
 	}
 }
 
-func TestEnsureBrowserRejectsMissingBundledDirWithoutFallback(t *testing.T) {
+func TestFindBundledBrowserUsesInstalledResourceDirectory(t *testing.T) {
+	testutil.IsolateDataRoot(t)
+	install := filepath.Join(t.TempDir(), "Studio Install")
+	binary := filepath.Join(install, "browser", "chromium", "chrome.exe")
+	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binary, []byte("bundled browser"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := findBundledBrowser(filepath.Join(install, "xiaohongshu-studio.exe"), "chrome.exe")
+	if err != nil || got != binary {
+		t.Fatalf("findBundledBrowser() = (%q, %v), want %q", got, err, binary)
+	}
+}
+
+func TestFindBundledBrowserIgnoresSourceDirectory(t *testing.T) {
+	testutil.IsolateDataRoot(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "browser"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := findBundledBrowser(filepath.Join(root, "studio"), "Chromium")
+	if err != nil || got != "" {
+		t.Fatalf("findBundledBrowser() = (%q, %v), want no bundled browser", got, err)
+	}
+}
+
+func TestEnsureBrowserRejectsBrokenBundledDir(t *testing.T) {
 	browserReleaseForTest(t)
 	isolateBrowserDownload(t)
 	var requests []string
 	interceptBrowserDownloads(t, &requests)
 
-	emptyDir := t.TempDir()
-	t.Setenv("XHS_BROWSER_DIR", emptyDir)
-	if got, err := EnsureBrowser(); got != "" || err == nil {
-		t.Fatalf("EnsureBrowser() with empty XHS_BROWSER_DIR = (%q, %v), want error", got, err)
+	root := testutil.IsolateDataRoot(t)
+	bundledDir := filepath.Join(root, "browser", "current")
+	if err := os.MkdirAll(bundledDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-
-	t.Setenv("XHS_BROWSER_DIR", filepath.Join(emptyDir, "missing"))
 	if got, err := EnsureBrowser(); got != "" || err == nil {
-		t.Fatalf("EnsureBrowser() with missing XHS_BROWSER_DIR = (%q, %v), want error", got, err)
+		t.Fatalf("EnsureBrowser() with empty bundled dir = (%q, %v), want error", got, err)
 	}
 	if len(requests) != 0 {
-		t.Fatalf("invalid XHS_BROWSER_DIR fell back to network requests: %q", requests)
+		t.Fatalf("broken bundled dir fell back to network requests: %q", requests)
 	}
 }

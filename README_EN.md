@@ -86,7 +86,7 @@ When running the image directly, pass these with `-e`/`-p`/`-v`; with Compose, s
 
 When `AUTH_TOKEN` is set, enter the same token in Settings. It is separate from model API keys and grants access to the entire workspace and all accounts. See the [HTTP API](./docs/API.md) for API usage.
 
-Publication uses Web Locks to coordinate tabs for the same account. Use a supporting browser over **HTTPS or localhost / a loopback address**. Publication protection depends on the current browser's site storage. For a remote server, forward the service to your computer through SSH:
+Publication uses Web Locks to coordinate tabs for the same account. Use a supporting browser over **HTTPS or localhost / a loopback address**. Publication protection records are stored on the server and shared across browsers. For a remote server, forward the service to your computer through SSH:
 
 ```bash
 ssh -L 18060:127.0.0.1:18060 user@server
@@ -98,24 +98,22 @@ Then open **http://127.0.0.1:18060/**. When using a reverse proxy, keep the page
 
 | Data | Docker deployment | Running from source |
 | --- | --- | --- |
-| Accounts, complete browser profiles, and downloads | `xiaohongshu-studio-data/accounts/` | `XHS_ACCOUNTS_DIR`; defaults to `.xhs-accounts/` beside the legacy Cookie file |
-| Account metadata, model settings, drafts, and publication protection | `xiaohongshu-studio-data/studio.db` (SQLite) | `XHS_DB_PATH`; defaults to `studio.db` beside the accounts directory |
-| Uploaded and generated images | `xiaohongshu-studio-data/uploads/`, separated by account | `xiaohongshu_images/web/<account-id>/` under the system temporary directory |
+| Accounts, complete browser profiles, and downloads | `xiaohongshu-studio-data/accounts/` | `data/accounts/` |
+| Account metadata, model settings, drafts, and publication protection | `xiaohongshu-studio-data/studio.db` (SQLite) | `data/studio.db` |
+| Uploaded and generated images | `xiaohongshu-studio-data/uploads/`, separated by account | `data/uploads/`, separated by account |
 | Service access token | The visiting browser's localStorage | Same |
 
-Direct runs store data in `xiaohongshu-studio-data/`; Compose uses `docker/data/`. Stop the service before backing up the entire data directory, which includes model keys and sign-in credentials. To back up SQLite while the service is running, use `VACUUM INTO`; otherwise stop the service and copy the database and WAL files. The access token remains browser-only and must be retained separately.
+Direct image runs store data in `xiaohongshu-studio-data/`; Compose uses `docker/data/`, and source runs use `data/` under the current working directory. Stop the service before backing up the entire data directory, which includes model keys and sign-in credentials. To back up SQLite while the service is running, use `VACUUM INTO`; otherwise stop the service and copy the database and WAL files. The access token remains browser-only and must be retained separately.
 
 Each account keeps a complete Chromium profile. When a browser closes normally and when the service starts, rebuildable caches such as Cache, Code Cache, and GPU/Shader caches are removed. Cookies, Local Storage, IndexedDB, Service Worker data, and browser preferences are retained, so the sign-in state survives pruning.
 
 Legacy browser model settings migrate automatically only when the server has not been initialized; the old cache is removed after success. Existing server settings take precedence. On another browser, enter the service access token to load the saved provider URLs and model names. Saved API keys are not returned to the browser; leave the key field empty to keep the existing key for the same provider URL.
 
-Image references in drafts do not replace the image files. When running from source, back up the images in the temporary directory separately. Restore browser profiles in the same runtime environment where possible; site sessions can still expire.
+Image references in drafts do not replace the image files; include `uploads/` in your backup. Restore browser profiles in the same runtime environment where possible; site sessions can still expire.
 
 Reset browser data (重置浏览器数据) clears an account's site data while retaining its identity binding, fingerprint, server-side drafts, and images. Remove account (移除) deletes its browser data, downloads, managed images, server-side drafts, and publication records.
 
-This version no longer reads legacy `state.json`, `account.json`, `settings.json`, or browser localStorage drafts. Upgrading requires adding accounts, signing in again, and configuring models.
-
-On first initialization, deployments with legacy Cookie files migrate them into the default account. Subsequent sessions use complete browser profiles. See the [Docker guide](./docker/README.md) for migration details.
+Source runs do not automatically migrate the old `.xhs-accounts/`, root-level `studio.db`, or temporary images; existing files are retained. Docker and desktop data paths stay the same. A new database starts without a default account and does not import legacy JSON, Cookie files, or browser localStorage drafts. Add accounts, sign in, and configure models when starting with a new database.
 
 ## Troubleshooting
 
@@ -125,7 +123,7 @@ On first initialization, deployments with legacy Cookie files migrate them into 
 
 **Publication times out or has an unknown result:** Check Xiaohongshu to see whether the post was published before following the workspace's publication protection prompts. Avoid submitting it again immediately.
 
-**The first browser download fails:** The published image already includes the browser. For source launches or local image builds, the bundled fingerprint-chromium is downloaded from its official GitHub Release and verified against a SHA256 pinned in this repository. Configure `XHS_BROWSER_DOWNLOAD_BASE` for source launches or `BROWSER_DOWNLOAD_BASE` for Docker builds. See the [Docker guide](./docker/README.md) for the required mirror layout.
+**The first browser download fails:** Published images already include the browser. For source launches, configure `XHS_BROWSER_DOWNLOAD_BASE`; for local image builds, edit the download URL in the Compose configuration. See the [Docker guide](./docker/README.md).
 
 ## Origin and license
 

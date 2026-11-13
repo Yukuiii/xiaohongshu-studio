@@ -148,14 +148,19 @@ while True:
 def check_settings_persistence(image, name, volume, network, containers):
     secret = "isolated-persistence-key"
 
-    def request(port, method="GET", body=None):
+    def request(port, method="GET", body=None, path="/api/v1/settings", account=None, content_type=None):
         headers = {"Authorization": "Bearer isolated-smoke-test"}
-        if body is not None:
-            headers["Content-Type"] = "application/json"
+        if account:
+            headers["X-XHS-Account-ID"] = account
+        data = body
+        if body is not None and not isinstance(body, bytes):
+            data = json.dumps(body).encode()
+            content_type = "application/json"
+        if content_type:
+            headers["Content-Type"] = content_type
         call = urllib.request.Request(
-            f"http://127.0.0.1:{port}/api/v1/settings",
-            data=json.dumps(body).encode() if body is not None else None,
-            headers=headers, method=method,
+            f"http://127.0.0.1:{port}{path}",
+            data=data, headers=headers, method=method,
         )
         with urllib.request.urlopen(call, timeout=10) as response:
             payload = response.read()
@@ -163,6 +168,16 @@ def check_settings_persistence(image, name, volume, network, containers):
             return json.loads(payload)["data"]
 
     first_port = int(docker("port", name, "18060/tcp").stdout.strip().rsplit(":", 1)[1])
+    account = request(first_port, "POST", {"name": "存储回归"}, "/api/v1/accounts")["account"]["id"]
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aR1sAAAAASUVORK5CYII=")
+    boundary = "xhs-storage-fixture"
+    multipart = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="fixture.png"\r\n'
+        'Content-Type: image/png\r\n\r\n'
+    ).encode() + png + f"\r\n--{boundary}--\r\n".encode()
+    image_file = request(first_port, "POST", multipart, "/api/v1/images/upload", account,
+                         f"multipart/form-data; boundary={boundary}")["images"][0]
+    assert image_file["path"].startswith(f"/app/data/uploads/web/{account}/"), image_file
     saved = request(first_port, "PUT", {
         "text": {"base_url": "https://model.example.invalid/v1", "api_key": secret, "model": "fixture-text"},
         "image": {"base_url": "", "api_key": "", "model": ""},
@@ -189,9 +204,16 @@ assert value == 'isolated-persistence-key'
     second_port = int(docker("port", replacement, "18060/tcp").stdout.strip().rsplit(":", 1)[1])
     ready(f"http://127.0.0.1:{second_port}/health")
     assert request(second_port) == saved, "容器重建后模型配置丢失"
+    assert request(second_port, path="/api/v1/accounts")["accounts"][0]["id"] == account
+    image_request = urllib.request.Request(
+        f"http://127.0.0.1:{second_port}{image_file['url']}",
+        headers={"Authorization": "Bearer isolated-smoke-test", "X-XHS-Account-ID": account},
+    )
+    with urllib.request.urlopen(image_request, timeout=10) as response:
+        assert response.read() == png, "只挂载 /app/data 时重建后图片丢失"
     cleared = request(second_port, "DELETE")
     assert cleared["initialized"] and not cleared["text"]["has_api_key"]
-    print("PASS 模型配置保存到数据卷、0600 权限、响应脱敏、重建恢复及清空", flush=True)
+    print("PASS 仅挂载 /app/data 保留账号、模型配置和图片，0600 权限、响应脱敏、重建恢复及清空", flush=True)
 
 
 def main(image):

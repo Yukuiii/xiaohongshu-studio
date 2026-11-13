@@ -8,11 +8,11 @@ services:
       context: ..
       dockerfile: Dockerfile
       args:
-        VERSION: ${XHS_IMAGE_TAG:-dev}
-        BASE_IMAGE_PREFIX: ${BASE_IMAGE_PREFIX:-docker.io/library}
-        APT_MIRROR: ${APT_MIRROR:-https://archive.ubuntu.com/ubuntu}
-        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-https://security.ubuntu.com/ubuntu}
-        BROWSER_DOWNLOAD_BASE: ${BROWSER_DOWNLOAD_BASE:-https://github.com/adryfish/fingerprint-chromium/releases/download}
+        VERSION: dev
+        BASE_IMAGE_PREFIX: docker.io/library
+        APT_MIRROR: https://archive.ubuntu.com/ubuntu
+        APT_SECURITY_MIRROR: https://security.ubuntu.com/ubuntu
+        BROWSER_DOWNLOAD_BASE: https://github.com/adryfish/fingerprint-chromium/releases/download
     hostname: xiaohongshu-studio
     container_name: xiaohongshu-studio
     restart: unless-stopped
@@ -27,15 +27,9 @@ services:
     security_opt:
       - no-new-privileges:true
     volumes:
-      - ${XHS_DATA_DIR:-./data}:/app/data
-      - ${XHS_MEDIA_DIR:-./images}:/app/images:ro
-      - ${XHS_DATA_DIR:-./data}/uploads:/tmp/xiaohongshu_images
+      - ./data:/app/data
+      - ./images:/app/images:ro
     environment:
-      - COOKIES_PATH=/app/data/cookies.json
-      - XHS_ACCOUNTS_DIR=/app/data/accounts
-      - XHS_DB_PATH=/app/data/studio.db
-      - HOME=/app/data/home
-      - XDG_CONFIG_HOME=/app/data/config
       - AUTH_TOKEN=${AUTH_TOKEN:-}
       - XHS_PROXY=${XHS_PROXY:-}
     ports:

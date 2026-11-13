@@ -19,35 +19,27 @@ docker run -d \
   --shm-size=1g \
   -p 127.0.0.1:18060:18060 \
   -v "$PWD/xiaohongshu-studio-data:/app/data" \
-  -v "$PWD/xiaohongshu-studio-data/uploads:/tmp/xiaohongshu_images" \
-  -e COOKIES_PATH=/app/data/cookies.json \
-  -e XHS_ACCOUNTS_DIR=/app/data/accounts \
-  -e XHS_DB_PATH=/app/data/studio.db \
-  -e HOME=/app/data/home \
-  -e XDG_CONFIG_HOME=/app/data/config \
   --cap-drop ALL \
   --cap-add DAC_OVERRIDE \
   --security-opt no-new-privileges:true \
   ghcr.io/yukuiii/xiaohongshu-studio:latest
 ```
 
-默认使用 `ghcr.io/yukuiii/xiaohongshu-studio:latest`。固定发布版本时，把最后的 `:latest` 换成 `:v0.1.0`。数据保存在当前目录的 `xiaohongshu-studio-data/`；后续请在同一目录运行，或把两个 `-v` 路径改成固定的绝对路径。已有图片素材可追加 `-v /绝对路径/images:/app/images:ro`，需要 API 令牌时追加 `-e AUTH_TOKEN=...`，需要代理时追加 `-e XHS_PROXY=...`。更新镜像时执行 `docker pull ghcr.io/yukuiii/xiaohongshu-studio:latest`，再 `docker rm -f xiaohongshu-studio` 并重新执行上面的 `docker run`；数据目录会保留。
+默认使用 `ghcr.io/yukuiii/xiaohongshu-studio:latest`。固定发布版本时，把最后的 `:latest` 换成 `:v0.1.0`。固定数据布局尚待发版；当前 `latest`（`v0.1.0`）还需在镜像名前追加 `-v "$PWD/xiaohongshu-studio-data/uploads:/tmp/xiaohongshu_images"` 以持久化图片。
+
+新布局将账号、数据库和上传图片统一保存在容器内 `/app/data`，对应宿主机的 `xiaohongshu-studio-data/`，只需一个数据挂载。后续请在同一目录运行，或把挂载源改成固定的绝对路径。已有图片素材可追加 `-v /绝对路径/images:/app/images:ro`，需要 API 令牌时追加 `-e AUTH_TOKEN=...`，需要代理时追加 `-e XHS_PROXY=...`。更新镜像时执行 `docker pull ghcr.io/yukuiii/xiaohongshu-studio:latest`，再 `docker rm -f xiaohongshu-studio` 并重新执行上面的 `docker run`；数据目录会保留。
 
 打开 [红薯创作台](http://127.0.0.1:18060/)，在左侧「账号」点击「添加账号」直接扫码并完成账号安全验证，在「设置」配置模型，再回「工作台」编辑草稿和确认发布。
 
 ### 已有源码时使用 Compose
 
-在 `docker/` 目录执行：
+当前 Compose 配置采用新的单数据挂载布局，配套镜像尚待发版；发版前请使用下方 `./up.sh` 从源码构建。支持新布局的发布镜像可在 `docker/` 目录执行：
 
 ```bash
 docker compose up -d --pull always --no-build
 ```
 
-默认拉取 `ghcr.io/yukuiii/xiaohongshu-studio:latest`。固定发布版本时：
-
-```bash
-XHS_IMAGE_TAG=v0.1.0 docker compose up -d --pull always --no-build
-```
+默认拉取 `ghcr.io/yukuiii/xiaohongshu-studio:latest`，可用 `XHS_IMAGE_TAG` 固定兼容的发布版本。
 
 ### 从源码构建
 
@@ -55,7 +47,7 @@ XHS_IMAGE_TAG=v0.1.0 docker compose up -d --pull always --no-build
 ./up.sh
 ```
 
-`up.sh` 用当前提交的 12 位短 SHA 作为镜像标签；工作区有未提交的已跟踪改动时追加 `-dirty`。例如 `ghcr.io/yukuiii/xiaohongshu-studio:f7a6aac291e1`。设置 `XHS_IMAGE_TAG` 可固定发布版本或覆盖本地标签，程序内 `/health` 返回的版本同步使用该标签。
+`up.sh` 用当前提交的 12 位短 SHA 作为镜像标签；工作区有未提交的已跟踪改动时追加 `-dirty`。例如 `ghcr.io/yukuiii/xiaohongshu-studio:f7a6aac291e1`。设置 `XHS_IMAGE_TAG` 可覆盖镜像标签；本地 Compose 构建的程序版本固定为 `dev`，正式发布由 CI 注入版本 tag。
 
 首次构建需要下载 npm/Go 依赖、系统软件包和内置浏览器；系统依赖与浏览器安装在应用复制之前，后续 Go 更改可复用这些缓存层。
 
@@ -65,18 +57,19 @@ Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix 
 
 ## 数据与素材
 
-- `docker/data/` 保存账号、完整浏览器数据、上传图片及运行配置，更新时保留；可用 `XHS_DATA_DIR` 指定已有数据目录的完整路径。Compose 显式设置 `XHS_ACCOUNTS_DIR=/app/data/accounts`，已有 `/app/data` 挂载覆盖此目录，无需新增卷。
-- 每个账号在 `accounts/<account-id>/` 下保存独立 `profiles/<profile-id>/` 和 `downloads/`；整个 Chromium user-data-dir（包括 `Local State`、`Default/`、Cookie、localStorage、IndexedDB、Service Worker 和站点配置）都是持久数据。账号元数据、模型配置、草稿和发布防重记录保存在 `data/studio.db`。浏览器正常退出和服务启动时会删除 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留登录态和站点存储。浏览器空闲 10 分钟后关闭，正常关闭、切换账号和重建容器均保留 profile；备份时先停止服务，再保留整个 `data/`。
+以下为当前源码的数据布局，尚待发版。
+
+- `docker/data/` 保存账号、完整浏览器数据、上传图片及运行配置，Compose 固定挂载到 `/app/data`；直接运行镜像时对应宿主机的 `xiaohongshu-studio-data/`。更新时保留整个数据目录。
+- 每个账号在 `accounts/<account-id>/` 下保存独立 `profiles/<profile-id>/` 和 `downloads/`；整个 Chromium user-data-dir（包括 `Local State`、`Default/`、Cookie、localStorage、IndexedDB、Service Worker 和站点配置）都是持久数据。账号元数据、模型配置、草稿和发布防重记录保存在 `studio.db` 的 `accounts`、`settings`、`drafts`、`publish_protection` 四张表中。浏览器正常退出和服务启动时会删除 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留登录态和站点存储。浏览器空闲 10 分钟后关闭，正常关闭、切换账号和重建容器均保留 profile；备份时先停止服务，再保留整个数据目录。
 - Compose 固定容器主机名为 `xiaohongshu-studio`，并提供 60 秒的优雅停机时间。退出时先等待应用关闭浏览器、保存 profile，再关闭 Xvfb 和 DBus，避免重建后被旧容器的 Chromium 锁阻挡。
-- `COOKIES_PATH=/app/data/cookies.json` 保留为旧版本迁移源。首次初始化创建固定默认账号，兼容 v1/v2 Cookie，并优先保留当时有效的 `XHS_FP_SEED`，否则使用旧文件 seed 或生成独立 seed。旧文件不删除；之后以 profile 为会话权威，不反复注入 Cookie。移除旧账号不会触发重新导入，也不能从旧 Cookie 恢复此前未保存的完整站点数据。
-- 工作台上传与生成图片通过 `docker/data/uploads/` 挂载到容器 `/tmp/xiaohongshu_images/`，按 `web/<account-id>/` 隔离。旧图片只迁入固定旧账号且保留源文件；草稿引用不能替代图片备份。
-- 模型地址、名称与 API Key 保存在 `docker/data/studio.db` 的 `settings` 表，数据库权限为 `0600`，所有账号共用；工作台读取地址和名称，密钥只返回是否已保存。首次打开旧浏览器时，仅在服务端尚未初始化的情况下自动导入旧模型配置，成功后移除浏览器旧缓存。清空服务端配置后不会再次被旧浏览器导入。工作台访问令牌仍仅保存在浏览器的 `hongshu-workbench.token.v1`。
-- 草稿保存在访问工作台的浏览器本地，每账号草稿键为 `hongshu-workbench.draft.v1:<account-id>`，payload 保持兼容。旧草稿只迁入固定旧账号一次，已有目标草稿不覆盖，并保留发布结果未知时的防重状态。升级保持原访问地址；换浏览器、改地址或清理网站数据不会自动恢复草稿。
-- 账号页可添加、选择、重命名、重新登录、重置浏览器数据和移除账号。重置保留账号 ID、绑定身份、seed、草稿和素材；移除会清理该账号的浏览器数据、下载与托管图片。服务令牌允许访问整个工作台，多个账号槽位不构成访问者权限隔离。
-- 页面可上传图片；已有图片、视频可放入 `docker/images/`（可用 `XHS_MEDIA_DIR` 指定其他目录），对应容器内只读素材目录 `/app/images/`。桌面文件窗口也有 images 书签。数据与上传目录保持可写。
-- 切换已有部署前，先在旧配置所在目录执行 `docker compose down`，再使用新配置启动；保留原数据目录，不要让两个实例同时操作同一账号。
+- 全新数据库不创建默认账号，也不自动导入旧 JSON、Cookie 文件或浏览器 localStorage 草稿；请在账号页添加账号并扫码登录。数据目录下的 `cookies.json` 仅供底层 Cookie 文件 API 兼容使用，不会据此创建或恢复账号。
+- 工作台上传与生成图片保存在数据目录的 `uploads/web/<account-id>/`；草稿引用不能替代图片备份，旧临时图片不会自动搬入。
+- 模型地址、名称与 API Key 保存在 `studio.db` 的 `settings` 表，数据库权限为 `0600`，所有账号共用；工作台读取地址和名称，密钥只返回是否已保存。首次打开旧浏览器时，仅在服务端尚未初始化的情况下自动导入旧模型配置，成功后移除浏览器旧缓存。清空服务端配置后不会再次被旧浏览器导入。
+- 草稿和发布防重记录按账号保存在 `studio.db`，使用 revision 协调并发更新；工作台访问令牌仍保存在浏览器 localStorage。换浏览器后填写访问令牌即可读取服务端草稿和发布防重记录。
+- 账号页可添加、选择、重命名、重新登录、重置浏览器数据和移除账号。重置保留账号 ID、绑定身份、seed、草稿和素材；移除会清理该账号的浏览器数据、下载、托管图片、草稿和发布记录。服务令牌允许访问整个工作台，多个账号槽位不构成访问者权限隔离。
+- 页面可上传图片；已有图片、视频可放入 `docker/images/`，对应容器内只读素材目录 `/app/images/`。桌面文件窗口也有 images 书签。数据与上传目录保持可写。
+- 切换已有部署前，先在旧配置所在目录执行 `docker compose down`，再使用新配置启动；Docker 数据根仍为 `/app/data`，无需迁移。保留原数据目录，不要让两个实例同时操作同一账号。
 - 镜像内浏览器缓存仍使用 `/app/cache/xiaohongshu-mcp/browser` 这一历史存储身份，与应用探测路径一致，无需因改名重新下载。不要将数据卷覆盖到 `/app/cache`。
-- 若使用旧桌面部署的数据，先在旧部署目录停止服务，再将 `XHS_DATA_DIR` 指向原数据目录的完整路径，并保留原素材路径。不要删除或覆盖旧数据，也不要同时运行两个实例。保持原工作台访问地址可以继续使用浏览器本地草稿。
 
 ## 日常管理
 
@@ -98,40 +91,17 @@ Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix 
 ```dotenv
 AUTH_TOKEN=replace-with-your-own-secret
 XHS_WEB_PORT=18060
-# 可选：固定镜像标签；默认使用已发布的 latest。
-# XHS_IMAGE_TAG=v0.1.0
+# 可选：固定支持当前数据布局的发布版本。
+# XHS_IMAGE_TAG=vX.Y.Z
 ```
 
 保存后执行 `docker compose up -d`，在工作台填写相同令牌。根页面和健康检查公开，HTTP API 及图片资源需要 `Authorization: Bearer <token>`。未设置 `AUTH_TOKEN` 时不启用 API 令牌鉴权；令牌授权整个工作台，与模型 API Key 是独立配置。账号业务请求通过 `X-XHS-Account-ID` 明确归属，仅有一个有效账号时兼容省略。登录浏览器由 Go 签发绑定账号与会话的短时 HttpOnly cookie，桌面页面与 WebSocket 通过同源 `/desktop/<session-id>/` 路径访问；结束窗口时带原 `session_id`，旧票据和 WebSocket 随会话结束撤销。URL 不携带服务令牌，跨站请求会被拒绝。
 
 需要代理时，在同一文件追加 `XHS_PROXY=http://user:pass@proxy:port`。支持 HTTP、HTTPS 和 SOCKS5；无需认证时省略 `user:pass@`。
 
-Node、Go 和 Ubuntu 基础镜像默认从 Docker Hub 官方仓库拉取。下载缓慢时，可在 `docker/.env` 配置镜像仓库前缀：
+Compose 的构建参数固定写在 `docker-compose.yml` 的 `build.args` 中，不读取 shell 或 `.env`：本地版本为 `dev`，基础镜像使用 Docker Hub 官方仓库，APT 使用 Ubuntu 官方 HTTPS 软件源，浏览器从官方 GitHub Release 下载。需要调整源码构建的下载地址时，直接修改该文件后运行 `./up.sh`。
 
-```dotenv
-BASE_IMAGE_PREFIX=docker.1ms.run/library
-```
-
-也可使用 Docker 官方在 Amazon ECR Public 的仓库前缀 `public.ecr.aws/docker/library`。构建版本和 `linux/amd64` 平台保持不变；使用镜像源时应核对对应平台的 manifest 摘要与官方一致。该参数由 Compose 传入 Dockerfile，直接构建时使用 `--build-arg BASE_IMAGE_PREFIX=...`。基础镜像、APT 软件包与内置浏览器下载分别配置；切换这个前缀只需重新构建本项目，无需重启 Docker Desktop。
-
-构建时默认使用 Ubuntu 官方 HTTPS 软件源。若所在网络下载缓慢，可在 `docker/.env` 指定可信的 HTTPS 镜像源后重新构建，例如：
-
-```dotenv
-APT_MIRROR=https://mirrors.huaweicloud.com/ubuntu
-APT_SECURITY_MIRROR=https://mirrors.huaweicloud.com/ubuntu
-```
-
-这两项仅影响镜像构建，TLS 证书和 APT 软件包签名仍会校验。
-
-内置浏览器保留作者实际使用的 **fingerprint-chromium 148.0.7778.215** 和指纹参数，默认从 [官方 GitHub Release](https://github.com/adryfish/fingerprint-chromium/releases/tag/148.0.7778.215) 下载。版本由 `browser/browser_version.txt` 固定，下载文件必须通过仓库 `browser/browser_checksums.txt` 中的 SHA256 校验；不会从下载源读取校验值，也不会回退到作者 CDN。
-
-若需镜像，可在 `docker/.env` 设置构建变量：
-
-```dotenv
-BROWSER_DOWNLOAD_BASE=https://your-mirror.example/fingerprint-chromium/releases/download
-```
-
-镜像须提供 `<BROWSER_DOWNLOAD_BASE>/<version>/<archive>` 目录，Linux 文件名为 `ungoogled-chromium-148.0.7778.215-1-x86_64_linux.tar.xz`，内容必须与官方资产一致。也可使用完整 GitHub 代理前缀，例如 `https://your-proxy.example/https://github.com/adryfish/fingerprint-chromium/releases/download`。直接构建时传入 `--build-arg BROWSER_DOWNLOAD_BASE=https://your-mirror.example/fingerprint-chromium/releases/download`，Compose 执行 `docker compose up -d --build`。这是构建下载配置；镜像已预装浏览器，启动不再下载。源码运行时的同结构镜像配置使用 `XHS_BROWSER_DOWNLOAD_BASE`。
+内置浏览器为 **fingerprint-chromium 148.0.7778.215**，版本由 `browser/browser_version.txt` 固定，下载文件必须通过仓库 `browser/browser_checksums.txt` 中的 SHA256 校验。镜像已预装浏览器，启动时不再下载；使用已发布镜像无需配置构建参数。
 
 
 远程服务器可通过 `ssh -L 18060:127.0.0.1:18060 user@server` 转发，再打开本机工作台。自定义端口时相应调整转发命令和访问地址。

@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/ulikunitz/xz"
+	"github.com/xpzouying/xiaohongshu-mcp/datadir"
 )
 
 // 内置浏览器默认从上游 GitHub release 下载，可配置相同目录结构的镜像。
@@ -97,19 +98,36 @@ func bundledBrowser(dir, binName string) (string, error) {
 	if bin == "" {
 		return "", fmt.Errorf("预置浏览器目录 %s 中未找到 %s", dir, binName)
 	}
-	return bin, nil
+	return filepath.Abs(bin)
+}
+
+// findBundledBrowser 查找 macOS 解压目录和 Windows 安装资源目录。
+func findBundledBrowser(executable, binName string) (string, error) {
+	dir := datadir.Path("browser", "current")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		return bundledBrowser(dir, binName)
+	}
+	// 源码目录也可能名为 browser，只有找到程序才视为安装资源。
+	if bin := findBinary(filepath.Join(filepath.Dir(executable), "browser"), binName); bin != "" {
+		return filepath.Abs(bin)
+	}
+	return "", nil
 }
 
 // EnsureBrowser 确保本地存在内置浏览器二进制，返回其路径。
-// 优先使用 XHS_BROWSER_DIR 指定的预置目录；否则查缓存，缺失时下载 → 校验 SHA256 → 解压。
+// 优先使用固定预置目录，其次查缓存，缺失时下载 → 校验 SHA256 → 解压。
 func EnsureBrowser() (string, error) {
 	asset, binName, ok := platformAsset()
 	if !ok {
 		return "", fmt.Errorf("当前平台 %s/%s 无预编译浏览器，暂不支持", runtime.GOOS, runtime.GOARCH)
 	}
 
-	if bundledDir := strings.TrimSpace(os.Getenv("XHS_BROWSER_DIR")); bundledDir != "" {
-		return bundledBrowser(bundledDir, binName)
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if bin, err := findBundledBrowser(executable, binName); err != nil || bin != "" {
+		return bin, err
 	}
 
 	cacheDir, err := browserCacheDir()

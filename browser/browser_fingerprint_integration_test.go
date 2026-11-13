@@ -3,11 +3,11 @@
 package browser
 
 import (
-	"path/filepath"
 	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xpzouying/xiaohongshu-mcp/internal/testutil"
 )
 
 // 使用真实 Linux 浏览器验证指纹补丁，防止普通 Chromium 静默忽略专用参数。
@@ -16,7 +16,7 @@ func TestFingerprintBrowserSignals(t *testing.T) {
 		t.Skip("部署镜像中的 Linux 指纹回归")
 	}
 	cachedFixtureBrowser(t)
-	t.Setenv("COOKIES_PATH", filepath.Join(t.TempDir(), "cookies.json"))
+	testutil.IsolateDataRoot(t)
 	capture := func(seed int) (string, string) {
 		t.Helper()
 		b := NewBrowser(true, WithFingerprintSeed(seed))
