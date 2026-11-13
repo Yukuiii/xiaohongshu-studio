@@ -18,6 +18,7 @@ import (
 	"github.com/xpzouying/xiaohongshu-mcp/browser"
 	"github.com/xpzouying/xiaohongshu-mcp/configs"
 	"github.com/xpzouying/xiaohongshu-mcp/cookies"
+	"github.com/xpzouying/xiaohongshu-mcp/db"
 	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
@@ -56,9 +57,22 @@ func selectAccount(store *accounts.Store, id string) (accounts.Account, error) {
 	return accounts.Account{}, fmt.Errorf("需要用 -account 指定一个有效账号，当前可选账号: %s", strings.Join(choices, ", "))
 }
 
+func dbPath(root string) string {
+	if path := os.Getenv("XHS_DB_PATH"); path != "" {
+		return path
+	}
+	return filepath.Join(filepath.Dir(root), "studio.db")
+}
+
 func run(ctx context.Context, accountID string) (err error) {
 	legacyPath := cookies.GetCookiesFilePath()
-	store, err := accounts.Open(accountsRoot(legacyPath), legacyPath, configs.FingerprintSeedFromEnv())
+	root := accountsRoot(legacyPath)
+	database, err := db.Open(dbPath(root))
+	if err != nil {
+		return fmt.Errorf("打开数据库失败: %w", err)
+	}
+	defer func() { err = errors.Join(err, database.Close()) }()
+	store, err := accounts.Open(root, database)
 	if err != nil {
 		return fmt.Errorf("打开账号存储失败（维护前请停止使用同一数据目录的服务）: %w", err)
 	}

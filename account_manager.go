@@ -160,6 +160,19 @@ func (m *AccountManager) resolve(id string) (*accountRuntime, error) {
 	return m.runtime(id)
 }
 
+// PruneProfileCaches 在服务启动、浏览器尚未运行时清理各账号的可重建缓存。
+func (m *AccountManager) PruneProfileCaches() {
+	for _, account := range m.store.List() {
+		profile := m.store.ProfilePath(account)
+		if profile == "" {
+			continue
+		}
+		if err := browser.PruneProfileCaches(profile); err != nil {
+			logrus.Warnf("清理账号 %s 浏览器缓存失败: %v", account.ID, err)
+		}
+	}
+}
+
 // lease 只保护账号生命周期，图片读取不占用浏览器互斥锁。
 func (r *accountRuntime) lease(write bool) (func(), error) {
 	r.manager.mu.Lock()

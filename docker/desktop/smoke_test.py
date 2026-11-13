@@ -169,12 +169,13 @@ def check_settings_persistence(image, name, volume, network, containers):
     })
     assert saved["initialized"] and saved["text"]["has_api_key"]
     docker("exec", name, "python3", "-c", """
-import json, os, stat
+import os, sqlite3, stat
 from pathlib import Path
-path = Path(os.environ['XHS_SETTINGS_PATH'])
-assert path == Path('/app/data/settings.json')
+path = Path('/app/data/studio.db')
 assert stat.S_IMODE(path.stat().st_mode) == 0o600
-assert json.loads(path.read_text())['text']['api_key'] == 'isolated-persistence-key'
+connection = sqlite3.connect(path)
+value = connection.execute('select text_api_key from settings where id = 1').fetchone()[0]
+assert value == 'isolated-persistence-key'
 """)
     docker("stop", "--time", "60", name, timeout=75)
     docker("rm", name)

@@ -129,6 +129,7 @@ func (b *Browser) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	if !b.Alive() {
+		pruneProfileCaches(b.userDataDir)
 		return b.exitErr
 	}
 	b.closeOnce.Do(func() {
@@ -138,8 +139,11 @@ func (b *Browser) Shutdown(ctx context.Context) error {
 	})
 	select {
 	case <-b.exit:
+		// 进程已落盘退出，此时删除缓存不会碰到正在写的文件。
+		pruneProfileCaches(b.userDataDir)
 		return b.exitErr
 	case <-ctx.Done():
+		// 强制终止不等待进程完全退出，缓存留到下次关闭或启动时清理。
 		return errors.Join(ctx.Err(), b.terminate())
 	}
 }

@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,7 +18,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/gofrs/flock"
-	"github.com/xpzouying/xiaohongshu-mcp/cookies"
 )
 
 var (
@@ -28,6 +28,7 @@ var (
 	ErrLocked            = errors.New("accounts root locked")
 )
 
+// Account 是账号元数据；profiles/downloads 仍保存在数据目录。
 type Account struct {
 	ID                  string     `json:"id"`
 	Name                string     `json:"name"`
@@ -41,30 +42,28 @@ type Account struct {
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
 	Deleted             bool       `json:"deleted"`
-	LegacyImportPending bool       `json:"legacy_import_pending"`
+	LegacyImportPending bool       `json:"-"`
 }
 
-type diskState struct {
-	Version          int      `json:"version"`
-	LegacyAccountID  string   `json:"legacy_account_id"`
-	Initialized      bool     `json:"initialized"`
-	InitialAccount   *Account `json:"initial_account,omitempty"`
-	LegacyCookiePath string   `json:"legacy_cookie_path,omitempty"`
-}
-
+// Store 负责账号元数据和 profile 目录，元数据保存在 SQLite。
 type Store struct {
 	mu       sync.RWMutex
 	root     string
 	lock     *flock.Flock
-	state    diskState
+	db       *sql.DB
 	accounts map[string]Account
 	closed   bool
 }
 
-// Open 持有数据根的进程锁，直至 Close。
-func Open(root, legacyCookiePath string, legacySeed int) (*Store, error) {
+const accountColumns = `id, name, user_id, nickname, avatar, is_logged_in, login_checked_at, seed, active_profile, created_at, updated_at, deleted`
+
+// Open 持有数据根进程锁并加载账号缓存；数据库由调用方打开和关闭。
+func Open(root string, database *sql.DB) (*Store, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, fmt.Errorf("%w: empty root", ErrInvalid)
+	}
+	if database == nil {
+		return nil, fmt.Errorf("%w: nil database", ErrInvalid)
 	}
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -91,11 +90,7 @@ func Open(root, legacyCookiePath string, legacySeed int) (*Store, error) {
 		_ = lock.Close()
 		return nil, ErrLocked
 	}
-	s := &Store{root: root, lock: lock, accounts: make(map[string]Account)}
-	if err := s.initialize(legacyCookiePath, legacySeed); err != nil {
-		_ = lock.Close()
-		return nil, err
-	}
+	s := &Store{root: root, lock: lock, db: database, accounts: make(map[string]Account)}
 	if err := s.load(); err != nil {
 		_ = lock.Close()
 		return nil, err
@@ -118,7 +113,22 @@ func (s *Store) Close() error {
 
 func (s *Store) Root() string { return s.root }
 
-func (s *Store) LegacyAccountID() string { return s.state.LegacyAccountID }
+// LegacyAccountID 返回最早的存活账号，用于旧图片路径的兼容迁移；没有账号时为空。
+func (s *Store) LegacyAccountID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var first Account
+	for _, a := range s.accounts {
+		if a.Deleted {
+			continue
+		}
+		if first.ID == "" || a.CreatedAt.Before(first.CreatedAt) ||
+			(a.CreatedAt.Equal(first.CreatedAt) && a.ID < first.ID) {
+			first = a
+		}
+	}
+	return first.ID
+}
 
 func (s *Store) List() []Account {
 	s.mu.RLock()
@@ -172,7 +182,7 @@ func (s *Store) Create(name string) (Account, error) {
 	if err != nil {
 		return Account{}, err
 	}
-	if err := s.createAccount(a, nil); err != nil {
+	if err := s.createAccount(a); err != nil {
 		return Account{}, err
 	}
 	s.accounts[a.ID] = a
@@ -197,7 +207,7 @@ func (s *Store) Rename(id, name string) (Account, error) {
 	return s.accounts[id], nil
 }
 
-// Delete 先持久化不含身份和会话信息的墓碑，再清理数据。
+// Delete 保留不含身份的墓碑，并清理 profile、草稿和发布保护。
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -212,10 +222,31 @@ func (s *Store) Delete(id string) error {
 		return ErrNotFound
 	}
 	if !a.Deleted {
-		tombstone := Account{ID: a.ID, CreatedAt: a.CreatedAt, Deleted: true}
-		if err := s.save(tombstone); err != nil {
+		tx, err := s.db.Begin()
+		if err != nil {
 			return err
 		}
+		now := time.Now().UTC().Truncate(time.Millisecond)
+		_, err = tx.Exec(
+			`UPDATE accounts SET name = '', user_id = '', nickname = '', avatar = '',
+			 is_logged_in = 0, login_checked_at = NULL, seed = 0, active_profile = '',
+			 updated_at = ?, deleted = 1 WHERE id = ?`,
+			now.UnixMilli(), id,
+		)
+		if err == nil {
+			_, err = tx.Exec(`DELETE FROM drafts WHERE account_id = ?`, id)
+		}
+		if err == nil {
+			_, err = tx.Exec(`DELETE FROM publish_protection WHERE account_id = ?`, id)
+		}
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		s.accounts[id] = Account{ID: a.ID, CreatedAt: a.CreatedAt, UpdatedAt: now, Deleted: true}
 	}
 	return s.cleanDeleted(id)
 }
@@ -336,7 +367,7 @@ func (s *Store) SetLoginStatus(id string, loggedIn bool) error {
 }
 
 func (a *Account) setLoginStatus(loggedIn bool) {
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Millisecond)
 	a.IsLoggedIn = loggedIn
 	a.LoginCheckedAt = &now
 }
@@ -360,126 +391,42 @@ func (s *Store) save(a Account) error {
 	if err := directory(filepath.Join(s.root, a.ID)); err != nil {
 		return err
 	}
-	a.UpdatedAt = time.Now().UTC()
-	if err := writeJSON(filepath.Join(s.root, a.ID, "account.json"), a); err != nil {
+	a.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
+	result, err := s.db.Exec(
+		`UPDATE accounts SET name = ?, user_id = ?, nickname = ?, avatar = ?,
+		 is_logged_in = ?, login_checked_at = ?, seed = ?, active_profile = ?,
+		 created_at = ?, updated_at = ?, deleted = ? WHERE id = ?`,
+		a.Name, a.UserID, a.Nickname, a.Avatar, boolInt(a.IsLoggedIn), nullableTime(a.LoginCheckedAt),
+		a.Seed, a.ActiveProfile, a.CreatedAt.UnixMilli(), a.UpdatedAt.UnixMilli(), boolInt(a.Deleted), a.ID,
+	)
+	if err != nil {
 		return err
 	}
-	// 元数据提交成功后才更新内存。
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	// 数据库提交成功后才更新内存。
 	s.accounts[a.ID] = a
 	return nil
 }
 
-func (s *Store) initialize(legacyPath string, legacySeed int) error {
-	statePath := filepath.Join(s.root, "state.json")
-	data, err := readFile(statePath)
-	if errors.Is(err, os.ErrNotExist) {
-		entries, err := os.ReadDir(s.root)
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			if !strings.HasPrefix(entry.Name(), ".") {
-				return fmt.Errorf("%w: state.json missing in nonempty root", ErrInvalid)
-			}
-		}
-		var pending []byte
-		if legacyPath != "" {
-			legacyPath, err = filepath.Abs(legacyPath)
-			if err != nil {
-				return err
-			}
-			legacy := cookies.NewLoadCookie(legacyPath)
-			pending, err = legacy.LoadCookies()
-			if errors.Is(err, os.ErrNotExist) {
-				legacyPath = ""
-			} else if err != nil {
-				return err
-			} else if err := validateCookies(pending); err != nil {
-				return err
-			} else if legacySeed <= 0 {
-				legacySeed = legacy.LoadSeed()
-			}
-		}
-		a, err := s.newAccount("默认账号", legacySeed)
-		if err != nil {
-			return err
-		}
-		a.LegacyImportPending = legacyPath != ""
-		s.state = diskState{Version: 1, LegacyAccountID: a.ID, InitialAccount: &a, LegacyCookiePath: legacyPath}
-		if err := writeJSON(statePath, s.state); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	} else if err := json.Unmarshal(data, &s.state); err != nil {
-		return fmt.Errorf("%w: state.json: %v", ErrInvalid, err)
-	}
-	if s.state.Version != 1 || !validID(s.state.LegacyAccountID) {
-		return fmt.Errorf("%w: state.json", ErrInvalid)
-	}
-	if s.state.Initialized {
-		if s.state.InitialAccount != nil || s.state.LegacyCookiePath != "" {
-			return fmt.Errorf("%w: inconsistent state.json", ErrInvalid)
-		}
-		return nil
-	}
-	a := s.state.InitialAccount
-	if a == nil || a.ID != s.state.LegacyAccountID || a.Deleted || a.LegacyImportPending != (s.state.LegacyCookiePath != "") {
-		return fmt.Errorf("%w: incomplete initialization state", ErrInvalid)
-	}
-	if err := validateAccount(*a, a.ID); err != nil {
-		return err
-	}
-	accountPath := filepath.Join(s.root, a.ID)
-	if _, err := os.Lstat(accountPath); errors.Is(err, os.ErrNotExist) {
-		var pending []byte
-		if a.LegacyImportPending {
-			pending, err = cookies.NewLoadCookie(s.state.LegacyCookiePath).LoadCookies()
-			if err != nil {
-				return err
-			}
-			if err := validateCookies(pending); err != nil {
-				return err
-			}
-		}
-		if err := s.createAccount(*a, pending); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	} else {
-		existing, err := s.readAccount(a.ID)
-		if err != nil {
-			return err
-		}
-		if existing != *a {
-			return fmt.Errorf("%w: initialization account changed", ErrInvalid)
-		}
-	}
-	completed := diskState{Version: 1, LegacyAccountID: a.ID, Initialized: true}
-	if err := writeJSON(statePath, completed); err != nil {
-		return err
-	}
-	s.state = completed
-	return nil
-}
-
 func (s *Store) load() error {
-	entries, err := os.ReadDir(s.root)
+	rows, err := s.db.Query(`SELECT ` + accountColumns + ` FROM accounts ORDER BY created_at, id`)
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 	identities := make(map[string]string)
-	for _, entry := range entries {
-		id := entry.Name()
-		if strings.HasPrefix(id, ".") || id == "state.json" {
-			continue
-		}
-		if !validID(id) {
-			return fmt.Errorf("%w: unexpected root entry %q", ErrInvalid, id)
-		}
-		a, err := s.readAccount(id)
+	for rows.Next() {
+		a, err := scanAccount(rows)
 		if err != nil {
+			return err
+		}
+		if err := validateAccount(a, a.ID); err != nil {
 			return err
 		}
 		if a.UserID != "" {
@@ -488,52 +435,70 @@ func (s *Store) load() error {
 			}
 			identities[a.UserID] = a.ID
 		}
-		s.accounts[id] = a
+		s.accounts[a.ID] = a
 		if a.Deleted {
-			if err := s.cleanDeleted(id); err != nil {
+			if err := s.cleanDeleted(a.ID); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := s.profileDirectory(a.ID, a.ActiveProfile); err != nil {
+			return err
+		}
+		if err := directory(filepath.Join(s.root, a.ID, "downloads")); err != nil {
+			return err
+		}
+		if a.LegacyImportPending {
+			data, err := readFile(s.pendingPath(a.ID))
+			if err != nil {
+				return err
+			}
+			if err := validateCookies(data); err != nil {
 				return err
 			}
 		}
 	}
-	if _, ok := s.accounts[s.state.LegacyAccountID]; !ok {
-		return fmt.Errorf("%w: default account metadata missing", ErrInvalid)
-	}
-	return nil
+	return rows.Err()
 }
 
-func (s *Store) readAccount(id string) (Account, error) {
-	if err := directory(filepath.Join(s.root, id)); err != nil {
+func scanAccount(scanner interface{ Scan(...any) error }) (Account, error) {
+	var (
+		a            Account
+		loggedIn     int
+		deleted      int
+		loginChecked sql.NullInt64
+		created      int64
+		updated      int64
+	)
+	if err := scanner.Scan(
+		&a.ID, &a.Name, &a.UserID, &a.Nickname, &a.Avatar, &loggedIn, &loginChecked,
+		&a.Seed, &a.ActiveProfile, &created, &updated, &deleted,
+	); err != nil {
 		return Account{}, err
 	}
-	data, err := readFile(filepath.Join(s.root, id, "account.json"))
-	if err != nil {
-		return Account{}, fmt.Errorf("account %s metadata: %w", id, err)
-	}
-	var a Account
-	if err := json.Unmarshal(data, &a); err != nil {
-		return Account{}, fmt.Errorf("%w: account %s metadata: %v", ErrInvalid, id, err)
-	}
-	if err := validateAccount(a, id); err != nil {
-		return Account{}, err
-	}
-	if !a.Deleted {
-		if err := s.profileDirectory(a.ID, a.ActiveProfile); err != nil {
-			return Account{}, err
-		}
-		if err := directory(filepath.Join(s.root, id, "downloads")); err != nil {
-			return Account{}, err
-		}
-		if a.LegacyImportPending {
-			data, err := readFile(s.pendingPath(id))
-			if err != nil {
-				return Account{}, err
-			}
-			if err := validateCookies(data); err != nil {
-				return Account{}, err
-			}
-		}
+	a.IsLoggedIn = loggedIn != 0
+	a.Deleted = deleted != 0
+	a.CreatedAt = time.UnixMilli(created).UTC()
+	a.UpdatedAt = time.UnixMilli(updated).UTC()
+	if loginChecked.Valid {
+		checked := time.UnixMilli(loginChecked.Int64).UTC()
+		a.LoginCheckedAt = &checked
 	}
 	return a, nil
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func nullableTime(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return value.UnixMilli()
 }
 
 func validateAccount(a Account, id string) error {
@@ -578,12 +543,12 @@ func (s *Store) newAccount(name string, seed int) (Account, error) {
 			}
 		}
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Millisecond)
 	return Account{ID: id, Name: name, Seed: seed, ActiveProfile: profileID, CreatedAt: now, UpdatedAt: now}, nil
 }
 
-// 临时账号目录整体提交，避免中断后留下缺失元数据的账号。
-func (s *Store) createAccount(a Account, pending []byte) error {
+// createAccount 先落盘目录，再写数据库；数据库失败时删除新目录。
+func (s *Store) createAccount(a Account) error {
 	stage, err := os.MkdirTemp(s.root, ".creating-")
 	if err != nil {
 		return err
@@ -595,15 +560,20 @@ func (s *Store) createAccount(a Account, pending []byte) error {
 	if err := makeDir(filepath.Join(stage, "downloads")); err != nil {
 		return err
 	}
-	if a.LegacyImportPending {
-		if err := atomicWrite(filepath.Join(stage, "pending-cookies.json"), pending); err != nil {
-			return err
-		}
-	}
-	if err := writeJSON(filepath.Join(stage, "account.json"), a); err != nil {
+	target := filepath.Join(s.root, a.ID)
+	if err := os.Rename(stage, target); err != nil {
 		return err
 	}
-	return os.Rename(stage, filepath.Join(s.root, a.ID))
+	_, err = s.db.Exec(
+		`INSERT INTO accounts (`+accountColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.Name, a.UserID, a.Nickname, a.Avatar, boolInt(a.IsLoggedIn), nullableTime(a.LoginCheckedAt),
+		a.Seed, a.ActiveProfile, a.CreatedAt.UnixMilli(), a.UpdatedAt.UnixMilli(), boolInt(a.Deleted),
+	)
+	if err != nil {
+		_ = os.RemoveAll(target)
+		return err
+	}
+	return nil
 }
 
 func (s *Store) cleanDeleted(id string) error {
@@ -710,33 +680,4 @@ func removeFile(path string) error {
 		return err
 	}
 	return nil
-}
-
-func writeJSON(path string, value any) error {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	return atomicWrite(path, data)
-}
-
-// 同目录临时文件同步后原子替换，失败时保留旧文件。
-func atomicWrite(path string, data []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
 }

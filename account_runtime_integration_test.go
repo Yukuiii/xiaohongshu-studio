@@ -42,13 +42,12 @@ func TestAccountRuntimeProfilePersistenceLocal(t *testing.T) {
 	}))
 	defer server.Close()
 	root := filepath.Join(t.TempDir(), "accounts")
-	missing := filepath.Join(t.TempDir(), "no-cookies.json")
-	store, err := accounts.Open(root, missing, 0)
+	store := openTestStore(t, root)
+	a, err := store.Create("A")
 	require.NoError(t, err)
 	manager := NewAccountManager(store)
 	manager.headless = true
 	t.Cleanup(func() { _ = manager.Close() })
-	a := store.List()[0]
 	b, err := store.Create("B")
 	require.NoError(t, err)
 	for _, item := range []accounts.Account{a, b} {
@@ -70,8 +69,8 @@ func TestAccountRuntimeProfilePersistenceLocal(t *testing.T) {
 		reused.Close()
 	}
 	require.NoError(t, manager.Close())
-	store, err = accounts.Open(root, missing, 0)
-	require.NoError(t, err)
+	require.NoError(t, store.Close())
+	store = openTestStore(t, root)
 	restarted := NewAccountManager(store)
 	restarted.headless = true
 	t.Cleanup(func() { require.NoError(t, restarted.Close()) })
@@ -96,12 +95,12 @@ func TestAccountCandidateLoginCommitLocal(t *testing.T) {
 	requireCachedAccountBrowser(t)
 	for _, mismatch := range []bool{false, true} {
 		t.Run(fmt.Sprintf("mismatch=%t", mismatch), func(t *testing.T) {
-			store, err := accounts.Open(filepath.Join(t.TempDir(), "accounts"), filepath.Join(t.TempDir(), "no-cookies.json"), 0)
+			store := openTestStore(t, filepath.Join(t.TempDir(), "accounts"))
+			a, err := store.Create("A")
 			require.NoError(t, err)
 			manager := NewAccountManager(store)
 			manager.headless = true
 			t.Cleanup(func() { require.NoError(t, manager.Close()) })
-			a := store.List()[0]
 			if mismatch {
 				require.NoError(t, store.BindIdentity(a.ID, "original-user", "原账号"))
 			}

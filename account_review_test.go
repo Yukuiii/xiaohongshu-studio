@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/xpzouying/xiaohongshu-mcp/accounts"
+	"github.com/xpzouying/xiaohongshu-mcp/db"
 )
 
 func TestAccountIdentityIsCheckedForEveryTask(t *testing.T) {
@@ -74,11 +75,14 @@ func TestAccountShutdownRetainsLockWhileBrowserStarts(t *testing.T) {
 		t.Fatal("浏览器还在启动时提前关闭")
 	case <-time.After(60 * time.Millisecond):
 	}
-	other, err := accounts.Open(manager.store.Root(), filepath.Join(t.TempDir(), "missing"), 0)
+	database, err := db.Open(filepath.Join(filepath.Dir(manager.store.Root()), "studio.db"))
+	require.NoError(t, err)
+	other, err := accounts.Open(manager.store.Root(), database)
 	if other != nil {
 		_ = other.Close()
 	}
 	require.ErrorIs(t, err, accounts.ErrLocked, "排空超时也不能释放数据根锁")
+	require.NoError(t, database.Close())
 	unblock()
 	require.Error(t, <-result)
 	select {

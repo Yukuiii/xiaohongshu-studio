@@ -41,11 +41,11 @@ curl http://localhost:18060/api/v1/account/verify \
 
 账号选择按请求固定，服务不维护全局当前账号；同账号浏览器任务串行，忙时返回 `409 ACCOUNT_BUSY`，不同账号可以独立运行。列表不启动浏览器，`is_logged_in` 表示最近一次明确检查的结果，`login_checked_at` 表示该次检查时间；`browser_status` 和最近绑定身份不代表登录永不过期。业务浏览器按需启动并复用，空闲 10 分钟后正常关闭；完整 profile 和账号固定 seed 在重启后保留。
 
-服务启动后异步巡检一轮，此后每 10 分钟串行检查各账号。正在执行任务、登录或维护的账号跳过，等待下一轮；网络错误、超时或页面尚未就绪时保留原缓存及检查时间。巡检通过账号浏览器的 Cookie/UA 发起 HTTP 页面请求核验身份，不渲染 explore 页面；优先复用空闲浏览器，无实例时启动 headless 浏览器，检查结束后关闭所用实例，不延长其空闲计时。账号状态与基础资料保存在每个账号目录下的 `account.json` 中。新账号及旧 JSON 缺失字段时默认为 `false` / `null`，不根据历史用户 ID 推断已登录。
+服务启动后异步巡检一轮，此后每 10 分钟串行检查各账号。正在执行任务、登录或维护的账号跳过，等待下一轮；网络错误、超时或页面尚未就绪时保留原缓存及检查时间。巡检通过账号浏览器的 Cookie/UA 发起 HTTP 页面请求核验身份，不渲染 explore 页面；优先复用空闲浏览器，无实例时启动 headless 浏览器，检查结束后关闭所用实例，不延长其空闲计时。账号状态与基础资料保存在 SQLite 的 `accounts` 表中。新账号默认为 `false` / `null`，不根据历史用户 ID 推断已登录。
 
 页面初始化、切换账号和切换页面读取账号列表缓存，不自动调用 `/login/session` 或 `/account/verify`；账号页可见期间每 60 秒静默刷新列表。登录成功、清 Cookie、重置 profile 和实时身份检查会及时更新缓存；扫码失败或取消保留原 active profile 的缓存。登录弹窗扫码期间轮询 `/login/session`；手动刷新状态和业务任务前的主动核验使用 `/account/verify` 实时检查。
 
-`XHS_ACCOUNTS_DIR` 指定数据根；未设时使用旧 Cookie 路径同目录的隐藏目录 `.xhs-accounts/`。服务和维护 CLI 对同一个 root 互斥，CLI 使用前先停止服务。每个账号保存完整 Chromium user-data-dir，旧 v1/v2 Cookie 仅向固定默认账号首次导入，保留源文件；初始化完成后不再扫描，移除默认账号不会复活。旧草稿和托管图片也只迁入固定旧账号，保留原草稿结构、发布结果未知时的防重状态和迁移源。模型配置、服务令牌由整个工作台共用；拥有有效令牌即可访问所有账号，此功能不提供访问者权限隔离。
+`XHS_ACCOUNTS_DIR` 指定账号和 profile 数据根；未设时使用旧 Cookie 路径同目录的隐藏目录 `.xhs-accounts/`。元数据数据库默认位于数据根同级的 `studio.db`，可用 `XHS_DB_PATH` 指定。服务和维护 CLI 对同一个 root 互斥，CLI 使用前先停止服务。每个账号保存完整 Chromium user-data-dir；账号浏览器正常退出和服务启动时会清理 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留 Cookie、Local Storage、IndexedDB、Service Worker 和浏览器配置。模型配置、服务令牌由整个工作台共用；拥有有效令牌即可访问所有账号，此功能不提供访问者权限隔离。
 
 ## 通用响应格式
 
@@ -95,6 +95,8 @@ curl http://localhost:18060/api/v1/account/verify \
 | POST | `/api/v1/feeds/like` | 点赞/取消点赞 |
 | POST | `/api/v1/feeds/favorite` | 收藏/取消收藏 |
 | POST | `/api/v1/ai/models` | 读取配置的服务商模型列表 |
+| GET/PUT/DELETE | `/api/v1/draft` | 读取、保存或清空当前账号的服务端草稿 |
+| GET/PUT | `/api/v1/publish-protection` | 读取或条件更新发布防重记录 |
 | POST | `/api/v1/ai/compose` | 根据已读取素材生成可编辑草稿 |
 | POST | `/api/v1/ai/image` | 根据描述生成并保存配图 |
 | POST | `/api/v1/images/upload` | 上传本地配图 |
@@ -152,9 +154,9 @@ Content-Type: application/json
 
 成功时 `data.account` 为上述公开元数据。创建账号只建立独立槽位和空 profile，随后用返回 ID 打开登录浏览器；重命名不改变真实身份绑定。
 
-`DELETE /api/v1/accounts/:id` 移除账号，清理其完整 profiles、下载目录及托管图片，并保留不含凭证的墓碑防止迟到回调或旧数据迁移复活。工作台同时清理本浏览器该账号草稿。存在任务或登录时返回 `409 ACCOUNT_BUSY`，空闲浏览器先关闭再清理。删除不会转移数据到其他账号。
+`DELETE /api/v1/accounts/:id` 移除账号，清理其完整 profiles、下载目录及托管图片，并保留不含凭证的墓碑防止迟到回调或旧数据迁移复活。工作台同时清理该账号的服务端草稿和发布防重记录。存在任务或登录时返回 `409 ACCOUNT_BUSY`，空闲浏览器先关闭再清理。删除不会转移数据到其他账号。
 
-`POST /api/v1/accounts/:id/reset-profile` 无请求体，正常关闭浏览器后切换至空 profile，保留账号 ID、真实身份绑定、固定 seed、草稿和素材。成功时返回 `data.account`；任务或登录中返回 `409 ACCOUNT_BUSY`。此操作应由用户确认，与仅清 Cookie 的兼容接口不同。
+`POST /api/v1/accounts/:id/reset-profile` 无请求体，正常关闭浏览器后切换至空 profile，保留账号 ID、真实身份绑定、固定 seed、服务端草稿和素材。成功时返回 `data.account`；任务或登录中返回 `409 ACCOUNT_BUSY`。此操作应由用户确认，与仅清 Cookie 的兼容接口不同。
 
 ### 1. 健康检查
 
@@ -1069,7 +1071,7 @@ Content-Type: application/json
 
 ### 8. Web 创作台
 
-页面依次调用已有的搜索和笔记详情接口获取素材，再调用写稿接口。所有新接口沿用服务 Bearer Token；模型服务商的 API Key 与工作台访问令牌分开配置。模型配置保存在服务端文件，Docker 默认使用 `/app/data/settings.json`，原生默认使用旧 Cookie 文件同目录的 `.xhs-settings.json`；可通过 `XHS_SETTINGS_PATH` 指定文件。
+页面依次调用已有的搜索和笔记详情接口获取素材，再调用写稿接口。所有新接口沿用服务 Bearer Token；模型服务商的 API Key 与工作台访问令牌分开配置。模型配置保存在服务端 SQLite 数据库，Docker 默认使用 `/app/data/studio.db`；可通过 `XHS_DB_PATH` 指定数据库路径。
 
 #### 8.1 模型配置与列表
 
@@ -1212,6 +1214,42 @@ Content-Type: multipart/form-data
 
 ---
 
+#### 8.5 服务端草稿
+
+草稿按账号保存在 SQLite 中，多个浏览器共享同一份内容。所有请求携带 `X-XHS-Account-ID`。
+
+```http
+GET /api/v1/draft
+```
+
+无草稿时返回 `{"draft": null, "revision": 0}`；有草稿时 `draft` 为原前端草稿对象，`revision` 用于并发控制。
+
+```http
+PUT /api/v1/draft
+Content-Type: application/json
+
+{"draft": {"title": "标题", "content": "正文", "sources": [], "images": []}, "base_revision": 1}
+```
+
+保存成功返回新 `revision`。`base_revision` 与当前版本不一致时返回 `409 DRAFT_REVISION_CONFLICT`，客户端应保留当前编辑并提示用户载入最新草稿。`DELETE /api/v1/draft` 清空当前账号草稿。
+
+#### 8.6 发布防重保护
+
+```http
+GET /api/v1/publish-protection
+```
+
+返回 `revision`、`uncertain` 和 `last_published`。发布前先读取；`uncertain=true` 表示上次发布结果尚未确认，不得再次发布。
+
+```http
+PUT /api/v1/publish-protection
+Content-Type: application/json
+
+{"base_revision": 1, "uncertain": true, "last_published": ""}
+```
+
+条件更新成功返回新 `revision`；版本不一致返回 `409 PROTECTION_REVISION_CONFLICT`，应重新核对发布结果。开始发布前写入 `uncertain=true`，确认成功后写入 `uncertain=false` 和内容指纹。
+
 ## 错误代码
 
 所有 API 在发生错误时会返回统一格式的错误响应。以下是可能出现的错误代码：
@@ -1234,6 +1272,8 @@ Content-Type: multipart/form-data
 | `IMAGE_ACCOUNT_MISMATCH` | 400 | 发布图片属于其他账号 |
 | `MISSING_KEYWORD` | 400 | 搜索时缺少关键词参数 |
 | `STATUS_CHECK_FAILED` | 500 | 检查登录状态失败 |
+| `DRAFT_REVISION_CONFLICT` | 409 | 草稿已在其他窗口或浏览器更新 |
+| `PROTECTION_REVISION_CONFLICT` | 409 | 发布防重记录已更新 |
 | `DELETE_COOKIES_FAILED` | 500 | 删除 Cookies 失败 |
 | `PUBLISH_FAILED` | 500 | 发布图文内容失败 |
 | `PUBLISH_VIDEO_FAILED` | 500 | 发布视频内容失败 |

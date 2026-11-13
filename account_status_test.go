@@ -15,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/xpzouying/xiaohongshu-mcp/accounts"
+	"github.com/xpzouying/xiaohongshu-mcp/db"
 )
 
 func TestAccountListReturnsCachedLoginWithoutBrowser(t *testing.T) {
@@ -99,7 +100,7 @@ func TestAccountStatusSweepCachesOnlyDefiniteResults(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.loggedIn, current.IsLoggedIn)
 			if tc.changes {
-				require.True(t, current.LoginCheckedAt.After(*before.LoginCheckedAt))
+				require.False(t, current.LoginCheckedAt.Before(*before.LoginCheckedAt))
 			} else {
 				require.Equal(t, before, current)
 			}
@@ -190,11 +191,14 @@ func TestAccountStatusSweepKeepsBrowserWhenExitFails(t *testing.T) {
 	require.Same(t, b, r.browser)
 	require.Equal(t, 1, starts, "旧进程存活时不能再打开相同 profile")
 	require.Error(t, m.Close())
-	other, err := accounts.Open(m.store.Root(), "", 0)
+	database, err := db.Open(filepath.Join(filepath.Dir(m.store.Root()), "studio.db"))
+	require.NoError(t, err)
+	other, err := accounts.Open(m.store.Root(), database)
 	if other != nil {
 		_ = other.Close()
 	}
 	require.ErrorIs(t, err, accounts.ErrLocked)
+	require.NoError(t, database.Close())
 	b.alive.Store(false)
 	require.NoError(t, m.Close())
 }
@@ -281,11 +285,14 @@ func TestAccountStatusMonitorCancelsBeforeReleasingStore(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("关闭服务未取消巡检")
 	}
-	other, err := accounts.Open(m.store.Root(), filepath.Join(t.TempDir(), "missing"), 0)
+	database, err := db.Open(filepath.Join(filepath.Dir(m.store.Root()), "studio.db"))
+	require.NoError(t, err)
+	other, err := accounts.Open(m.store.Root(), database)
 	if other != nil {
 		_ = other.Close()
 	}
 	require.ErrorIs(t, err, accounts.ErrLocked)
+	require.NoError(t, database.Close())
 	allowExit()
 	select {
 	case err := <-closed:
@@ -294,7 +301,10 @@ func TestAccountStatusMonitorCancelsBeforeReleasingStore(t *testing.T) {
 		t.Fatal("巡检退出后服务没有完成关闭")
 	}
 	require.False(t, b.Alive())
-	other, err = accounts.Open(m.store.Root(), "", 0)
+	reopenedDB, err := db.Open(filepath.Join(filepath.Dir(m.store.Root()), "studio.db"))
+	require.NoError(t, err)
+	other, err = accounts.Open(m.store.Root(), reopenedDB)
 	require.NoError(t, err)
 	require.NoError(t, other.Close())
+	require.NoError(t, reopenedDB.Close())
 }

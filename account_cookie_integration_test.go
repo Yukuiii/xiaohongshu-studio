@@ -12,7 +12,6 @@ import (
 
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
 )
 
 func TestAccountClearCookiesLocal(t *testing.T) {
@@ -21,7 +20,8 @@ func TestAccountClearCookiesLocal(t *testing.T) {
 		_, _ = fmt.Fprint(w, "<!doctype html><title>cookie fixture</title>")
 	}))
 	defer server.Close()
-	store, err := accounts.Open(filepath.Join(t.TempDir(), "accounts"), filepath.Join(t.TempDir(), "missing"), 0)
+	store := openTestStore(t, filepath.Join(t.TempDir(), "accounts"))
+	_, err := store.Create("默认账号")
 	require.NoError(t, err)
 	manager := NewAccountManager(store)
 	manager.headless = true

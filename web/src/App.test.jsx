@@ -40,7 +40,74 @@ function service(accounts = [A, B], mode = "native") {
     text: { base_url: "", model: "", has_api_key: false },
     image: { base_url: "", model: "", has_api_key: false },
   };
+  const drafts = new Map();
+  const protections = new Map();
   const fetch = vi.fn(async (url, options) => {
+    if (url === "/api/v1/draft") {
+      const accountId = options.headers["X-XHS-Account-ID"];
+      if (options.method === "PUT") {
+        const body = JSON.parse(options.body);
+        const current = drafts.get(accountId)?.revision ?? 0;
+        if (body.base_revision !== current)
+          return {
+            ok: false,
+            status: 409,
+            json: async () => ({
+              success: false,
+              code: "DRAFT_REVISION_CONFLICT",
+              error: "版本冲突",
+            }),
+          };
+        drafts.set(accountId, {
+          payload: body.draft,
+          revision: current + 1,
+        });
+        return ok({ revision: current + 1 });
+      }
+      if (options.method === "DELETE") {
+        drafts.delete(accountId);
+        return ok({ revision: 0 });
+      }
+      const record = drafts.get(accountId);
+      return ok(
+        record
+          ? { draft: record.payload, revision: record.revision }
+          : { draft: null, revision: 0 },
+      );
+    }
+    if (url === "/api/v1/publish-protection") {
+      const accountId = options.headers["X-XHS-Account-ID"];
+      if (options.method === "PUT") {
+        const body = JSON.parse(options.body);
+        const current = protections.get(accountId)?.revision ?? 0;
+        if (body.base_revision !== current)
+          return {
+            ok: false,
+            status: 409,
+            json: async () => ({
+              success: false,
+              code: "PROTECTION_REVISION_CONFLICT",
+              error: "版本冲突",
+            }),
+          };
+        protections.set(accountId, {
+          revision: current + 1,
+          uncertain: body.uncertain === true,
+          last_published: body.last_published || "",
+        });
+        return ok({ revision: current + 1 });
+      }
+      const record = protections.get(accountId);
+      return ok(
+        record
+          ? {
+              revision: record.revision,
+              uncertain: record.uncertain,
+              last_published: record.last_published,
+            }
+          : { revision: 0, uncertain: false, last_published: "" },
+      );
+    }
     if (url === "/api/v1/settings") {
       if (options.method === "PUT") {
         const body = JSON.parse(options.body);
@@ -120,6 +187,9 @@ function service(accounts = [A, B], mode = "native") {
     }
     return ok({});
   });
+  fetch.seedDraft = (accountId, payload, revision = 1) =>
+    drafts.set(accountId, { payload, revision });
+  fetch.getDraft = (accountId) => drafts.get(accountId)?.payload;
   vi.stubGlobal("fetch", fetch);
   return fetch;
 }
@@ -173,22 +243,19 @@ describe("分步创作工作台", () => {
   }
 
   it("每次只展示当前步骤，往返保留文字、图片和同一个预览节点", async () => {
-    localStorage.setItem(
-      "hongshu-workbench.draft.v1:A",
-      JSON.stringify({
-        title: "原稿标题",
-        content: "原稿正文",
-        tags: "#分享",
-        images: [
-          { id: "one", name: "封面", path: "/images/one.png" },
-          { id: "two", name: "内页", path: "/images/two.png" },
-        ],
-        sources: [
-          { id: "ref", token: "token", title: "参考笔记", selected: true },
-        ],
-      }),
-    );
     const fetch = workspaceService();
+    fetch.seedDraft("A", {
+      title: "原稿标题",
+      content: "原稿正文",
+      tags: "#分享",
+      images: [
+        { id: "one", name: "封面", path: "/images/one.png" },
+        { id: "two", name: "内页", path: "/images/two.png" },
+      ],
+      sources: [
+        { id: "ref", token: "token", title: "参考笔记", selected: true },
+      ],
+    });
     render(<App />);
     const first = await screen.findByRole("tab", { name: "寻找灵感" });
     await waitFor(() => expect(first).toBeEnabled());
@@ -230,7 +297,11 @@ describe("分步创作工作台", () => {
       cover,
     );
     expect(
-      fetch.mock.calls.some(([path]) => /feeds|compose|publish/.test(path)),
+      fetch.mock.calls.some(
+        ([path, options]) =>
+          /\/feeds\/|\/ai\/compose/.test(path) ||
+          (path === "/api/v1/publish" && options.method === "POST"),
+      ),
     ).toBe(false);
   });
 
@@ -263,15 +334,9 @@ describe("分步创作工作台", () => {
 
   it("切换账号后回到第一步，重新进入文案时读取对应账号草稿", async () => {
     localStorage.setItem("hongshu-workbench.account.v1", "A");
-    localStorage.setItem(
-      "hongshu-workbench.draft.v1:A",
-      JSON.stringify({ title: "A草稿" }),
-    );
-    localStorage.setItem(
-      "hongshu-workbench.draft.v1:B",
-      JSON.stringify({ title: "B草稿" }),
-    );
-    workspaceService([A, B]);
+    const fetch = workspaceService([A, B]);
+    fetch.seedDraft("A", { title: "A草稿" });
+    fetch.seedDraft("B", { title: "B草稿" });
     render(<App />);
     fireEvent.click(await screen.findByRole("tab", { name: "撰写文案" }));
     expect(screen.getByLabelText("笔记标题")).toHaveValue("A草稿");
@@ -286,21 +351,16 @@ describe("分步创作工作台", () => {
     expect(document.querySelector("#preview-title")).toHaveTextContent("B草稿");
     fireEvent.click(screen.getByRole("tab", { name: "撰写文案" }));
     expect(screen.getByLabelText("笔记标题")).toHaveValue("B草稿");
-    expect(
-      JSON.parse(localStorage.getItem("hongshu-workbench.draft.v1:A")).title,
-    ).toBe("A草稿");
+    expect(fetch.getDraft("A").title).toBe("A草稿");
   });
 
   it("只有第四步可检查发布，进入步骤不提交，确认勾选后才发送发布请求", async () => {
-    localStorage.setItem(
-      "hongshu-workbench.draft.v1:A",
-      JSON.stringify({
-        title: "待发布笔记",
-        content: "已核对的正文",
-        images: [{ id: "pic", name: "配图", path: "/images/pic.png" }],
-      }),
-    );
     const fetch = workspaceService();
+    fetch.seedDraft("A", {
+      title: "待发布笔记",
+      content: "已核对的正文",
+      images: [{ id: "pic", name: "配图", path: "/images/pic.png" }],
+    });
     render(<App />);
     const first = await screen.findByRole("tab", { name: "寻找灵感" });
     await waitFor(() => expect(first).toBeEnabled());
@@ -753,11 +813,8 @@ describe("账号选择界面", () => {
 
   it("重置成功刷新缓存，不启动登录检查并保留当前草稿", async () => {
     accountsPage();
-    localStorage.setItem(
-      "hongshu-workbench.draft.v1:A",
-      JSON.stringify({ title: "保留的草稿" }),
-    );
     const fetch = service([A]);
+    fetch.seedDraft("A", { title: "保留的草稿" });
     render(<App />);
     const row = await screen.findByRole("region", { name: "账号 账号A" });
     fireEvent.click(
@@ -811,15 +868,9 @@ describe("账号选择界面", () => {
 
   it("选择 A/B 重新加载各自草稿，顶部和预览显示当前账号", async () => {
     accountsPage();
-    localStorage.setItem(
-      "hongshu-workbench.draft.v1:A",
-      JSON.stringify({ title: "A标题" }),
-    );
-    localStorage.setItem(
-      "hongshu-workbench.draft.v1:B",
-      JSON.stringify({ title: "B标题" }),
-    );
     const fetch = service();
+    fetch.seedDraft("A", { title: "A标题" });
+    fetch.seedDraft("B", { title: "B标题" });
     render(<App />);
     const rowA = await screen.findByRole("region", { name: "账号 账号A" });
     fireEvent.click(within(rowA).getByRole("button", { name: "切换账号" }));
@@ -1130,11 +1181,8 @@ describe("账号选择界面", () => {
   it("重置和移除先说明范围并确认，删除当前账号后不自动选择其他账号", async () => {
     accountsPage();
     localStorage.setItem("hongshu-workbench.account.v1", "A");
-    localStorage.setItem(
-      "hongshu-workbench.draft.v1:A",
-      JSON.stringify({ title: "A草稿" }),
-    );
     const fetch = service();
+    fetch.seedDraft("A", { title: "A草稿" });
     render(<App />);
     const row = await screen.findByRole("region", { name: "账号 账号A" });
     await waitFor(() =>

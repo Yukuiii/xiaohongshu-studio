@@ -49,6 +49,11 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 	{
 		api.GET("/login/session", appServer.loginSessionHandler)
 		api.GET("/account/verify", appServer.accountVerifyHandler)
+		api.GET("/draft", appServer.getDraftHandler)
+		api.PUT("/draft", appServer.putDraftHandler)
+		api.DELETE("/draft", appServer.deleteDraftHandler)
+		api.GET("/publish-protection", appServer.getPublishProtectionHandler)
+		api.PUT("/publish-protection", appServer.putPublishProtectionHandler)
 		api.POST("/login/browser", appServer.openLoginBrowserHandler)
 		api.DELETE("/login/browser", appServer.closeLoginBrowserHandler)
 		api.DELETE("/login/cookies", appServer.deleteCookiesHandler)

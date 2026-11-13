@@ -33,6 +33,7 @@ export function createAPI(getSettings, getFormSettings = getSettings) {
       token = getSettings().token,
       blob = false,
       accountId,
+      keepalive = false,
     } = {},
   ) {
     const headers = {};
@@ -58,6 +59,7 @@ export function createAPI(getSettings, getFormSettings = getSettings) {
         signal,
         credentials: "same-origin",
         cache: "no-store",
+        keepalive,
       });
     } catch (error) {
       if (error.name === "AbortError") throw error;

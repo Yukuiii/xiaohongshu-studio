@@ -624,6 +624,16 @@ export default function Workspace({
               保存草稿
             </button>
             <div className="button-group">
+              {wb.draftConflict && (
+                <button
+                  type="button"
+                  className="button"
+                  disabled={busy}
+                  onClick={wb.reloadDraft}
+                >
+                  载入最新草稿
+                </button>
+              )}
               <button
                 type="button"
                 className="button"

@@ -1,7 +1,7 @@
 package accounts
 
 import (
-	"encoding/json"
+	"database/sql"
 	"errors"
 	"os"
 	"os/exec"
@@ -12,13 +12,38 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xpzouying/xiaohongshu-mcp/db"
 )
 
-func openStore(t *testing.T, root, legacyPath string, seed int) *Store {
+func storeDBPath(root string) string {
+	return filepath.Join(filepath.Dir(root), "studio.db")
+}
+
+func openDatabase(t *testing.T, root string) *sql.DB {
 	t.Helper()
-	s, err := Open(root, legacyPath, seed)
+	database, err := db.Open(storeDBPath(root))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	return database
+}
+
+func openEmptyStore(t *testing.T, root string) *Store {
+	t.Helper()
+	database := openDatabase(t, root)
+	s, err := Open(root, database)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
+	return s
+}
+
+// openStore 兼容旧测试调用；空库时创建一个默认账号。
+func openStore(t *testing.T, root string, _ ...any) *Store {
+	t.Helper()
+	s := openEmptyStore(t, root)
+	if len(s.List()) == 0 {
+		_, err := s.Create("默认账号")
+		require.NoError(t, err)
+	}
 	return s
 }
 
@@ -37,16 +62,12 @@ func readTestFile(t *testing.T, path string) []byte {
 
 func TestAccountsIsolationAndPersistence(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "accounts")
-	s := openStore(t, root, "", 31415)
-	require.Equal(t, root, s.Root())
+	s := openStore(t, root)
 	a := s.List()[0]
-	require.Equal(t, s.LegacyAccountID(), a.ID)
-	require.Equal(t, 31415, a.Seed)
 	b, err := s.Create("账号 B")
 	require.NoError(t, err)
 	require.NotEqual(t, a.ID, b.ID)
 	require.NotEqual(t, a.Seed, b.Seed)
-	require.Positive(t, b.Seed)
 	require.NotEqual(t, s.ProfilePath(a), s.ProfilePath(b))
 	require.NotEqual(t, s.DownloadPath(a.ID), s.DownloadPath(b.ID))
 
@@ -64,15 +85,7 @@ func TestAccountsIsolationAndPersistence(t *testing.T) {
 	a, err = s.Rename(a.ID, "  账号 A  ")
 	require.NoError(t, err)
 	require.Equal(t, "账号 A", a.Name)
-	require.Equal(t, []Account{a, b}, s.List())
-	require.Equal(t, s.List(), s.List())
-	metadata := readTestFile(t, filepath.Join(root, a.ID, "account.json"))
-	var fields map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(metadata, &fields))
-	require.Contains(t, fields, "active_profile")
-	require.Contains(t, fields, "user_id")
-	require.Contains(t, fields, "legacy_import_pending")
-	require.NotContains(t, fields, "Seed")
+	require.ElementsMatch(t, []Account{a, b}, s.List())
 
 	if runtime.GOOS != "windows" {
 		for _, path := range []string{root, filepath.Join(root, a.ID), filepath.Join(root, a.ID, "profiles"), s.ProfilePath(a), s.DownloadPath(a.ID)} {
@@ -80,15 +93,15 @@ func TestAccountsIsolationAndPersistence(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, os.FileMode(0700), info.Mode().Perm(), path)
 		}
-		for _, path := range []string{filepath.Join(root, "state.json"), filepath.Join(root, a.ID, "account.json"), filepath.Join(root, ".lock")} {
+		for _, path := range []string{filepath.Join(root, ".lock"), storeDBPath(root)} {
 			info, err := os.Stat(path)
 			require.NoError(t, err)
 			require.Equal(t, os.FileMode(0600), info.Mode().Perm(), path)
 		}
 	}
 	require.NoError(t, s.Close())
-	s = openStore(t, root, "", 99999)
-	require.Equal(t, []Account{a, b}, s.List())
+	s = openStore(t, root)
+	require.ElementsMatch(t, []Account{a, b}, s.List())
 	for _, account := range []Account{a, b} {
 		prefix := "A:"
 		if account.ID == b.ID {
@@ -102,111 +115,9 @@ func TestAccountsIsolationAndPersistence(t *testing.T) {
 	require.Equal(t, "B download", string(readTestFile(t, filepath.Join(s.DownloadPath(b.ID), "file"))))
 }
 
-func TestLegacyMigration(t *testing.T) {
-	const raw = `[{"value":"secret","name":"web_session","expires":1.75e9}]`
-	for _, test := range []struct {
-		name string
-		file string
-		env  int
-		want int
-	}{
-		{"v1", raw, 0, 0},
-		{"v1_env", raw, 11111, 11111},
-		{"v2", `{"version":2,"seed":22222,"cookies":` + raw + `}`, 0, 22222},
-		{"v2_env", `{"version":2,"seed":22222,"cookies":` + raw + `}`, 11111, 11111},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			base := t.TempDir()
-			legacy := filepath.Join(base, "legacy.json")
-			writeTestFile(t, legacy, []byte(test.file))
-			root := filepath.Join(base, "accounts")
-			s := openStore(t, root, legacy, test.env)
-			a := s.List()[0]
-			require.True(t, a.LegacyImportPending)
-			require.Positive(t, a.Seed)
-			if test.want != 0 {
-				require.Equal(t, test.want, a.Seed)
-			}
-			pending, err := s.PendingCookies(a.ID)
-			require.NoError(t, err)
-			require.Equal(t, raw, string(pending))
-			require.Equal(t, test.file, string(readTestFile(t, legacy)))
-			if runtime.GOOS != "windows" {
-				info, err := os.Stat(s.pendingPath(a.ID))
-				require.NoError(t, err)
-				require.Equal(t, os.FileMode(0600), info.Mode().Perm())
-			}
-			b, err := s.Create("B")
-			require.NoError(t, err)
-			require.NotEqual(t, a.Seed, b.Seed)
-			require.False(t, b.LegacyImportPending)
-			pending, err = s.PendingCookies(b.ID)
-			require.NoError(t, err)
-			require.Nil(t, pending)
-			require.NoError(t, s.Close())
-
-			// 完成导入前重启保持原待导入数据，不使用新传入的 seed。
-			s = openStore(t, root, legacy, 99999)
-			loaded, err := s.Get(a.ID)
-			require.NoError(t, err)
-			require.Equal(t, a, loaded)
-			require.NoError(t, s.CompleteImport(a.ID))
-			require.NoError(t, s.CompleteImport(a.ID))
-			require.NoFileExists(t, s.pendingPath(a.ID))
-			require.NoError(t, s.Close())
-			writeTestFile(t, legacy, []byte(`corrupt source after import`))
-			s = openStore(t, root, legacy, 88888)
-			loaded, err = s.Get(a.ID)
-			require.NoError(t, err)
-			require.Equal(t, a.Seed, loaded.Seed)
-			require.False(t, loaded.LegacyImportPending)
-			pending, err = s.PendingCookies(a.ID)
-			require.NoError(t, err)
-			require.Nil(t, pending)
-		})
-	}
-}
-
-func TestInitializationRetryUsesFixedTarget(t *testing.T) {
-	for _, stage := range []string{"planned", "staging", "account_committed"} {
-		t.Run(stage, func(t *testing.T) {
-			base := t.TempDir()
-			legacy := filepath.Join(base, "legacy.json")
-			data := []byte(`[{"name":"session","value":"original"}]`)
-			writeTestFile(t, legacy, data)
-			root := filepath.Join(base, "accounts")
-			require.NoError(t, os.Mkdir(root, 0700))
-			fixture := &Store{root: root}
-			a, err := fixture.newAccount("默认账号", 12345)
-			require.NoError(t, err)
-			a.LegacyImportPending = true
-			state := diskState{Version: 1, LegacyAccountID: a.ID, InitialAccount: &a, LegacyCookiePath: legacy}
-			require.NoError(t, writeJSON(filepath.Join(root, "state.json"), state))
-			if stage == "staging" {
-				writeTestFile(t, filepath.Join(root, ".creating-interrupted", "account.json"), []byte(`partial`))
-			}
-			if stage == "account_committed" {
-				require.NoError(t, fixture.createAccount(a, data))
-				require.NoError(t, os.Remove(legacy))
-			}
-			otherSource := filepath.Join(base, "other.json")
-			writeTestFile(t, otherSource, []byte(`[{"name":"session","value":"other"}]`))
-			s := openStore(t, root, otherSource, 99999)
-			require.Equal(t, a.ID, s.LegacyAccountID())
-			require.Equal(t, []Account{a}, s.List())
-			pending, err := s.PendingCookies(a.ID)
-			require.NoError(t, err)
-			require.Equal(t, data, pending)
-			require.NoError(t, s.Close())
-			s = openStore(t, root, otherSource, 99999)
-			require.Equal(t, []Account{a}, s.List())
-		})
-	}
-}
-
 func TestStoreProcessLock(t *testing.T) {
 	if root := os.Getenv("XHS_ACCOUNTS_LOCK_TEST_ROOT"); root != "" {
-		s, err := Open(root, "", 0)
+		s, err := Open(root, openDatabase(t, root))
 		if s != nil {
 			_ = s.Close()
 		}
@@ -214,8 +125,9 @@ func TestStoreProcessLock(t *testing.T) {
 		return
 	}
 	root := filepath.Join(t.TempDir(), "accounts")
-	s := openStore(t, root, "", 0)
-	other, err := Open(root, "", 0)
+	s := openStore(t, root)
+	database := openDatabase(t, root)
+	other, err := Open(root, database)
 	require.Nil(t, other)
 	require.ErrorIs(t, err, ErrLocked)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestStoreProcessLock$")
@@ -226,16 +138,15 @@ func TestStoreProcessLock(t *testing.T) {
 	require.NoError(t, s.Close())
 	_, err = s.Create("closed")
 	require.ErrorIs(t, err, os.ErrClosed)
-	openStore(t, root, "", 0)
+	openStore(t, root)
 }
 
 func TestTombstoneNeverRevives(t *testing.T) {
 	base := t.TempDir()
-	legacy := filepath.Join(base, "legacy.json")
-	writeTestFile(t, legacy, []byte(`[{"name":"session","value":"secret"}]`))
 	root := filepath.Join(base, "accounts")
-	s := openStore(t, root, legacy, 12345)
-	a := s.List()[0]
+	s := openEmptyStore(t, root)
+	a, err := s.Create("A")
+	require.NoError(t, err)
 	require.NoError(t, s.BindIdentity(a.ID, "user-a", "昵称"))
 	profile := s.ProfilePath(a)
 	downloads := s.DownloadPath(a.ID)
@@ -246,18 +157,16 @@ func TestTombstoneNeverRevives(t *testing.T) {
 	require.Empty(t, s.List())
 	require.NoDirExists(t, filepath.Dir(profile))
 	require.NoDirExists(t, downloads)
-	require.NoFileExists(t, s.pendingPath(a.ID))
-	metadata := readTestFile(t, filepath.Join(root, a.ID, "account.json"))
-	var tombstone Account
-	require.NoError(t, json.Unmarshal(metadata, &tombstone))
-	require.True(t, tombstone.Deleted)
-	require.Empty(t, tombstone.UserID)
-	require.Empty(t, tombstone.Nickname)
-	require.Empty(t, tombstone.ActiveProfile)
-	require.Zero(t, tombstone.Seed)
-	require.NotContains(t, string(metadata), "secret")
-	require.NotContains(t, string(metadata), "user-a")
-	_, err := s.Rename(a.ID, "late callback")
+
+	var deleted, seed int
+	var storedUser string
+	require.NoError(t, s.db.QueryRow(
+		`SELECT deleted, user_id, seed FROM accounts WHERE id = ?`, a.ID,
+	).Scan(&deleted, &storedUser, &seed))
+	require.Equal(t, 1, deleted)
+	require.Empty(t, storedUser)
+	require.Zero(t, seed)
+	_, err = s.Rename(a.ID, "late callback")
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = s.NewCandidate(a.ID)
 	require.ErrorIs(t, err, ErrNotFound)
@@ -269,11 +178,10 @@ func TestTombstoneNeverRevives(t *testing.T) {
 	require.Empty(t, s.DownloadPath(a.ID))
 	require.NoError(t, s.Close())
 
-	// 模拟墓碑落盘后、清理完成前退出；重启只补清理，不重建默认账号。
+	// 重启后只补清理墓碑目录，不复活账号。
 	writeTestFile(t, filepath.Join(profile, "leftover"), []byte("private"))
 	writeTestFile(t, filepath.Join(downloads, "leftover"), []byte("private"))
-	s = openStore(t, root, legacy, 99999)
-	require.Equal(t, a.ID, s.LegacyAccountID())
+	s = openEmptyStore(t, root)
 	require.Empty(t, s.List())
 	require.NoDirExists(t, filepath.Dir(profile))
 	require.NoDirExists(t, downloads)
@@ -281,13 +189,27 @@ func TestTombstoneNeverRevives(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 	b, err := s.Create("B")
 	require.NoError(t, err)
-	require.NotEqual(t, a.ID, b.ID)
-	require.False(t, b.LegacyImportPending)
 	require.NoError(t, s.BindIdentity(b.ID, "user-a", "可重新绑定"))
 }
 
+func TestDeleteCascadesDraftAndProtection(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "accounts")
+	s := openStore(t, root)
+	a := s.List()[0]
+	_, err := s.db.Exec(`INSERT INTO drafts (account_id, payload, revision, updated_at) VALUES (?, '{}', 0, 1)`, a.ID)
+	require.NoError(t, err)
+	_, err = s.db.Exec(`INSERT INTO publish_protection (account_id, revision, updated_at) VALUES (?, 0, 1)`, a.ID)
+	require.NoError(t, err)
+	require.NoError(t, s.Delete(a.ID))
+	var drafts, protections int
+	require.NoError(t, s.db.QueryRow(`SELECT count(*) FROM drafts`).Scan(&drafts))
+	require.NoError(t, s.db.QueryRow(`SELECT count(*) FROM publish_protection`).Scan(&protections))
+	require.Zero(t, drafts)
+	require.Zero(t, protections)
+}
+
 func TestInvalidIDsCannotEscape(t *testing.T) {
-	s := openStore(t, filepath.Join(t.TempDir(), "accounts"), "", 0)
+	s := openStore(t, filepath.Join(t.TempDir(), "accounts"))
 	a := s.List()[0]
 	for _, id := range []string{"", "..", "../outside", "/tmp/outside", strings.Repeat("a", 31), strings.Repeat("g", 32), strings.Repeat("A", 32)} {
 		_, err := s.Get(id)
@@ -313,71 +235,26 @@ func TestInvalidIDsCannotEscape(t *testing.T) {
 	}
 }
 
-func TestCorruptOrMissingMetadataFails(t *testing.T) {
-	for _, scenario := range []string{
-		"state_missing", "state_json", "state_version", "account_missing", "account_json", "account_fields", "profile_missing", "pending_missing", "pending_json", "extra_account_missing",
-	} {
-		t.Run(scenario, func(t *testing.T) {
-			base := t.TempDir()
-			legacy := filepath.Join(base, "legacy.json")
-			writeTestFile(t, legacy, []byte(`[]`))
-			root := filepath.Join(base, "accounts")
-			s := openStore(t, root, legacy, 12345)
-			a := s.List()[0]
-			require.NoError(t, s.Close())
-			switch scenario {
-			case "state_missing":
-				require.NoError(t, os.Remove(filepath.Join(root, "state.json")))
-			case "state_json":
-				writeTestFile(t, filepath.Join(root, "state.json"), []byte(`{"broken":`))
-			case "state_version":
-				require.NoError(t, writeJSON(filepath.Join(root, "state.json"), diskState{Version: 99, LegacyAccountID: a.ID, Initialized: true}))
-			case "account_missing":
-				require.NoError(t, os.Remove(filepath.Join(root, a.ID, "account.json")))
-			case "account_json":
-				writeTestFile(t, filepath.Join(root, a.ID, "account.json"), []byte(`{`))
-			case "account_fields":
-				a.Seed = 0
-				require.NoError(t, writeJSON(filepath.Join(root, a.ID, "account.json"), a))
-			case "profile_missing":
-				require.NoError(t, os.RemoveAll(s.profilePath(a.ID, a.ActiveProfile)))
-			case "pending_missing":
-				require.NoError(t, os.Remove(s.pendingPath(a.ID)))
-			case "pending_json":
-				writeTestFile(t, s.pendingPath(a.ID), []byte(`null`))
-			case "extra_account_missing":
-				require.NoError(t, os.Mkdir(filepath.Join(root, strings.Repeat("0", 32)), 0700))
-			}
-			broken, err := Open(root, legacy, 99999)
-			require.Error(t, err)
-			require.Nil(t, broken)
-			// 失败的 Open 必须释放进程锁。
-			probe, err := Open(root, legacy, 99999)
-			require.Error(t, err)
-			require.False(t, errors.Is(err, ErrLocked))
-			require.Nil(t, probe)
-		})
-	}
-}
+func TestMissingProfileFailsOpen(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "accounts")
+	s := openStore(t, root)
+	a := s.List()[0]
+	profile := s.ProfilePath(a)
+	require.NoError(t, s.Close())
+	require.NoError(t, os.RemoveAll(profile))
 
-func TestInvalidLegacyCookiesFail(t *testing.T) {
-	for _, data := range []string{`broken`, `null`, `{}`, `{"version":2,"cookies":{}}`, `{"version":2,"cookies":[}`, `[null]`, `[42]`} {
-		t.Run(data, func(t *testing.T) {
-			base := t.TempDir()
-			legacy := filepath.Join(base, "legacy.json")
-			writeTestFile(t, legacy, []byte(data))
-			root := filepath.Join(base, "accounts")
-			s, err := Open(root, legacy, 0)
-			require.Nil(t, s)
-			require.ErrorIs(t, err, ErrInvalid)
-			require.NoFileExists(t, filepath.Join(root, "state.json"))
-			require.Equal(t, data, string(readTestFile(t, legacy)))
-		})
-	}
+	database := openDatabase(t, root)
+	broken, err := Open(root, database)
+	require.Error(t, err)
+	require.Nil(t, broken)
+	probe, err := Open(root, database)
+	require.Error(t, err)
+	require.False(t, errors.Is(err, ErrLocked))
+	require.Nil(t, probe)
 }
 
 func TestConcurrentCreatesAndIdentityBinding(t *testing.T) {
-	s := openStore(t, filepath.Join(t.TempDir(), "accounts"), "", 0)
+	s := openEmptyStore(t, filepath.Join(t.TempDir(), "accounts"))
 	const count = 8
 	created := make(chan Account, count)
 	failures := make(chan error, count)
@@ -395,7 +272,7 @@ func TestConcurrentCreatesAndIdentityBinding(t *testing.T) {
 	workers.Wait()
 	close(created)
 	require.Empty(t, failures)
-	seeds := map[int]bool{s.List()[0].Seed: true}
+	seeds := map[int]bool{}
 	for a := range created {
 		require.False(t, seeds[a.Seed])
 		seeds[a.Seed] = true
@@ -412,68 +289,23 @@ func TestConcurrentCreatesAndIdentityBinding(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, successes)
-	require.Len(t, s.List(), count+1)
-}
-
-func TestFailedMetadataWriteKeepsMemoryAndProfiles(t *testing.T) {
-	base := t.TempDir()
-	legacy := filepath.Join(base, "legacy.json")
-	writeTestFile(t, legacy, []byte(`[]`))
-	s := openStore(t, filepath.Join(base, "accounts"), legacy, 12345)
-	a := s.List()[0]
-	profilePath := s.ProfilePath(a)
-	writeTestFile(t, filepath.Join(profilePath, "Local State"), []byte("original"))
-	candidate, err := s.NewCandidate(a.ID)
-	require.NoError(t, err)
-	metadataPath := filepath.Join(s.Root(), a.ID, "account.json")
-	original := readTestFile(t, metadataPath)
-	require.NoError(t, os.Remove(metadataPath))
-	require.NoError(t, os.Mkdir(metadataPath, 0700))
-	_, err = s.Rename(a.ID, "changed")
-	require.Error(t, err)
-	require.Error(t, s.BindIdentity(a.ID, "user-a", "A"))
-	require.Error(t, s.SetLoginStatus(a.ID, true))
-	require.Error(t, s.CommitProfile(a.ID, candidate, "user-a", "A"))
-	require.Error(t, s.CompleteImport(a.ID))
-	require.Error(t, s.Delete(a.ID))
-	require.Error(t, s.ResetProfile(a.ID))
-	loaded, err := s.Get(a.ID)
-	require.NoError(t, err)
-	require.Equal(t, a, loaded)
-	require.Equal(t, "original", string(readTestFile(t, filepath.Join(profilePath, "Local State"))))
-	require.FileExists(t, s.pendingPath(a.ID))
-	profiles, err := os.ReadDir(filepath.Dir(profilePath))
-	require.NoError(t, err)
-	require.Len(t, profiles, 2)
-	entries, err := os.ReadDir(filepath.Dir(metadataPath))
-	require.NoError(t, err)
-	for _, entry := range entries {
-		require.False(t, strings.HasPrefix(entry.Name(), ".account.json-"))
-	}
-	require.NoError(t, os.Remove(metadataPath))
-	writeTestFile(t, metadataPath, original)
-	require.NoError(t, s.Close())
-	s = openStore(t, s.Root(), legacy, 0)
-	loaded, err = s.Get(a.ID)
-	require.NoError(t, err)
-	require.Equal(t, a, loaded)
+	require.Len(t, s.List(), count)
 }
 
 func TestSetAvatarPersistsAndValidates(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "accounts")
-	s := openStore(t, root, "", 0)
+	s := openStore(t, root)
 	a := s.List()[0]
 	require.NoError(t, s.BindIdentity(a.ID, "user-a", "昵称"))
 	avatar := "https://sns-avatar-qc.xhscdn.com/avatar/example.webp?imageView2/2/w/360/format/webp"
 	require.NoError(t, s.SetAvatar(a.ID, avatar))
 	require.Equal(t, avatar, s.List()[0].Avatar)
 
-	var stored Account
-	require.NoError(t, json.Unmarshal(readTestFile(t, filepath.Join(root, a.ID, "account.json")), &stored))
-	require.Equal(t, avatar, stored.Avatar)
-
 	for _, invalid := range []string{"", "http://sns-avatar-qc.xhscdn.com/a.webp", "https://evil.example/a.webp", "javascript:alert(1)"} {
 		require.NoError(t, s.SetAvatar(a.ID, invalid))
 		require.Equal(t, avatar, s.List()[0].Avatar, invalid)
 	}
+	require.NoError(t, s.Close())
+	s = openStore(t, root)
+	require.Equal(t, avatar, s.List()[0].Avatar)
 }

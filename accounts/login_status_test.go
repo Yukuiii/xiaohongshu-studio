@@ -1,7 +1,6 @@
 package accounts
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -9,26 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoginStatusLoadsLegacyMetadataAndPersists(t *testing.T) {
+func TestLoginStatusDefaultsAndPersists(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "accounts")
-	s := openStore(t, root, "", 0)
+	s := openStore(t, root)
 	a := s.List()[0]
-	require.NoError(t, s.BindIdentity(a.ID, "user-a", "账号 A"))
-	path := filepath.Join(root, a.ID, "account.json")
-	var legacy map[string]any
-	require.NoError(t, json.Unmarshal(readTestFile(t, path), &legacy))
-	delete(legacy, "is_logged_in")
-	delete(legacy, "login_checked_at")
-	data, err := json.Marshal(legacy)
-	require.NoError(t, err)
-	writeTestFile(t, path, data)
-	require.NoError(t, s.Close())
-
-	s = openStore(t, root, "", 0)
-	a, err = s.Get(a.ID)
-	require.NoError(t, err)
-	require.False(t, a.IsLoggedIn, "历史绑定身份不能当作当前登录有效")
-	require.Nil(t, a.LoginCheckedAt)
+	require.False(t, a.IsLoggedIn)
+	require.Nil(t, a.LoginCheckedAt, "新账号没有检查记录")
 	require.NoError(t, s.BindIdentity(a.ID, "user-a", "账号 A"))
 	checked, err := s.Get(a.ID)
 	require.NoError(t, err)
@@ -36,13 +21,13 @@ func TestLoginStatusLoadsLegacyMetadataAndPersists(t *testing.T) {
 	require.NotNil(t, checked.LoginCheckedAt)
 	require.NoError(t, s.Close())
 
-	s = openStore(t, root, "", 0)
+	s = openStore(t, root)
 	restarted, err := s.Get(a.ID)
 	require.NoError(t, err)
 	require.Equal(t, checked, restarted)
 	require.NoError(t, s.SetLoginStatus(a.ID, false))
 	require.NoError(t, s.Close())
-	s = openStore(t, root, "", 0)
+	s = openStore(t, root)
 	restarted, err = s.Get(a.ID)
 	require.NoError(t, err)
 	require.False(t, restarted.IsLoggedIn)

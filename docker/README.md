@@ -22,11 +22,11 @@ Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix 
 ## 数据与素材
 
 - `docker/data/` 保存账号、完整浏览器数据、上传图片及运行配置，更新时保留；可用 `XHS_DATA_DIR` 指定已有数据目录的完整路径。Compose 显式设置 `XHS_ACCOUNTS_DIR=/app/data/accounts`，已有 `/app/data` 挂载覆盖此目录，无需新增卷。
-- 每个账号在 `accounts/<account-id>/` 下保存独立 `account.json`、`profiles/<profile-id>/` 和 `downloads/`；整个 Chromium user-data-dir（包括 `Local State`、`Default/`、Cookie、localStorage、IndexedDB、Service Worker、缓存和站点配置）都是持久数据。浏览器空闲 10 分钟后关闭，正常关闭、切换账号和重建容器均保留 profile；备份时先停止服务，再保留整个 `data/`。
+- 每个账号在 `accounts/<account-id>/` 下保存独立 `profiles/<profile-id>/` 和 `downloads/`；整个 Chromium user-data-dir（包括 `Local State`、`Default/`、Cookie、localStorage、IndexedDB、Service Worker 和站点配置）都是持久数据。账号元数据、模型配置、草稿和发布防重记录保存在 `data/studio.db`。浏览器正常退出和服务启动时会删除 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留登录态和站点存储。浏览器空闲 10 分钟后关闭，正常关闭、切换账号和重建容器均保留 profile；备份时先停止服务，再保留整个 `data/`。
 - Compose 固定容器主机名为 `xiaohongshu-studio`，并提供 60 秒的优雅停机时间。退出时先等待应用关闭浏览器、保存 profile，再关闭 Xvfb 和 DBus，避免重建后被旧容器的 Chromium 锁阻挡。
 - `COOKIES_PATH=/app/data/cookies.json` 保留为旧版本迁移源。首次初始化创建固定默认账号，兼容 v1/v2 Cookie，并优先保留当时有效的 `XHS_FP_SEED`，否则使用旧文件 seed 或生成独立 seed。旧文件不删除；之后以 profile 为会话权威，不反复注入 Cookie。移除旧账号不会触发重新导入，也不能从旧 Cookie 恢复此前未保存的完整站点数据。
 - 工作台上传与生成图片通过 `docker/data/uploads/` 挂载到容器 `/tmp/xiaohongshu_images/`，按 `web/<account-id>/` 隔离。旧图片只迁入固定旧账号且保留源文件；草稿引用不能替代图片备份。
-- 模型地址、名称与 API Key 保存在 `docker/data/settings.json`，文件权限为 `0600`，所有账号共用；工作台读取地址和名称，密钥只返回是否已保存。首次打开旧浏览器时，仅在服务端尚未初始化的情况下自动导入旧模型配置，成功后移除浏览器旧缓存。清空服务端配置后不会再次被旧浏览器导入。工作台访问令牌仍仅保存在浏览器的 `hongshu-workbench.token.v1`。
+- 模型地址、名称与 API Key 保存在 `docker/data/studio.db` 的 `settings` 表，数据库权限为 `0600`，所有账号共用；工作台读取地址和名称，密钥只返回是否已保存。首次打开旧浏览器时，仅在服务端尚未初始化的情况下自动导入旧模型配置，成功后移除浏览器旧缓存。清空服务端配置后不会再次被旧浏览器导入。工作台访问令牌仍仅保存在浏览器的 `hongshu-workbench.token.v1`。
 - 草稿保存在访问工作台的浏览器本地，每账号草稿键为 `hongshu-workbench.draft.v1:<account-id>`，payload 保持兼容。旧草稿只迁入固定旧账号一次，已有目标草稿不覆盖，并保留发布结果未知时的防重状态。升级保持原访问地址；换浏览器、改地址或清理网站数据不会自动恢复草稿。
 - 账号页可添加、选择、重命名、重新登录、重置浏览器数据和移除账号。重置保留账号 ID、绑定身份、seed、草稿和素材；移除会清理该账号的浏览器数据、下载与托管图片。服务令牌允许访问整个工作台，多个账号槽位不构成访问者权限隔离。
 - 页面可上传图片；已有图片、视频可放入 `docker/images/`（可用 `XHS_MEDIA_DIR` 指定其他目录），对应容器内只读素材目录 `/app/images/`。桌面文件窗口也有 images 书签。数据与上传目录保持可写。

@@ -81,7 +81,7 @@ Each account saves a complete Chromium user-data directory, including Cookies, l
 
 Account selection belongs to the current page, and switching is blocked during a task. Browser tasks run serially within an account; different accounts can run independently.
 
-The account list displays the last checked sign-in status. Reloading the page or switching accounts or views does not automatically visit Xiaohongshu. The service checks accounts asynchronously at startup and every 10 minutes. Each check uses the account session Cookie/UA to verify identity over HTTP without rendering the page, skipping busy accounts and active sign-in sessions until the next round. Network errors and timeouts preserve the previous result. Each background check closes the idle browser it used while retaining its data. Status and check time are saved in each account's `account.json` and survive restarts. New accounts show as signed out; previously bound accounts without a check record are shown as awaiting a check.
+The account list displays the last checked sign-in status. Reloading the page or switching accounts or views does not automatically visit Xiaohongshu. The service checks accounts asynchronously at startup and every 10 minutes. Each check uses the account session Cookie/UA to verify identity over HTTP without rendering the page, skipping busy accounts and active sign-in sessions until the next round. Network errors and timeouts preserve the previous result. Each background check closes the idle browser it used while retaining its data. Status and check time are saved in the server SQLite database and survive restarts. New accounts show as signed out; previously bound accounts without a check record are shown as awaiting a check.
 
 While visible, the Accounts view refreshes the list silently every 60 seconds. Completing sign-in, clearing Cookies, or resetting browser data updates the cache immediately. Use Refresh status (刷新状态) for an immediate check. Tasks such as search and publication still verify the real signed-in identity.
 
@@ -120,18 +120,21 @@ Then open **http://127.0.0.1:18060/**. When using a reverse proxy, keep the page
 | Data | Docker deployment | Running from source |
 | --- | --- | --- |
 | Accounts, complete browser profiles, and downloads | `docker/data/accounts/` | `XHS_ACCOUNTS_DIR`; defaults to `.xhs-accounts/` beside the legacy Cookie file |
+| Account metadata, model settings, drafts, and publication protection | `docker/data/studio.db` (SQLite) | `XHS_DB_PATH`; defaults to `studio.db` beside the accounts directory |
 | Uploaded and generated images | `docker/data/uploads/`, separated by account | `xiaohongshu_images/web/<account-id>/` under the system temporary directory |
-| Drafts and publication protection records | The visiting browser's localStorage, separated by account | Same |
-| Model configuration and model API keys | `docker/data/settings.json` | `XHS_SETTINGS_PATH`; defaults to `.xhs-settings.json` beside the legacy Cookie file |
 | Service access token | The visiting browser's localStorage | Same |
 
-Docker paths above assume the default configuration. Stop the service before backing up the entire `docker/data/` directory or your custom data directory, which includes model API keys. Drafts and the service token in the visiting browser need to be retained separately. Changing browsers or workspace addresses, or clearing site data, does not restore local drafts automatically. Development and production ports also have separate browser storage.
+Docker paths above assume the default configuration. Stop the service before backing up the entire `docker/data/` directory or your custom data directory, which includes model keys and sign-in credentials. To back up SQLite while the service is running, use `VACUUM INTO`; otherwise stop the service and copy the database and WAL files. The access token remains browser-only and must be retained separately.
+
+Each account keeps a complete Chromium profile. When a browser closes normally and when the service starts, rebuildable caches such as Cache, Code Cache, and GPU/Shader caches are removed. Cookies, Local Storage, IndexedDB, Service Worker data, and browser preferences are retained, so the sign-in state survives pruning.
 
 Legacy browser model settings migrate automatically only when the server has not been initialized; the old cache is removed after success. Existing server settings take precedence. On another browser, enter the service access token to load the saved provider URLs and model names. Saved API keys are not returned to the browser; leave the key field empty to keep the existing key for the same provider URL.
 
 Image references in drafts do not replace the image files. When running from source, back up the images in the temporary directory separately. Restore browser profiles in the same runtime environment where possible; site sessions can still expire.
 
-Reset browser data (重置浏览器数据) clears an account's site data while retaining its identity binding, fingerprint, drafts, and images. Remove account (移除) deletes its browser data, downloads, managed images, and drafts in the current browser.
+Reset browser data (重置浏览器数据) clears an account's site data while retaining its identity binding, fingerprint, server-side drafts, and images. Remove account (移除) deletes its browser data, downloads, managed images, server-side drafts, and publication records.
+
+This version no longer reads legacy `state.json`, `account.json`, `settings.json`, or browser localStorage drafts. Upgrading requires adding accounts, signing in again, and configuring models.
 
 On first initialization, deployments with legacy Cookie files migrate them into the default account. Subsequent sessions use complete browser profiles. See the [Docker guide](./docker/README.md) for migration and offline sign-in maintenance.
 

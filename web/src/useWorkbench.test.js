@@ -23,6 +23,24 @@ const deferred = () => {
   });
   return { promise, resolve };
 };
+let serverDrafts;
+let serverProtections;
+const conflict = (code) => ({
+  ok: false,
+  status: 409,
+  json: async () => ({ success: false, code, error: "版本冲突" }),
+});
+function seedDraft(accountId, payload, revision = 1) {
+  serverDrafts.set(accountId, { payload, revision });
+}
+function seedProtection(accountId, value) {
+  serverProtections.set(accountId, {
+    revision: 1,
+    uncertain: false,
+    last_published: "",
+    ...value,
+  });
+}
 
 function modelStore(initial = {}) {
   let initialized = initial.initialized ?? true;
@@ -73,6 +91,56 @@ function modelStore(initial = {}) {
       return ok(publicSettings());
     }
     if (path === "/api/v1/ai/models") return ok({ models: ["stored-model"] });
+    const accountId = options?.headers?.["X-XHS-Account-ID"];
+    if (path === "/api/v1/draft") {
+      if (options.method === "DELETE") {
+        serverDrafts.delete(accountId);
+        return ok({ revision: 0 });
+      }
+      if (options.method === "PUT") {
+        const body = JSON.parse(options.body);
+        const current = serverDrafts.get(accountId)?.revision ?? 0;
+        if (body.base_revision !== current)
+          return conflict("DRAFT_REVISION_CONFLICT");
+        serverDrafts.set(accountId, {
+          payload: body.draft,
+          revision: current + 1,
+        });
+        return ok({ revision: current + 1 });
+      }
+      const record = serverDrafts.get(accountId);
+      return ok(
+        record
+          ? { draft: record.payload, revision: record.revision }
+          : { draft: null, revision: 0 },
+      );
+    }
+    if (path === "/api/v1/publish-protection") {
+      if (options.method === "PUT") {
+        const body = JSON.parse(options.body);
+        const current = serverProtections.get(accountId)?.revision ?? 0;
+        if (body.base_revision !== current)
+          return conflict("PROTECTION_REVISION_CONFLICT");
+        const record = {
+          revision: current + 1,
+          uncertain: body.uncertain === true,
+          last_published:
+            typeof body.last_published === "string" ? body.last_published : "",
+        };
+        serverProtections.set(accountId, record);
+        return ok({ revision: record.revision });
+      }
+      const record = serverProtections.get(accountId);
+      return ok(
+        record
+          ? {
+              revision: record.revision,
+              uncertain: record.uncertain,
+              last_published: record.last_published,
+            }
+          : { revision: 0, uncertain: false, last_published: "" },
+      );
+    }
     return path.includes("/images/")
       ? { ok: true, blob: async () => new Blob(["pic"], { type: "image/png" }) }
       : ok({ status: "发布完成" });
@@ -80,6 +148,8 @@ function modelStore(initial = {}) {
 }
 
 beforeEach(() => {
+  serverDrafts = new Map();
+  serverProtections = new Map();
   vi.stubGlobal("fetch", modelStore());
 });
 
@@ -88,10 +158,11 @@ async function open(result, id, legacy) {
     expect(result.current.activateAccount(id, legacy)).toBe(true);
   });
   await waitFor(() => expect(result.current.busy).toBe(false));
+  await waitFor(() => expect(result.current.draftLoading).toBe(false));
 }
 
 async function ready() {
-  localStorage.setItem(key("A"), JSON.stringify(draft("账号A")));
+  seedDraft("A", draft("账号A"));
   const hook = renderHook(useWorkbench);
   await open(hook.result, "A");
   return hook;
@@ -99,26 +170,23 @@ async function ready() {
 
 describe("搜索与写稿步骤", () => {
   async function researchFixture({ configured = true } = {}) {
-    localStorage.setItem(
-      key("A"),
-      JSON.stringify({
-        topic: "早餐灵感",
-        keywords: "快手早餐,健康早餐",
-        title: "保留的标题",
-        content: "保留的正文",
-        tags: "#原有话题",
-        "image-prompt": "原有画面",
-        sources: [
-          {
-            id: "old",
-            token: "old-token",
-            title: "原有参考",
-            selected: true,
-            content: "已有参考正文",
-          },
-        ],
-      }),
-    );
+    seedDraft("A", {
+      topic: "早餐灵感",
+      keywords: "快手早餐,健康早餐",
+      title: "保留的标题",
+      content: "保留的正文",
+      tags: "#原有话题",
+      "image-prompt": "原有画面",
+      sources: [
+        {
+          id: "old",
+          token: "old-token",
+          title: "原有参考",
+          selected: true,
+          content: "已有参考正文",
+        },
+      ],
+    });
     const original = modelStore({
       text: configured
         ? {
@@ -193,7 +261,9 @@ describe("搜索与写稿步骤", () => {
       true,
     );
     expect(result.current.draft).toEqual(previous);
-    expect(JSON.parse(localStorage.getItem(key("A"))).sources).toHaveLength(3);
+    await waitFor(() =>
+      expect(serverDrafts.get("A")?.payload.sources).toHaveLength(3),
+    );
     expect(result.current.status.message).toContain("撰写文案");
   });
 
@@ -765,153 +835,67 @@ describe("服务端模型配置", () => {
 });
 
 describe("账号草稿", () => {
-  it("切换时同步保存尚未到 450ms 的修改，并恢复各账号独立内容及发布锁", () => {
-    vi.useFakeTimers();
-    localStorage.setItem(
-      key("A"),
-      JSON.stringify({
-        title: "A原稿",
-        uncertain: true,
-        lastPublished: "A记录",
-      }),
-    );
-    localStorage.setItem(
-      key("B"),
-      JSON.stringify({ title: "B原稿", lastPublished: "B记录" }),
-    );
+  it("切换账号时保存当前草稿并加载各自的服务端内容", async () => {
+    seedDraft("A", draft("A原稿"));
+    seedProtection("A", { uncertain: true, last_published: "A记录" });
+    seedDraft("B", { title: "B原稿" });
     const { result } = renderHook(useWorkbench);
-    act(() => {
-      result.current.activateAccount("A");
-    });
-    act(() => {
-      result.current.changeDraft("title", "A未落盘");
-    });
-    act(() => {
-      vi.advanceTimersByTime(449);
-    });
-    expect(JSON.parse(localStorage.getItem(key("A"))).title).toBe("A原稿");
-    act(() => {
-      result.current.activateAccount("B");
-    });
-    expect(JSON.parse(localStorage.getItem(key("A")))).toMatchObject({
-      title: "A未落盘",
-      uncertain: true,
-      lastPublished: "A记录",
-    });
-    expect(result.current.draft.title).toBe("B原稿");
-    expect(result.current.uncertain).toBe(false);
-    expect(result.current.lastPublished).toBe("B记录");
-    act(() => {
-      result.current.changeDraft("title", "B新稿");
-      result.current.activateAccount("A");
-    });
-    expect(result.current.draft.title).toBe("A未落盘");
-    expect(result.current.uncertain).toBe(true);
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(JSON.parse(localStorage.getItem(key("B"))).title).toBe("B新稿");
-  });
-
-  it("flush 失败保留原账号和未保存内容", () => {
-    const { result } = renderHook(useWorkbench);
-    act(() => {
-      result.current.activateAccount("A");
-      result.current.changeDraft("title", "重要内容");
-    });
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("quota");
-    });
-    act(() => {
-      expect(result.current.activateAccount("B")).toBe(false);
-    });
-    expect(result.current.context.accountId).toBe("A");
-    expect(result.current.draft.title).toBe("重要内容");
-  });
-
-  it("旧草稿只迁至服务端 legacy 账号一次，保留源、路径和防重记录", async () => {
-    const legacy = JSON.stringify(
-      draft("旧草稿", { uncertain: true, lastPublished: "旧发布记录" }),
-    );
-    localStorage.setItem(legacyKey, legacy);
-    const { result } = renderHook(useWorkbench);
-    await open(result, "B", "A");
-    expect(result.current.draft.title).toBe("");
-    await open(result, "A", "A");
-    expect(result.current.draft.title).toBe("旧草稿");
-    expect(result.current.images[0].path).toBe(image.path);
-    expect(result.current.uncertain).toBe(true);
-    expect(result.current.lastPublished).toBe("旧发布记录");
-    expect(localStorage.getItem(legacyKey)).toBe(legacy);
-    act(() => {
-      result.current.activateAccount("B");
-    });
-    localStorage.removeItem(key("A"));
-    await open(result, "A", "A");
-    expect(result.current.draft.title).toBe("");
-  });
-
-  it("迁移不覆盖目标账号已有草稿", async () => {
-    localStorage.setItem(legacyKey, JSON.stringify({ title: "旧稿" }));
-    localStorage.setItem(key("A"), JSON.stringify({ title: "已有稿" }));
-    const { result } = renderHook(useWorkbench);
-    await open(result, "A", "A");
-    expect(result.current.draft.title).toBe("已有稿");
-  });
-
-  it("切换重新加载配图，释放 Blob，旧图片响应及旧保存不能污染新账号", async () => {
-    const late = deferred();
-    localStorage.setItem(key("A"), JSON.stringify(draft("A草稿")));
-    localStorage.setItem(key("B"), JSON.stringify({ title: "B草稿" }));
-    const original = fetch.getMockImplementation();
-    fetch.mockImplementation((path, options) =>
-      path.includes("/images/") ? late.promise : original(path, options),
-    );
-    const { result } = renderHook(useWorkbench);
-    act(() => {
-      result.current.activateAccount("A");
-    });
-    const old = result.current.context;
-    expect(result.current.busy).toBe(true);
-    act(() => {
-      expect(result.current.activateAccount("B")).toBe(false);
-    });
-    act(() => {
-      result.current.activateAccount("B", null, { force: true });
-    });
-    await act(async () => {
-      late.resolve({
-        ok: true,
-        blob: async () => new Blob(["pic"], { type: "image/png" }),
-      });
-    });
-    expect(result.current.draft.title).toBe("B草稿");
-    expect(result.current.images).toEqual([]);
-    expect(result.current.busy).toBe(false);
-    act(() => {
-      expect(result.current.flushDraft(old)).toBe(false);
-    });
-    expect(JSON.parse(localStorage.getItem(key("B"))).title).toBe("B草稿");
     await open(result, "A");
-    expect(result.current.images[0].blobURL).toBe("blob:preview");
-    await open(result, "B");
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview");
-    expect(
-      fetch.mock.calls
-        .filter(([path]) => path.includes("/images/"))
-        .every(([, options]) => options.headers["X-XHS-Account-ID"] === "A"),
-    ).toBe(true);
+    expect(result.current.draft.title).toBe("A原稿");
+    expect(result.current.uncertain).toBe(true);
+    expect(result.current.lastPublished).toBe("A记录");
+
+    act(() => result.current.changeDraft("title", "A新稿"));
+    act(() => result.current.activateAccount("B"));
+    await waitFor(() => expect(result.current.draft.title).toBe("B原稿"));
+    await waitFor(() =>
+      expect(serverDrafts.get("A")?.payload.title).toBe("A新稿"),
+    );
+    expect(result.current.uncertain).toBe(false);
+
+    await open(result, "A");
+    expect(result.current.draft.title).toBe("A新稿");
+    expect(result.current.uncertain).toBe(true);
+    expect(result.current.lastPublished).toBe("A记录");
   });
 
-  it("迁移标记写入失败仍恢复目标草稿", async () => {
-    localStorage.setItem(key("A"), JSON.stringify({ title: "不能丢失" }));
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("quota");
-    });
+  it("草稿版本冲突时停止自动保存并提示", async () => {
+    seedDraft("A", { title: "服务端草稿" });
     const { result } = renderHook(useWorkbench);
-    await open(result, "A", "A");
-    expect(result.current.draft.title).toBe("不能丢失");
-    expect(result.current.persistenceAvailable).toBe(false);
+    await open(result, "A");
+    serverDrafts.set("A", {
+      payload: { title: "其他窗口的草稿" },
+      revision: 9,
+    });
+    act(() => result.current.changeDraft("title", "本地修改"));
+    await waitFor(() => expect(result.current.draftConflict).toBe(true));
+    expect(result.current.saveStatus).toContain("其他窗口");
+    expect(result.current.draft.title).toBe("本地修改");
+  });
+
+  it("服务令牌变化立即失效账号上下文，保存的草稿仍在服务端", async () => {
+    seedDraft("A", { title: "A原稿" });
+    const { result } = renderHook(useWorkbench);
+    await open(result, "A");
+    act(() => {
+      result.current.changeDraft("title", "A草稿");
+      result.current.changeSetting("token", null, "new-token");
+    });
+    const previous = result.current.context;
+    await act(async () => {
+      await result.current.saveSettings();
+    });
+    expect(result.current.context.accountId).toBeNull();
+    expect(result.current.context.generation).toBeGreaterThan(
+      previous.generation,
+    );
+    expect(result.current.settings.token).toBe("new-token");
+    await waitFor(() =>
+      expect(serverDrafts.get("A")?.payload.title).toBe("A草稿"),
+    );
+    expect(localStorage.getItem("hongshu-workbench.token.v1")).toBe(
+      "new-token",
+    );
   });
 
   it("无账号选择时仍可读取公共模型列表", async () => {
@@ -931,28 +915,6 @@ describe("账号草稿", () => {
     expect(result.current.models.text).toEqual(["model-a"]);
     expect(fetch.mock.calls.at(-1)[1].headers).not.toHaveProperty(
       "X-XHS-Account-ID",
-    );
-  });
-
-  it("服务令牌变化立即失效账号上下文，公共模型配置继续保存", async () => {
-    const { result } = renderHook(useWorkbench);
-    await open(result, "A");
-    act(() => {
-      result.current.changeDraft("title", "A草稿");
-      result.current.changeSetting("token", null, "new-token");
-    });
-    const previous = result.current.context;
-    await act(async () => {
-      await result.current.saveSettings();
-    });
-    expect(result.current.context.accountId).toBeNull();
-    expect(result.current.context.generation).toBeGreaterThan(
-      previous.generation,
-    );
-    expect(result.current.settings.token).toBe("new-token");
-    expect(JSON.parse(localStorage.getItem(key("A"))).title).toBe("A草稿");
-    expect(localStorage.getItem("hongshu-workbench.token.v1")).toBe(
-      "new-token",
     );
   });
 });
@@ -1017,10 +979,11 @@ describe("发布账号保护", () => {
     act(() => {
       result.current.setPublishAgreed(true);
     });
-    fetch.mockImplementationOnce(async (path, options) => {
-      expect(path).toBe("/api/v1/publish");
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation(async (path, options) => {
+      if (path !== "/api/v1/publish") return original(path, options);
       expect(options.headers["X-XHS-Account-ID"]).toBe("A");
-      expect(JSON.parse(localStorage.getItem(key("A"))).uncertain).toBe(true);
+      expect(serverProtections.get("A")?.uncertain).toBe(true);
       throw new Error("network");
     });
     await act(async () => {
@@ -1047,7 +1010,10 @@ describe("发布账号保护", () => {
       result.current.setPublishAgreed(true);
     });
     const late = deferred();
-    fetch.mockImplementationOnce(() => late.promise);
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) =>
+      path === "/api/v1/publish" ? late.promise : original(path, options),
+    );
     let publishing;
     act(() => {
       publishing = result.current.confirmPublish(login);
@@ -1064,11 +1030,11 @@ describe("发布账号保护", () => {
     expect(result.current.lastPublished).toBe("");
     expect(result.current.uncertain).toBe(false);
     expect(result.current.confirmation).toBeNull();
-    expect(JSON.parse(localStorage.getItem(key("A"))).uncertain).toBe(true);
-    expect(localStorage.getItem(key("B"))).toBeNull();
+    expect(serverProtections.get("A")?.uncertain).toBe(true);
+    expect(serverProtections.get("B")?.uncertain ?? false).toBe(false);
   });
 
-  it("本地发布保护无法保存时不发送发布请求", async () => {
+  it("服务端发布保护保存失败时不发送发布请求", async () => {
     const { result } = await ready();
     const login = vi.fn().mockResolvedValue(identity);
     await act(async () => {
@@ -1077,13 +1043,16 @@ describe("发布账号保护", () => {
     act(() => {
       result.current.setPublishAgreed(true);
     });
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("quota");
-    });
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) =>
+      path === "/api/v1/publish-protection" && options.method === "PUT"
+        ? Promise.reject(new Error("network"))
+        : original(path, options),
+    );
     await act(async () => {
       await result.current.confirmPublish(login);
     });
-    expect(result.current.publishStatus.message).toContain("发布保护未能保存");
+    expect(result.current.publishStatus.message).toContain("无法连接服务");
     expect(fetch.mock.calls.some(([path]) => path.endsWith("/publish"))).toBe(
       false,
     );

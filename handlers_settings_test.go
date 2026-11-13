@@ -106,7 +106,7 @@ func TestSettingsAPIAuthenticationOriginAndAccountIndependence(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "text-secret")
 	require.Equal(t, before, manager.store.List())
 	require.Empty(t, manager.runtimes)
-	reopened, err := openSettingsStore(server.settings.path)
+	reopened, err := openSettingsStore(server.settings.db)
 	require.NoError(t, err)
 	require.Equal(t, modelSettings{Initialized: true}, reopened.snapshot())
 }
@@ -202,7 +202,7 @@ func TestAIHandlersUsePersistedTextAndImageConfiguration(t *testing.T) {
 	})
 	require.NoError(t, err)
 	server := NewAccountAppServer(manager, settingsTestToken)
-	server.settings, err = openSettingsStore(store.path)
+	server.settings, err = openSettingsStore(store.db)
 	require.NoError(t, err)
 	router := setupRoutes(server)
 	for _, config := range []any{nil, map[string]string{}, map[string]string{"base_url": " ", "api_key": " ", "model": " "}} {

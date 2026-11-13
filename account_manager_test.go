@@ -18,8 +18,20 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
 	"github.com/xpzouying/xiaohongshu-mcp/accounts"
+	"github.com/xpzouying/xiaohongshu-mcp/db"
 	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
+
+func openTestStore(t *testing.T, root string) *accounts.Store {
+	t.Helper()
+	database, err := db.Open(filepath.Join(filepath.Dir(root), "studio.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	store, err := accounts.Open(root, database)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	return store
+}
 
 type fakeAccountBrowser struct {
 	alive  atomic.Bool
@@ -46,8 +58,11 @@ func (b *fakeAccountBrowser) Shutdown(context.Context) error {
 func testAccountManager(t *testing.T) *AccountManager {
 	t.Helper()
 	isolateImageStorage(t)
-	store, err := accounts.Open(filepath.Join(t.TempDir(), "accounts"), filepath.Join(t.TempDir(), "missing.json"), 0)
-	require.NoError(t, err)
+	store := openTestStore(t, filepath.Join(t.TempDir(), "accounts"))
+	if len(store.List()) == 0 {
+		_, err := store.Create("默认账号")
+		require.NoError(t, err)
+	}
 	manager := NewAccountManager(store)
 	manager.factory = func(accounts.Account, string, bool, []byte) (accountBrowser, error) {
 		return newFakeAccountBrowser(), nil

@@ -102,6 +102,11 @@ func TestProtectedRoutesRequireBearerToken(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/login/session"},
 		{http.MethodGet, "/api/v1/account/verify"},
+		{http.MethodGet, "/api/v1/draft"},
+		{http.MethodPut, "/api/v1/draft"},
+		{http.MethodDelete, "/api/v1/draft"},
+		{http.MethodGet, "/api/v1/publish-protection"},
+		{http.MethodPut, "/api/v1/publish-protection"},
 		{http.MethodPost, "/api/v1/login/browser"},
 		{http.MethodDelete, "/api/v1/login/browser"},
 		{http.MethodDelete, "/api/v1/login/cookies"},
@@ -204,6 +209,9 @@ func TestRESTRejectsCrossSiteWrites(t *testing.T) {
 			{http.MethodPost, "/api/v1/ai/compose"},
 			{http.MethodPost, "/api/v1/ai/image"},
 			{http.MethodPost, "/api/v1/images/upload"},
+			{http.MethodPut, "/api/v1/draft"},
+			{http.MethodDelete, "/api/v1/draft"},
+			{http.MethodPut, "/api/v1/publish-protection"},
 		} {
 			for _, source := range []struct {
 				name        string

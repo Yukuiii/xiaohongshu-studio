@@ -1,15 +1,13 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
-
-	"github.com/xpzouying/xiaohongshu-mcp/cookies"
+	"time"
 )
 
 var (
@@ -58,44 +56,40 @@ type settingsUpdate struct {
 
 type settingsStore struct {
 	mu   sync.RWMutex
-	path string
+	db   *sql.DB
 	data modelSettings
 }
 
-func defaultSettingsPath() string {
-	if path := os.Getenv("XHS_SETTINGS_PATH"); path != "" {
-		return path
-	}
-	return filepath.Join(filepath.Dir(cookies.GetCookiesFilePath()), ".xhs-settings.json")
-}
-
-// openSettingsStore 只在生产装配时调用，测试自行指定临时路径。
-func openSettingsStore(path string) (*settingsStore, error) {
-	if path == "" {
+// openSettingsStore 从 SQLite 读取模型配置；没有配置行时返回空配置。
+func openSettingsStore(database *sql.DB) (*settingsStore, error) {
+	if database == nil {
 		return nil, errSettingsUnavailable
 	}
-	store := &settingsStore{path: path}
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	store := &settingsStore{db: database}
+	var (
+		initialized int
+		text        LLMConfig
+		image       LLMConfig
+	)
+	err := database.QueryRow(
+		`SELECT initialized, text_base_url, text_model, text_api_key,
+		 image_base_url, image_model, image_api_key FROM settings WHERE id = 1`,
+	).Scan(
+		&initialized, &text.BaseURL, &text.Model, &text.APIKey,
+		&image.BaseURL, &image.Model, &image.APIKey,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
 		return store, nil
 	}
 	if err != nil {
-		return nil, errors.New("无法读取模型配置文件")
+		return nil, errors.New("无法读取模型配置")
 	}
-	var saved struct {
-		Initialized *bool      `json:"initialized"`
-		Text        *LLMConfig `json:"text"`
-		Image       *LLMConfig `json:"image"`
+	text, textErr := normalizeSettingsConfig(text)
+	image, imageErr := normalizeSettingsConfig(image)
+	if textErr != nil || imageErr != nil || (initialized == 0 && (!text.empty() || !image.empty())) {
+		return nil, errors.New("模型配置数据无效，请检查数据库")
 	}
-	if json.Unmarshal(data, &saved) != nil || saved.Initialized == nil || saved.Text == nil || saved.Image == nil {
-		return nil, errors.New("模型配置文件无效，请检查文件")
-	}
-	text, textErr := normalizeSettingsConfig(*saved.Text)
-	image, imageErr := normalizeSettingsConfig(*saved.Image)
-	if textErr != nil || imageErr != nil || (!*saved.Initialized && (!text.empty() || !image.empty())) {
-		return nil, errors.New("模型配置文件无效，请检查文件")
-	}
-	store.data = modelSettings{Initialized: *saved.Initialized, Text: text, Image: image}
+	store.data = modelSettings{Initialized: initialized != 0, Text: text, Image: image}
 	return store, nil
 }
 
@@ -183,30 +177,28 @@ func (s *settingsStore) clear() (modelSettings, error) {
 }
 
 func (s *settingsStore) saveLocked(next modelSettings) (modelSettings, error) {
-	data, err := json.Marshal(next)
+	initialized := 0
+	if next.Initialized {
+		initialized = 1
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO settings (
+			id, initialized, text_base_url, text_model, text_api_key,
+			image_base_url, image_model, image_api_key, updated_at
+		) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			initialized = excluded.initialized,
+			text_base_url = excluded.text_base_url,
+			text_model = excluded.text_model,
+			text_api_key = excluded.text_api_key,
+			image_base_url = excluded.image_base_url,
+			image_model = excluded.image_model,
+			image_api_key = excluded.image_api_key,
+			updated_at = excluded.updated_at`,
+		initialized, next.Text.BaseURL, next.Text.Model, next.Text.APIKey,
+		next.Image.BaseURL, next.Image.Model, next.Image.APIKey, time.Now().UnixMilli(),
+	)
 	if err != nil {
-		return modelSettings{}, errSettingsUnavailable
-	}
-	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return modelSettings{}, errSettingsUnavailable
-	}
-	file, err := os.CreateTemp(dir, ".xhs-settings-*.tmp")
-	if err != nil {
-		return modelSettings{}, errSettingsUnavailable
-	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-	if _, err := file.Write(data); err != nil {
-		return modelSettings{}, errSettingsUnavailable
-	}
-	if err := file.Sync(); err != nil {
-		return modelSettings{}, errSettingsUnavailable
-	}
-	if err := file.Close(); err != nil {
-		return modelSettings{}, errSettingsUnavailable
-	}
-	if err := os.Rename(file.Name(), s.path); err != nil {
 		return modelSettings{}, errSettingsUnavailable
 	}
 	s.data = next
