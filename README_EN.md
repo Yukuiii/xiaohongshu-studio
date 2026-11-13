@@ -19,73 +19,25 @@ A self-hosted workspace for creating Xiaohongshu image posts. Research topics, s
 
 ### Docker deployment (recommended)
 
-Install and start Docker, then run the published image directly; no repository checkout is required:
+Install and start Docker, then run:
 
 ```bash
 docker run -d \
-  --tty \
   --name xiaohongshu-studio \
-  --hostname xiaohongshu-studio \
-  --platform linux/amd64 \
   --restart unless-stopped \
   --stop-timeout 60 \
   --shm-size=1g \
   -p 127.0.0.1:18060:18060 \
   -v "$PWD/xiaohongshu-studio-data:/app/data" \
   -v "$PWD/xiaohongshu-studio-data/uploads:/tmp/xiaohongshu_images" \
-  -e COOKIES_PATH=/app/data/cookies.json \
-  -e XHS_ACCOUNTS_DIR=/app/data/accounts \
-  -e XHS_DB_PATH=/app/data/studio.db \
-  -e HOME=/app/data/home \
-  -e XDG_CONFIG_HOME=/app/data/config \
-  --cap-drop ALL \
-  --cap-add DAC_OVERRIDE \
-  --security-opt no-new-privileges:true \
   ghcr.io/yukuiii/xiaohongshu-studio:latest
 ```
 
-Open **http://127.0.0.1:18060/** once the service starts.
+Open **http://127.0.0.1:18060/**. Data is stored in `xiaohongshu-studio-data/` in the current directory; replace the final `:latest` with `:v0.1.0` to pin a release. See the [Docker guide](./docker/README.md) for access tokens, proxies, media directories, and other configuration.
 
-Data is stored in `xiaohongshu-studio-data/` in the current directory; run from the same directory next time, or replace both `-v` paths with fixed absolute paths. To pin a release, replace the final `:latest` with `:v0.1.0`. To use existing media, append `-v /absolute/path/images:/app/images:ro`; for an API token, append `-e AUTH_TOKEN=...` and enter the same value in the workspace; for a proxy, append `-e XHS_PROXY=...`. To update, run `docker pull ghcr.io/yukuiii/xiaohongshu-studio:latest`, then `docker rm -f xiaohongshu-studio` and rerun the command above; the data directory is preserved.
+The image includes the workspace, Chromium, and the noVNC sign-in desktop; the host does not need Go, Node.js, or a browser. The image targets `linux/amd64`; Apple Silicon requires Docker's amd64 emulation support.
 
-A single container includes the workspace, Go service, Chromium, and the noVNC sign-in desktop. The host does not need Go, Node.js, or a browser installation for the service. The image is large, so the first pull depends on your network.
-
-To build from the current source:
-
-```bash
-git clone https://github.com/Yukuiii/xiaohongshu-studio.git
-cd xiaohongshu-studio/docker
-./up.sh
-```
-
-`up.sh` tags the image with the current commit's 12-character SHA. Uncommitted changes to tracked files add a `-dirty` suffix. For example:
-
-```text
-ghcr.io/yukuiii/xiaohongshu-studio:15156310500a
-```
-
-The container image currently targets `linux/amd64`; Apple Silicon requires Docker's amd64 emulation support. See the [Docker guide](./docker/README.md) for data directories, proxies, download mirrors, and remote deployment.
-
-### Run from source
-
-Install **Go 1.27.4** and **Node.js 24**. The bundled browser supports macOS ARM64, Linux AMD64, and Windows AMD64. Native sign-in on Linux also needs Chromium runtime dependencies and a desktop environment. Run these commands from the project root:
-
-```bash
-npm --prefix web ci
-npm --prefix web run build
-go run .
-```
-
-Open **http://127.0.0.1:18060/**. The first launch downloads the bundled Chromium browser. On macOS and Windows, sign-in opens a local window on the computer running the service. Use Docker to operate the sign-in browser inside the workspace.
-
-To build an executable:
-
-```bash
-go build -o xiaohongshu-studio .
-./xiaohongshu-studio
-```
-
-Go embeds `web/dist/`, so build the frontend before compiling the backend. The resulting executable does not need Node.js at runtime. See the [Windows setup guide](./docs/windows_guide.md) for platform-specific commands and prerequisites.
+For running from source and development, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## First use
 
@@ -122,17 +74,17 @@ Signing in again uses a candidate browser profile. The application activates it 
 
 ## Configuration and access
 
-For Docker, set these variables in `docker/.env`, then run `docker compose up -d` (published image) or `./up.sh` (source build) from `docker/`:
+When running the image directly, pass these with `-e`/`-p`/`-v`; with Compose, set them in `docker/.env`.
 
-| Variable | Purpose | Default |
+| Option | Purpose | Default |
 | --- | --- | --- |
-| `AUTH_TOKEN` | Service API access token | Token authentication disabled when unset |
-| `XHS_WEB_PORT` | Port mapped to the host | `18060`, bound to `127.0.0.1` |
-| `XHS_PROXY` | Proxy for the Xiaohongshu browser; supports HTTP, HTTPS, and SOCKS5 | No proxy |
-| `XHS_DATA_DIR` | Persistent data directory on the host | `docker/data/` |
-| `XHS_MEDIA_DIR` | Read-only media directory mounted at `/app/images/` | `docker/images/` |
+| `-e AUTH_TOKEN=...` | Service API access token | Token authentication disabled when unset |
+| `-p 127.0.0.1:<port>:18060` | Port mapped to the host | `18060` |
+| `-e XHS_PROXY=...` | Proxy for the Xiaohongshu browser; supports HTTP, HTTPS, and SOCKS5 | No proxy |
+| `-v <dir>:/app/data` | Persistent data directory | `xiaohongshu-studio-data/` in the current directory |
+| `-v <dir>:/app/images:ro` | Existing media directory | Optional |
 
-When `AUTH_TOKEN` is set, enter the same token in Settings. HTTP clients send `Authorization: Bearer <token>`. This token is separate from model API keys and grants access to the entire workspace and all accounts. Use `X-XHS-Account-ID` to select an account when multiple accounts exist; it can be omitted when there is exactly one active account.
+When `AUTH_TOKEN` is set, enter the same token in Settings. It is separate from model API keys and grants access to the entire workspace and all accounts. See the [HTTP API](./docs/API.md) for API usage.
 
 Publication uses Web Locks to coordinate tabs for the same account. Use a supporting browser over **HTTPS or localhost / a loopback address**. Publication protection depends on the current browser's site storage. For a remote server, forward the service to your computer through SSH:
 
@@ -146,12 +98,12 @@ Then open **http://127.0.0.1:18060/**. When using a reverse proxy, keep the page
 
 | Data | Docker deployment | Running from source |
 | --- | --- | --- |
-| Accounts, complete browser profiles, and downloads | `docker/data/accounts/` | `XHS_ACCOUNTS_DIR`; defaults to `.xhs-accounts/` beside the legacy Cookie file |
-| Account metadata, model settings, drafts, and publication protection | `docker/data/studio.db` (SQLite) | `XHS_DB_PATH`; defaults to `studio.db` beside the accounts directory |
-| Uploaded and generated images | `docker/data/uploads/`, separated by account | `xiaohongshu_images/web/<account-id>/` under the system temporary directory |
+| Accounts, complete browser profiles, and downloads | `xiaohongshu-studio-data/accounts/` | `XHS_ACCOUNTS_DIR`; defaults to `.xhs-accounts/` beside the legacy Cookie file |
+| Account metadata, model settings, drafts, and publication protection | `xiaohongshu-studio-data/studio.db` (SQLite) | `XHS_DB_PATH`; defaults to `studio.db` beside the accounts directory |
+| Uploaded and generated images | `xiaohongshu-studio-data/uploads/`, separated by account | `xiaohongshu_images/web/<account-id>/` under the system temporary directory |
 | Service access token | The visiting browser's localStorage | Same |
 
-Docker paths above assume the default configuration. Stop the service before backing up the entire `docker/data/` directory or your custom data directory, which includes model keys and sign-in credentials. To back up SQLite while the service is running, use `VACUUM INTO`; otherwise stop the service and copy the database and WAL files. The access token remains browser-only and must be retained separately.
+Direct runs store data in `xiaohongshu-studio-data/`; Compose uses `docker/data/`. Stop the service before backing up the entire data directory, which includes model keys and sign-in credentials. To back up SQLite while the service is running, use `VACUUM INTO`; otherwise stop the service and copy the database and WAL files. The access token remains browser-only and must be retained separately.
 
 Each account keeps a complete Chromium profile. When a browser closes normally and when the service starts, rebuildable caches such as Cache, Code Cache, and GPU/Shader caches are removed. Cookies, Local Storage, IndexedDB, Service Worker data, and browser preferences are retained, so the sign-in state survives pruning.
 
@@ -163,34 +115,7 @@ Reset browser data (重置浏览器数据) clears an account's site data while r
 
 This version no longer reads legacy `state.json`, `account.json`, `settings.json`, or browser localStorage drafts. Upgrading requires adding accounts, signing in again, and configuring models.
 
-On first initialization, deployments with legacy Cookie files migrate them into the default account. Subsequent sessions use complete browser profiles. See the [Docker guide](./docker/README.md) for migration and offline sign-in maintenance.
-
-## Local development
-
-The backend uses Go, Gin, and go-rod; the frontend uses React 19 and Vite 8. Install dependencies and build the frontend once using the source setup commands, then run these in separate terminals:
-
-```bash
-# Terminal one: Go service
-go run .
-```
-
-```bash
-# Terminal two: frontend hot updates
-npm --prefix web run dev
-```
-
-Open **http://127.0.0.1:5173/web/** for development. Vite proxies `/api`, `/desktop` (including WebSocket), and `/health` to the Go service on port `18060`. Rebuild `web/dist/` and restart Go to update the production page after frontend changes.
-
-Common checks:
-
-```bash
-npm --prefix web test
-npm --prefix web run build
-go vet ./...
-go test ./...
-```
-
-See the [contributing guide](./CONTRIBUTING.md) for more details. Releases use semantic version tags such as `vX.Y.Z`; pushing a version tag triggers Release and Docker image publication.
+On first initialization, deployments with legacy Cookie files migrate them into the default account. Subsequent sessions use complete browser profiles. See the [Docker guide](./docker/README.md) for migration details.
 
 ## Troubleshooting
 

@@ -19,73 +19,25 @@
 
 ### Docker 部署（推荐）
 
-安装并启动 Docker，然后直接运行发布镜像，不需要 clone 仓库：
+安装并启动 Docker，然后运行：
 
 ```bash
 docker run -d \
-  --tty \
   --name xiaohongshu-studio \
-  --hostname xiaohongshu-studio \
-  --platform linux/amd64 \
   --restart unless-stopped \
   --stop-timeout 60 \
   --shm-size=1g \
   -p 127.0.0.1:18060:18060 \
   -v "$PWD/xiaohongshu-studio-data:/app/data" \
   -v "$PWD/xiaohongshu-studio-data/uploads:/tmp/xiaohongshu_images" \
-  -e COOKIES_PATH=/app/data/cookies.json \
-  -e XHS_ACCOUNTS_DIR=/app/data/accounts \
-  -e XHS_DB_PATH=/app/data/studio.db \
-  -e HOME=/app/data/home \
-  -e XDG_CONFIG_HOME=/app/data/config \
-  --cap-drop ALL \
-  --cap-add DAC_OVERRIDE \
-  --security-opt no-new-privileges:true \
   ghcr.io/yukuiii/xiaohongshu-studio:latest
 ```
 
-启动后打开 **http://127.0.0.1:18060/**。
+打开 **http://127.0.0.1:18060/**。数据保存在当前目录的 `xiaohongshu-studio-data/`；固定版本时把 `:latest` 换成 `:v0.1.0`。访问令牌、代理、素材目录等配置见 [Docker 文档](./docker/README.md)。
 
-数据保存在当前目录的 `xiaohongshu-studio-data/`，后续请在同一目录运行，或把两个 `-v` 路径改成固定的绝对路径。固定发布版本时，把最后的 `:latest` 换成 `:v0.1.0`。如需使用已有图片素材，追加 `-v /绝对路径/images:/app/images:ro`；如需 API 令牌，追加 `-e AUTH_TOKEN=...` 并在工作台填写相同值；如需代理，追加 `-e XHS_PROXY=...`。更新镜像时执行 `docker pull ghcr.io/yukuiii/xiaohongshu-studio:latest`，再 `docker rm -f xiaohongshu-studio` 并重新执行上面的 `docker run`；数据目录会保留。
+镜像包含工作台、Chromium 和 noVNC 登录桌面，宿主机无需安装 Go、Node.js 或浏览器。当前镜像为 `linux/amd64`，Apple Silicon 需要 Docker 的 amd64 模拟支持。
 
-一个容器内包含工作台、Go 服务、Chromium 和 noVNC 登录桌面，宿主机无需安装 Go、Node.js 或浏览器。镜像较大，首次拉取耗时取决于网络。
-
-需要从当前源码构建镜像时：
-
-```bash
-git clone https://github.com/Yukuiii/xiaohongshu-studio.git
-cd xiaohongshu-studio/docker
-./up.sh
-```
-
-`up.sh` 会以当前提交的 12 位短 SHA 作为标签；存在未提交的已跟踪改动时追加 `-dirty`。例如：
-
-```text
-ghcr.io/yukuiii/xiaohongshu-studio:15156310500a
-```
-
-当前容器镜像使用 `linux/amd64`，Apple Silicon 需要 Docker 的 amd64 模拟支持。数据目录、代理、下载镜像源及远程部署方式见 [Docker 部署文档](./docker/README.md)。
-
-### 从源码运行
-
-准备 **Go 1.27.4** 和 **Node.js 24**。内置浏览器支持 macOS ARM64、Linux AMD64 和 Windows AMD64；Linux 原生扫码登录还需要浏览器运行依赖和桌面环境。在项目根目录执行：
-
-```bash
-npm --prefix web ci
-npm --prefix web run build
-go run .
-```
-
-打开 **http://127.0.0.1:18060/**。首次运行会下载内置 Chromium；macOS / Windows 的登录窗口会在运行服务的电脑上打开。需要在工作台内操作登录浏览器时，使用 Docker 部署。
-
-构建可执行文件：
-
-```bash
-go build -o xiaohongshu-studio .
-./xiaohongshu-studio
-```
-
-Go 会将 `web/dist/` 嵌入程序，编译前需要先构建前端；生成的可执行文件运行时无需 Node.js。Windows 命令及环境准备见 [Windows 安装指南](./docs/windows_guide.md)。
+源码运行与开发见 [贡献指南](./CONTRIBUTING.md)。
 
 ## 首次使用
 
@@ -122,17 +74,17 @@ Docker 中点击登录会打开接近全屏的 noVNC 弹窗，展示真实小红
 
 ## 配置与访问
 
-Docker 部署可在 `docker/.env` 中设置以下变量，保存后在 `docker/` 目录重新执行 `docker compose up -d`（使用发布镜像）或 `./up.sh`（源码构建）：
+直接运行镜像时用 `-e`/`-p`/`-v` 传入配置；使用 Compose 时写入 `docker/.env`。
 
-| 变量 | 用途 | 默认值 |
+| 配置 | 用途 | 默认值 |
 | --- | --- | --- |
-| `AUTH_TOKEN` | 工作台 API 访问令牌 | 未设置时不启用令牌鉴权 |
-| `XHS_WEB_PORT` | 映射到宿主机的端口 | `18060`，绑定 `127.0.0.1` |
-| `XHS_PROXY` | 小红书浏览器访问代理，支持 HTTP、HTTPS、SOCKS5 | 不使用代理 |
-| `XHS_DATA_DIR` | 宿主机持久化数据目录 | `docker/data/` |
-| `XHS_MEDIA_DIR` | 挂载到容器 `/app/images/` 的只读素材目录 | `docker/images/` |
+| `-e AUTH_TOKEN=...` | 工作台 API 访问令牌 | 未设置时不启用令牌鉴权 |
+| `-p 127.0.0.1:<端口>:18060` | 映射到宿主机的端口 | `18060` |
+| `-e XHS_PROXY=...` | 小红书浏览器访问代理，支持 HTTP、HTTPS、SOCKS5 | 不使用代理 |
+| `-v <目录>:/app/data` | 持久化数据目录 | 当前目录的 `xiaohongshu-studio-data/` |
+| `-v <目录>:/app/images:ro` | 已有图片素材目录 | 可选 |
 
-设置 `AUTH_TOKEN` 后，在工作台「设置」中填写相同令牌；HTTP 客户端使用 `Authorization: Bearer <token>`。它与模型 API Key 分开配置，授权访问整个工作台及所有账号。多账号调用时，通过 `X-XHS-Account-ID` 指定账号；只有一个有效账号时可省略。
+设置 `AUTH_TOKEN` 后，在工作台「设置」中填写相同令牌；它与模型 API Key 分开配置，授权访问整个工作台及所有账号。HTTP API 见 [API 文档](./docs/API.md)。
 
 页面发布使用 Web Locks 协调同账号的多个标签页，需要支持该功能的浏览器，并通过 **HTTPS 或 localhost / 回环地址**访问。发布保护依赖当前浏览器的站点存储。远程服务器可以通过 SSH 转发到本机：
 
@@ -146,12 +98,12 @@ ssh -L 18060:127.0.0.1:18060 user@server
 
 | 数据 | Docker 部署 | 源码运行 |
 | --- | --- | --- |
-| 账号、完整浏览器数据及下载文件 | `docker/data/accounts/` | `XHS_ACCOUNTS_DIR`，默认位于旧 Cookie 文件同目录的 `.xhs-accounts/` |
-| 账号元数据、模型配置、草稿及发布防重记录 | `docker/data/studio.db`（SQLite） | `XHS_DB_PATH`，默认位于账号目录同级的 `studio.db` |
-| 上传及生成的图片 | `docker/data/uploads/`，按账号保存 | 系统临时目录下的 `xiaohongshu_images/web/<account-id>/` |
+| 账号、完整浏览器数据及下载文件 | `xiaohongshu-studio-data/accounts/` | `XHS_ACCOUNTS_DIR`，默认位于旧 Cookie 文件同目录的 `.xhs-accounts/` |
+| 账号元数据、模型配置、草稿及发布防重记录 | `xiaohongshu-studio-data/studio.db`（SQLite） | `XHS_DB_PATH`，默认位于账号目录同级的 `studio.db` |
+| 上传及生成的图片 | `xiaohongshu-studio-data/uploads/`，按账号保存 | 系统临时目录下的 `xiaohongshu_images/web/<account-id>/` |
 | 工作台访问令牌 | 访问工作台的浏览器 localStorage | 同左 |
 
-表中 Docker 路径以默认配置为例。备份前先停止服务，并保存完整的 `docker/data/` 或自定义数据目录，其中包含模型密钥和登录凭据。服务运行中备份 SQLite 时使用 `VACUUM INTO`，或先停止服务再复制数据库和 WAL 文件。访问令牌仍只保存在浏览器，需要单独保留。
+直接运行时数据在 `xiaohongshu-studio-data/`，Compose 部署在 `docker/data/`。备份前先停止服务，并保存完整的数据目录，其中包含模型密钥和登录凭据。服务运行中备份 SQLite 时使用 `VACUUM INTO`，或先停止服务再复制数据库和 WAL 文件。访问令牌仍只保存在浏览器，需要单独保留。
 
 每个账号使用完整 Chromium profile；正常关闭浏览器和启动服务时会删除 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留 Cookie、Local Storage、IndexedDB、Service Worker 和浏览器配置，因此清理后仍能保持登录态。
 
@@ -162,33 +114,6 @@ ssh -L 18060:127.0.0.1:18060 user@server
 「重置浏览器数据」清空该账号的站点数据，保留账号身份绑定、指纹、服务端草稿和素材；「移除账号」会清理该账号的浏览器数据、下载、托管图片以及服务端的草稿和发布记录。
 
 此版本不再读取旧的 `state.json`、`account.json`、`settings.json` 和浏览器 localStorage 草稿。升级到该版本需要重新添加账号、扫码登录并配置模型。
-
-## 本地开发
-
-后端使用 Go、Gin 和 go-rod，前端使用 React 19 和 Vite 8。先按源码运行步骤安装依赖并构建一次前端，再在两个终端分别运行：
-
-```bash
-# 终端一：Go 服务
-go run .
-```
-
-```bash
-# 终端二：前端热更新
-npm --prefix web run dev
-```
-
-开发页面为 **http://127.0.0.1:5173/web/**。Vite 将 `/api`、`/desktop`（含 WebSocket）和 `/health` 代理到 Go 服务的 `18060` 端口。修改前端后，重新构建 `web/dist/` 并重启 Go 服务，才能更新生产页面。
-
-常用检查：
-
-```bash
-npm --prefix web test
-npm --prefix web run build
-go vet ./...
-go test ./...
-```
-
-更多开发说明见 [贡献指南](./CONTRIBUTING.md)。发版使用语义化标签 `vX.Y.Z`，推送标签后触发 Release 和 Docker 镜像发布。
 
 ## 常见问题
 
