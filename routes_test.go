@@ -110,6 +110,7 @@ func TestProtectedRoutesRequireBearerToken(t *testing.T) {
 		{http.MethodGet, "/api/v1/feeds/search"},
 		{http.MethodPost, "/api/v1/feeds/search"},
 		{http.MethodPost, "/api/v1/feeds/detail"},
+		{http.MethodPost, "/api/v1/feeds/bodies"},
 		{http.MethodPost, "/api/v1/user/profile"},
 		{http.MethodPost, "/api/v1/feeds/comment"},
 		{http.MethodPost, "/api/v1/feeds/comment/reply"},

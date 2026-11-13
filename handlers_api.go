@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/xpzouying/xiaohongshu-mcp/cookies"
 	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
@@ -199,6 +200,45 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
 	}
 
 	respondSuccess(c, result, "获取Feed详情成功")
+}
+
+// getFeedBodiesHandler 批量读取参考笔记的基础正文，供写稿使用。
+func (s *AppServer) getFeedBodiesHandler(c *gin.Context) {
+	var req FeedBodiesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
+			"请求参数错误", err)
+		return
+	}
+	if len(req.Items) == 0 || len(req.Items) > 5 {
+		respondError(c, http.StatusBadRequest, "INVALID_SOURCES",
+			"每次请选择 1 至 5 篇参考笔记", nil)
+		return
+	}
+
+	seen := make(map[string]bool, len(req.Items))
+	items := make([]FeedBodyRequest, 0, len(req.Items))
+	for _, item := range req.Items {
+		item.FeedID = strings.TrimSpace(item.FeedID)
+		item.XsecToken = strings.TrimSpace(item.XsecToken)
+		if err := xiaohongshu.ValidateFeedRef(item.FeedID, item.XsecToken); err != nil {
+			respondError(c, http.StatusBadRequest, "INVALID_SOURCES", err.Error(), nil)
+			return
+		}
+		if seen[item.FeedID] {
+			continue
+		}
+		seen[item.FeedID] = true
+		items = append(items, item)
+	}
+
+	results, err := s.service(c).FetchFeedBodies(c.Request.Context(), items)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "GET_FEED_BODIES_FAILED",
+			"读取参考正文失败", err)
+		return
+	}
+	respondSuccess(c, gin.H{"items": results}, "参考正文已读取")
 }
 
 // userProfileHandler 用户主页

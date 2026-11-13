@@ -144,13 +144,16 @@ describe("搜索与写稿步骤", () => {
               })),
             }),
           );
-        if (path === "/api/v1/feeds/detail") {
+        if (path === "/api/v1/feeds/bodies") {
           const body = JSON.parse(options.body);
           return Promise.resolve(
             ok({
-              data: {
-                note: { title: body.feed_id, desc: `真实正文 ${body.feed_id}` },
-              },
+              items: body.items.map((item) => ({
+                feed_id: item.feed_id,
+                title: `标题 ${item.feed_id}`,
+                content: `真实正文 ${item.feed_id}`,
+                author: "参考作者",
+              })),
             }),
           );
         }
@@ -188,7 +191,7 @@ describe("搜索与写稿步骤", () => {
     expect(
       fetch.mock.calls.some(
         ([path]) =>
-          path === "/api/v1/feeds/detail" || path === "/api/v1/ai/compose",
+          path === "/api/v1/feeds/bodies" || path === "/api/v1/ai/compose",
       ),
     ).toBe(false);
     expect(result.current.sources).toHaveLength(3);
@@ -200,7 +203,7 @@ describe("搜索与写稿步骤", () => {
     expect(result.current.status.message).toContain("撰写文案");
   });
 
-  it("单独写稿只读取已选参考，并使用真实正文生成", async () => {
+  it("单独写稿只批量读取已选参考，并使用真实正文生成", async () => {
     const { result, fetch, requireLogin } = await researchFixture();
     await act(async () => result.current.research(true, requireLogin));
     act(() => {
@@ -208,16 +211,23 @@ describe("搜索与写稿步骤", () => {
       result.current.selectSource("ref-3", false);
     });
     await act(async () => result.current.research(false, requireLogin));
-    const details = fetch.mock.calls.filter(
-      ([path]) => path === "/api/v1/feeds/detail",
+    const bodies = fetch.mock.calls.filter(
+      ([path]) => path === "/api/v1/feeds/bodies",
     );
-    expect(details).toHaveLength(1);
-    expect(JSON.parse(details[0][1].body).feed_id).toBe("ref-1");
+    expect(bodies).toHaveLength(1);
+    expect(JSON.parse(bodies[0][1].body).items).toEqual([
+      { feed_id: "ref-1", xsec_token: "token-1" },
+    ]);
     const compose = fetch.mock.calls.find(
       ([path]) => path === "/api/v1/ai/compose",
     );
     expect(JSON.parse(compose[1].body).sources).toEqual([
-      expect.objectContaining({ id: "ref-1", content: "真实正文 ref-1" }),
+      expect.objectContaining({
+        id: "ref-1",
+        title: "标题 ref-1",
+        content: "真实正文 ref-1",
+        author: "参考作者",
+      }),
     ]);
     expect(result.current.draft).toMatchObject({
       title: "生成的标题",
@@ -227,16 +237,73 @@ describe("搜索与写稿步骤", () => {
     });
   });
 
+  it("已有正文的参考直接复用，不重复发起读取请求", async () => {
+    const { result, fetch, requireLogin } = await researchFixture();
+    await act(async () => result.current.research(false, requireLogin));
+    expect(
+      fetch.mock.calls.some(([path]) => path === "/api/v1/feeds/bodies"),
+    ).toBe(false);
+    const compose = fetch.mock.calls.find(
+      ([path]) => path === "/api/v1/ai/compose",
+    );
+    expect(JSON.parse(compose[1].body).sources).toEqual([
+      expect.objectContaining({ id: "old", content: "已有参考正文" }),
+    ]);
+  });
+
+  it("部分参考读取失败时跳过该篇并继续写稿", async () => {
+    const { result, fetch, requireLogin } = await researchFixture();
+    await act(async () => result.current.research(true, requireLogin));
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) => {
+      if (path !== "/api/v1/feeds/bodies") return original(path, options);
+      const body = JSON.parse(options.body);
+      return Promise.resolve(
+        ok({
+          items: body.items.map((item) =>
+            item.feed_id === "ref-2"
+              ? { feed_id: item.feed_id, error: "该笔记没有可用正文" }
+              : {
+                  feed_id: item.feed_id,
+                  title: `标题 ${item.feed_id}`,
+                  content: `真实正文 ${item.feed_id}`,
+                  author: "参考作者",
+                },
+          ),
+        }),
+      );
+    });
+    await act(async () => result.current.research(false, requireLogin));
+    const compose = fetch.mock.calls.find(
+      ([path]) => path === "/api/v1/ai/compose",
+    );
+    const sent = JSON.parse(compose[1].body).sources.map((item) => item.id);
+    expect(sent).toEqual(["ref-1", "ref-3"]);
+    const failed = result.current.sources.find((item) => item.id === "ref-2");
+    expect(failed).toMatchObject({
+      selected: false,
+      error: "该笔记没有可用正文",
+    });
+    expect(result.current.status.message).toContain("1 篇读取失败");
+  });
+
   it("所选正文全部读取失败时保留旧稿，不调用写稿模型", async () => {
     const { result, fetch, requireLogin } = await researchFixture();
     await act(async () => result.current.research(true, requireLogin));
     const previous = { ...result.current.draft };
     const original = fetch.getMockImplementation();
-    fetch.mockImplementation((path, options) =>
-      path === "/api/v1/feeds/detail"
-        ? Promise.resolve(ok({ data: { note: { desc: "" } } }))
-        : original(path, options),
-    );
+    fetch.mockImplementation((path, options) => {
+      if (path !== "/api/v1/feeds/bodies") return original(path, options);
+      const body = JSON.parse(options.body);
+      return Promise.resolve(
+        ok({
+          items: body.items.map((item) => ({
+            feed_id: item.feed_id,
+            error: "该笔记没有可用正文",
+          })),
+        }),
+      );
+    });
     await act(async () => result.current.research(false, requireLogin));
     expect(
       fetch.mock.calls.some(([path]) => path === "/api/v1/ai/compose"),

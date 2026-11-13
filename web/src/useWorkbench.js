@@ -731,47 +731,49 @@ export function useWorkbench() {
     const selected = sources.filter((source) => source.selected);
     if (!selected.length || selected.length > 5)
       throw new Error("请选择 1–5 篇参考笔记。");
-    const complete = [];
     let failures = 0;
-    for (const source of selected) {
+    const missing = selected.filter((source) => !source.content);
+    if (missing.length) {
+      notice(`正在读取 ${missing.length} 篇参考正文…`, "busy");
+      const data = await accountAPI(scope, "/feeds/bodies", {
+        method: "POST",
+        signal,
+        body: {
+          items: missing.map((source) => ({
+            feed_id: source.id,
+            xsec_token: source.token,
+          })),
+        },
+      });
+      ensureCurrent(scope);
       signal.throwIfAborted();
-      if (!source.content) {
-        notice(
-          `正在读取参考正文（${complete.length + failures + 1} / ${selected.length}）…`,
-          "busy",
-        );
-        try {
-          const data = await accountAPI(scope, "/feeds/detail", {
-            method: "POST",
-            body: {
-              feed_id: source.id,
-              xsec_token: source.token,
-              load_all_comments: false,
-            },
-            signal,
-          });
-          ensureCurrent(scope);
-          const note = data?.data?.note;
-          if (typeof note?.desc !== "string" || !note.desc.trim())
-            throw new Error("该笔记没有可用正文，已跳过。");
-          source.content = note.desc;
-          if (typeof note.title === "string" && note.title.trim())
-            source.title = note.title;
-          source.author =
-            note.user?.nickname || note.user?.nickName || source.author;
+      if (!Array.isArray(data?.items))
+        throw new Error("服务未返回参考正文，请重试。原有草稿已保留。");
+      const fetched = new Map(
+        data.items
+          .filter((item) => item && typeof item.feed_id === "string")
+          .map((item) => [item.feed_id, item]),
+      );
+      for (const source of missing) {
+        const item = fetched.get(source.id);
+        if (typeof item?.content === "string" && item.content.trim()) {
+          source.content = item.content;
+          if (typeof item.title === "string" && item.title.trim())
+            source.title = item.title;
+          if (typeof item.author === "string" && item.author.trim())
+            source.author = item.author;
           source.error = "";
-        } catch (error) {
-          if (error.name === "AbortError") throw error;
-          source.error = errorMessage(error);
+        } else {
+          source.error = item?.error || "未能读取正文，请更换参考资料。";
           source.selected = false;
           failures++;
         }
       }
-      if (source.content) complete.push(source);
       update({ sources: sources.map((item) => ({ ...item })) });
       saveDraft(scope);
     }
     signal.throwIfAborted();
+    const complete = selected.filter((source) => source.content);
     if (!complete.length)
       throw new Error(
         "所选笔记均未成功读取正文，未调用写稿模型。请更换参考资料后重试。原有草稿已保留。",

@@ -32,7 +32,10 @@ func newFakeAccountBrowser() *fakeAccountBrowser {
 	return b
 }
 func (b *fakeAccountBrowser) NewPage() *rod.Page { panic("测试不应启动页面") }
-func (b *fakeAccountBrowser) Alive() bool        { return b.alive.Load() }
+func (b *fakeAccountBrowser) Session(context.Context) (string, []*proto.NetworkCookie, error) {
+	return "test-agent", nil, nil
+}
+func (b *fakeAccountBrowser) Alive() bool { return b.alive.Load() }
 func (b *fakeAccountBrowser) Shutdown(context.Context) error {
 	b.alive.Store(false)
 	b.once.Do(func() { close(b.closed) })

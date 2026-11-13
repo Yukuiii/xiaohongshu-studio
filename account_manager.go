@@ -58,6 +58,7 @@ func accountFailure(err error) *accountError {
 
 type accountBrowser interface {
 	NewPage() *rod.Page
+	Session(context.Context) (string, []*proto.NetworkCookie, error)
 	Shutdown(context.Context) error
 	Alive() bool
 }

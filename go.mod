@@ -12,6 +12,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.11.1
 	github.com/ulikunitz/xz v0.5.15
+	golang.org/x/net v0.62.0
 )
 
 require (
@@ -45,7 +46,6 @@ require (
 	github.com/ysmood/leakless v0.9.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect

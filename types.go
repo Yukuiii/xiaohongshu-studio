@@ -49,6 +49,27 @@ type FeedDetailResponse struct {
 	Data   any    `json:"data"`
 }
 
+// FeedBodiesRequest 批量读取参考正文请求
+type FeedBodiesRequest struct {
+	Items []FeedBodyRequest `json:"items" binding:"required"`
+}
+
+// FeedBodyRequest 单篇参考正文请求
+type FeedBodyRequest struct {
+	FeedID    string `json:"feed_id" binding:"required"`
+	XsecToken string `json:"xsec_token" binding:"required"`
+}
+
+// FeedBodyResult 单篇参考正文结果；Error 只影响该篇。
+type FeedBodyResult struct {
+	FeedID  string `json:"feed_id"`
+	Title   string `json:"title,omitempty"`
+	Content string `json:"content,omitempty"`
+	Author  string `json:"author,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
 // PostCommentRequest 发表评论请求
 type PostCommentRequest struct {
 	FeedID    string `json:"feed_id" binding:"required"`

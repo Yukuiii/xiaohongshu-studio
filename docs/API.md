@@ -86,6 +86,7 @@ curl http://localhost:18060/api/v1/login/status \
 | GET | `/api/v1/feeds/list` | 获取 Feeds 列表 |
 | GET/POST | `/api/v1/feeds/search` | 搜索 Feeds |
 | POST | `/api/v1/feeds/detail` | 获取 Feed 详情 |
+| POST | `/api/v1/feeds/bodies` | 批量读取参考正文（写稿用，不含评论） |
 | POST | `/api/v1/user/profile` | 获取用户主页信息 |
 | GET | `/api/v1/user/me` | 获取当前登录用户信息 |
 | POST | `/api/v1/feeds/comment` | 发表评论 |
@@ -661,6 +662,61 @@ Content-Type: application/json
 - `comments.cursor`: 分页游标
 - `comments.hasMore`: 是否有更多评论
 ```
+
+#### 4.4 批量读取参考正文
+
+工作台写稿前使用当前账号的登录会话直接读取笔记 HTML，不渲染页面、不加载评论。单次最多 5 篇，服务端最多同时请求 3 篇；单篇失败只影响该篇。
+
+**请求**
+```
+POST /api/v1/feeds/bodies
+Content-Type: application/json
+```
+
+**请求体**
+```json
+{
+  "items": [
+    {
+      "feed_id": "6ae42c16000000002702ce2f",
+      "xsec_token": "AB_I0dH8h3NSH8-vFT8knGxz5iH6HYL_0Cv685Ge1DWmo="
+    }
+  ]
+}
+```
+
+**请求参数说明:**
+- `items` (array, required): 1–5 篇参考笔记，重复的 `feed_id` 只读取一次
+- `feed_id` (string, required): 笔记 ID，仅允许字母和数字
+- `xsec_token` (string, required): 搜索返回的访问凭证
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "feed_id": "6ae42c16000000002702ce2f",
+        "title": "笔记标题",
+        "content": "笔记正文",
+        "author": "作者昵称",
+        "url": "https://www.xiaohongshu.com/explore/6ae42c16000000002702ce2f?xsec_source=pc_search&xsec_token=..."
+      },
+      {
+        "feed_id": "另一个笔记ID",
+        "error": "该笔记没有可用正文"
+      }
+    ]
+  },
+  "message": "参考正文已读取"
+}
+```
+
+**说明:**
+- 返回顺序与请求一致；失败的条目只包含 `feed_id` 和 `error`。
+- 登录失效返回 `XHS_LOGIN_REQUIRED`，需要安全验证时返回对应的验证错误。
+- 需要评论或完整详情时仍使用 `/api/v1/feeds/detail`。
 
 ---
 
