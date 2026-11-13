@@ -87,15 +87,12 @@ jobs:
 
         # macOS ARM64 (Apple Silicon)
         CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o xiaohongshu-studio-darwin-arm64 .
-        CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o xiaohongshu-login-darwin-arm64 ./cmd/login
 
         # Windows x64
         CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o xiaohongshu-studio-windows-amd64.exe .
-        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o xiaohongshu-login-windows-amd64.exe ./cmd/login
 
         # Linux x64
         CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o xiaohongshu-studio-linux-amd64 .
-        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o xiaohongshu-login-linux-amd64 ./cmd/login
 
     - name: Generate changelog
       id: changelog
@@ -144,11 +141,6 @@ jobs:
           - **Windows x64**: `xiaohongshu-studio-windows-amd64.exe`
           - **Linux x64**: `xiaohongshu-studio-linux-amd64`
 
-          **登录维护工具（可选；日常使用网页扫码）：**
-          - **macOS Apple Silicon**: `xiaohongshu-login-darwin-arm64`
-          - **Windows x64**: `xiaohongshu-login-windows-amd64.exe`
-          - **Linux x64**: `xiaohongshu-login-linux-amd64`
-
           ### 🔧 使用方法
 
           ```bash
@@ -178,6 +170,3 @@ jobs:
           xiaohongshu-studio-darwin-arm64
           xiaohongshu-studio-windows-amd64.exe
           xiaohongshu-studio-linux-amd64
-          xiaohongshu-login-darwin-arm64
-          xiaohongshu-login-windows-amd64.exe
-          xiaohongshu-login-linux-amd64

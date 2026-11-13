@@ -40,8 +40,6 @@ go.work.sum
 # Build artifacts
 xiaohongshu-studio
 xiaohongshu-studio-*
-xiaohongshu-login
-xiaohongshu-login-*
 bin/
 web/node_modules/
 web/dist/

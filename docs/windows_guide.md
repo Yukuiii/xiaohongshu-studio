@@ -61,14 +61,7 @@ $env:AUTH_TOKEN = "替换为自己的服务访问令牌"
 
 账号元数据、模型配置、草稿和发布防重记录保存在服务端 SQLite 数据库；默认位于账号目录同级的 `studio.db`，可用 `XHS_DB_PATH` 指定，所有账号共用。API Key 不会从服务端返回浏览器；工作台访问令牌仍保存在当前浏览器，授权整个工作台，不限制访问者可操作的账号。草稿按账号保存在服务端，发布结果未知时的防重记录同样跨浏览器共享。每个账号仍使用独立 Chromium profile，浏览器正常退出时会清理可重建缓存。旧版 JSON 和浏览器 localStorage 草稿不会迁入新数据库。
 
-离线维护登录前停止服务，在使用相同环境变量的 PowerShell 中运行；将 `ACCOUNT_ID` 替换为账号页或 `GET /api/v1/accounts` 返回的 ID：
-
-```powershell
-$env:XHS_ACCOUNTS_DIR = "C:\xiaohongshu-data\accounts"
-go run ./cmd/login -account ACCOUNT_ID
-```
-
-仅有一个有效账号时可省略 `-account`；CLI 与服务使用同一个数据根进程锁，不能同时运行。若修改数据根，服务启动时也必须使用相同值。重置浏览器数据保留账号身份、seed、草稿和素材，移除账号则清理该账号的数据。跨机器或操作系统复制 profile 不保证会话继续有效。
+重置浏览器数据保留账号身份、seed、草稿和素材，移除账号则清理该账号的数据。跨机器或操作系统复制 profile 不保证会话继续有效。
 
 ## 常见问题
 

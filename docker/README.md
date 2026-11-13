@@ -93,7 +93,7 @@ BROWSER_DOWNLOAD_BASE=https://your-mirror.example/fingerprint-chromium/releases/
 
 登录弹窗接近全屏显示 noVNC，二维码较小时可切换「原始大小」，按原始像素查看，也可切回「适应窗口」。登录浏览器在容器桌面中以全屏方式运行，不提供浏览器窗口关闭按钮。关闭弹窗或按 Esc 仅收起画面，后台候选浏览器保留，可点击「继续登录」重新连接；请使用「结束登录窗口」结束会话。中文输入使用 **Ctrl+Space** 切换 Rime 简体拼音。未完成的登录会话最长保留 20 分钟，同一共享桌面仅允许一个登录窗口。真实身份与已有绑定一致、未重复绑定且候选 profile 正常关闭落盘后才保存成功，随后弹窗自动关闭。失败、结束或过期不替换原 profile；窗口关闭前先撤销票据和已有 WebSocket，旧 viewer 无法访问后续账号。切换账号按本页和每个请求固定，任务进行中禁止切换，不影响其他标签页。
 
-离线维护 CLI 使用同一数据根进程锁，运行 `go run ./cmd/login -account ACCOUNT_ID` 前须停止服务，并提供与服务相同的 `XHS_ACCOUNTS_DIR`；多个账号时必须明确选择。宿主机直接读取 Linux 容器 profile 不保证登录有效，应保持运行环境一致。`DELETE /api/v1/login/cookies` 只清除所选浏览器 Cookie；完整清空使用 `POST /api/v1/accounts/:id/reset-profile`，需要用户确认。
+`DELETE /api/v1/login/cookies` 只清除所选浏览器 Cookie；完整清空使用 `POST /api/v1/accounts/:id/reset-profile`，需要用户确认。
 
 ## 维护者：构建与发布
 
