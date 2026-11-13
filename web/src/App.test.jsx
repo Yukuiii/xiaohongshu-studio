@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -12,10 +13,21 @@ const A = {
   id: "A",
   name: "账号A",
   nickname: "作者A",
+  user_id: "user-A",
   browser_status: "stopped",
   busy: false,
+  is_logged_in: true,
+  login_checked_at: "2026-11-13T08:00:00Z",
 };
-const B = { id: "B", name: "账号B", browser_status: "stopped", busy: false };
+const expiredA = { ...A, is_logged_in: false };
+const B = {
+  id: "B",
+  name: "账号B",
+  browser_status: "stopped",
+  busy: false,
+  is_logged_in: false,
+  login_checked_at: null,
+};
 const ok = (data) => ({
   ok: true,
   status: 200,
@@ -53,6 +65,19 @@ function service(accounts = [A, B], mode = "native") {
     }
     if (url === "/api/v1/accounts" && options.method === "POST")
       return ok({ account: { id: "C", name: "新账号" } });
+    if (url.endsWith("/reset-profile")) {
+      const id = url.split("/").at(-2);
+      accounts = accounts.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              is_logged_in: false,
+              login_checked_at: A.login_checked_at,
+            }
+          : item,
+      );
+      return ok({ account: accounts.find((item) => item.id === id) });
+    }
     if (url === "/api/v1/accounts")
       return ok({ accounts, legacy_account_id: "A" });
     if (url.endsWith("/login/browser"))
@@ -69,12 +94,23 @@ function service(accounts = [A, B], mode = "native") {
         status: "waiting_scan",
         is_logged_in: false,
       });
-    if (url.endsWith("/login/status"))
+    if (url.endsWith("/login/status")) {
+      const id = options.headers["X-XHS-Account-ID"];
+      accounts = accounts.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              is_logged_in: false,
+              login_checked_at: A.login_checked_at,
+            }
+          : item,
+      );
       return ok({
-        account_id: options.headers["X-XHS-Account-ID"],
+        account_id: id,
         is_logged_in: false,
         status: "not_logged_in",
       });
+    }
     return ok({});
   });
   vi.stubGlobal("fetch", fetch);
@@ -85,7 +121,441 @@ function accountsPage() {
   history.replaceState(null, "", "/web/#accounts");
 }
 
+async function navigatePage(page) {
+  await act(async () => {
+    history.replaceState(null, "", `/web/#${page}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+}
+
+const deferred = () => {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+const listCalls = (fetch) =>
+  fetch.mock.calls.filter(([url]) => url === "/api/v1/accounts");
+
 describe("账号选择界面", () => {
+  it("已登录账号隐藏登录入口，加载和切换均不打开登录窗口", async () => {
+    accountsPage();
+    const fetch = service([A, B]);
+    render(<App />);
+    const row = await screen.findByRole("region", { name: "账号 账号A" });
+    expect(within(row).getByText(/已登录/)).toBeVisible();
+    expect(
+      within(row).queryByRole("button", { name: /^(重新登录|登录|继续登录)$/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "切换账号" }));
+    expect(
+      within(row).queryByRole("button", { name: "重新登录" }),
+    ).not.toBeInTheDocument();
+    expect(
+      fetch.mock.calls.some(([path]) => path.endsWith("/login/browser")),
+    ).toBe(false);
+  });
+
+  it("绑定账号状态未知时先检查，确认失效后才提供重新登录", async () => {
+    accountsPage();
+    const fetch = service([{ ...expiredA, login_checked_at: null }]);
+    render(<App />);
+    const row = await screen.findByRole("region", { name: "账号 账号A" });
+    expect(within(row).getByText(/登录状态待检查/)).toBeVisible();
+    expect(
+      within(row).queryByRole("button", { name: "重新登录" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "刷新状态" }));
+    fireEvent.click(
+      await within(row).findByRole("button", { name: "重新登录" }),
+    );
+    await screen.findByRole("dialog", { name: "扫码登录 · 账号A" });
+    expect(
+      fetch.mock.calls.filter(([path]) => path.endsWith("/login/status")),
+    ).toHaveLength(1);
+    expect(
+      fetch.mock.calls.filter(
+        ([path, options]) =>
+          path.endsWith("/login/browser") && options.method === "POST",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it.each([true, false])(
+    "检查异常不把已登录或未知账号当成失效（已登录：%s）",
+    async (loggedIn) => {
+      accountsPage();
+      const fetch = service([
+        loggedIn ? A : { ...expiredA, login_checked_at: null },
+      ]);
+      const original = fetch.getMockImplementation();
+      fetch.mockImplementation((path, options) =>
+        path.endsWith("/login/status")
+          ? Promise.resolve({
+              ok: false,
+              status: 503,
+              json: async () => ({ success: false, error: "检查暂时失败" }),
+            })
+          : original(path, options),
+      );
+      render(<App />);
+      const row = await screen.findByRole("region", { name: "账号 账号A" });
+      fireEvent.click(within(row).getByRole("button", { name: "刷新状态" }));
+      await screen.findByText("暂时无法检查登录状态，请稍后重试。");
+      expect(
+        within(row).queryByRole("button", { name: "重新登录" }),
+      ).not.toBeInTheDocument();
+      expect(
+        fetch.mock.calls.some(([path]) => path.endsWith("/login/browser")),
+      ).toBe(false);
+    },
+  );
+
+  it("未绑定的新账号保留首次登录入口", async () => {
+    accountsPage();
+    const fetch = service([B]);
+    render(<App />);
+    const row = await screen.findByRole("region", { name: "账号 账号B" });
+    expect(
+      within(row).queryByRole("button", { name: "重新登录" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      within(row).getByRole("button", { name: "登录", exact: true }),
+    );
+    await screen.findByRole("dialog", { name: "扫码登录 · 账号B" });
+    const request = fetch.mock.calls.find(
+      ([path, options]) =>
+        path.endsWith("/login/browser") && options.method === "POST",
+    );
+    expect(request[1].headers["X-XHS-Account-ID"]).toBe("B");
+  });
+
+  it("已有登录窗口只显示继续登录，恢复原会话", async () => {
+    accountsPage();
+    const fetch = service([A], "desktop");
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) =>
+      path === "/api/v1/accounts"
+        ? Promise.resolve(
+            ok({
+              accounts: [A],
+              legacy_account_id: "A",
+              active_login: { account_id: "A", session_id: "session-C" },
+            }),
+          )
+        : original(path, options),
+    );
+    render(<App />);
+    const row = await screen.findByRole("region", { name: "账号 账号A" });
+    expect(
+      within(row).queryByRole("button", { name: "重新登录" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "继续登录" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "扫码登录 · 账号A",
+    });
+    const frame =
+      await within(dialog).findByTitle("小红书登录和账号安全验证浏览器");
+    expect(frame.getAttribute("src")).toContain("/desktop/session-C/");
+  });
+
+  it("巡检缓存确认失效才出现重新登录，恢复登录后自动隐藏", async () => {
+    vi.useFakeTimers();
+    accountsPage();
+    let cached = A;
+    const fetch = service([A]);
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) =>
+      path === "/api/v1/accounts"
+        ? Promise.resolve(ok({ accounts: [cached], legacy_account_id: "A" }))
+        : original(path, options),
+    );
+    render(<App />);
+    await act(async () => {});
+    const row = screen.getByRole("region", { name: "账号 账号A" });
+    expect(
+      within(row).queryByRole("button", { name: "重新登录" }),
+    ).not.toBeInTheDocument();
+    cached = expiredA;
+    await act(async () => {
+      vi.advanceTimersByTime(60000);
+    });
+    expect(within(row).getByRole("button", { name: "重新登录" })).toBeVisible();
+    cached = A;
+    await act(async () => {
+      vi.advanceTimersByTime(60000);
+    });
+    expect(
+      within(row).queryByRole("button", { name: "重新登录" }),
+    ).not.toBeInTheDocument();
+    expect(
+      fetch.mock.calls.filter(
+        ([path]) =>
+          path.endsWith("/login/status") || path.endsWith("/login/browser"),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("普通加载、页面切换、恢复可见和账号切换仅展示缓存，不自动检查登录", async () => {
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    localStorage.setItem("hongshu-workbench.account.v1", "A");
+    const fetch = service();
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("当前账号")).toHaveTextContent("账号A"),
+    );
+    expect(
+      document.querySelector('[data-page="accounts"] .status-dot'),
+    ).toHaveClass("connected");
+    await navigatePage("accounts");
+    const rowA = screen.getByRole("region", { name: "账号 账号A" });
+    const rowB = screen.getByRole("region", { name: "账号 账号B" });
+    expect(within(rowA).getByText(/已登录 · 浏览器已停止/)).toBeVisible();
+    expect(within(rowB).getByText(/未登录 · 浏览器已停止/)).toBeVisible();
+    expect(listCalls(fetch)).toHaveLength(2);
+    fireEvent.click(within(rowB).getByRole("button", { name: "切换账号" }));
+    expect(screen.getByLabelText("当前账号")).toHaveTextContent("账号B");
+    await act(async () => {
+      hidden.mockReturnValue(true);
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {
+      hidden.mockReturnValue(false);
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(listCalls(fetch)).toHaveLength(3);
+    await navigatePage("workspace");
+    expect(
+      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+    ).toHaveLength(0);
+    hidden.mockRestore();
+  });
+
+  it("账号页可见时每60秒静默刷新，保留卡片、当前账号和未保存草稿", async () => {
+    vi.useFakeTimers();
+    accountsPage();
+    const fetch = service([A]);
+    const original = fetch.getMockImplementation();
+    const late = deferred();
+    let pending = false;
+    fetch.mockImplementation((url, options) =>
+      url === "/api/v1/accounts" && pending
+        ? late.promise
+        : original(url, options),
+    );
+    render(<App />);
+    await act(async () => {});
+    await navigatePage("workspace");
+    fireEvent.change(screen.getByLabelText(/笔记标题/), {
+      target: { value: "正在写的草稿" },
+    });
+    await navigatePage("accounts");
+    expect(listCalls(fetch)).toHaveLength(2);
+    pending = true;
+    await act(async () => vi.advanceTimersByTime(59999));
+    expect(listCalls(fetch)).toHaveLength(2);
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(listCalls(fetch)).toHaveLength(3);
+    expect(screen.queryByText("正在读取账号列表…")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "账号 账号A" })).toBeVisible();
+    await act(async () =>
+      late.resolve(ok({ accounts: [A], legacy_account_id: "A" })),
+    );
+    expect(screen.getByLabelText("当前账号")).toHaveTextContent("账号A");
+    await navigatePage("workspace");
+    expect(screen.getByLabelText(/笔记标题/)).toHaveValue("正在写的草稿");
+    await act(async () => vi.advanceTimersByTime(120000));
+    expect(listCalls(fetch)).toHaveLength(3);
+  });
+
+  it("隐藏和卸载取消列表读取，恢复可见后旧响应不能覆盖新缓存", async () => {
+    vi.useFakeTimers();
+    accountsPage();
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const fetch = service([A]);
+    const original = fetch.getMockImplementation();
+    const old = deferred();
+    let pending = false;
+    fetch.mockImplementation((url, options) =>
+      url === "/api/v1/accounts" && pending
+        ? old.promise
+        : original(url, options),
+    );
+    const { unmount } = render(<App />);
+    await act(async () => {});
+    pending = true;
+    await act(async () => vi.advanceTimersByTime(60000));
+    const oldSignal = listCalls(fetch).at(-1)[1].signal;
+    await act(async () => {
+      hidden.mockReturnValue(true);
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(oldSignal.aborted).toBe(true);
+    await act(async () => vi.advanceTimersByTime(120000));
+    expect(listCalls(fetch)).toHaveLength(2);
+    pending = false;
+    await act(async () => {
+      hidden.mockReturnValue(false);
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(listCalls(fetch)).toHaveLength(3);
+    await act(async () => old.resolve(ok({ accounts: [B] })));
+    expect(screen.getByRole("region", { name: "账号 账号A" })).toBeVisible();
+    expect(
+      screen.queryByRole("region", { name: "账号 账号B" }),
+    ).not.toBeInTheDocument();
+    pending = true;
+    fireEvent.click(screen.getByRole("button", { name: "刷新列表" }));
+    const signal = listCalls(fetch).at(-1)[1].signal;
+    unmount();
+    expect(signal.aborted).toBe(true);
+    hidden.mockRestore();
+  });
+
+  it("切换页面时保留正在读取的列表，返回后仍能选中原账号", async () => {
+    const late = deferred();
+    const fetch = service([A]);
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((url, options) =>
+      url === "/api/v1/accounts" ? late.promise : original(url, options),
+    );
+    render(<App />);
+    const signal = listCalls(fetch)[0][1].signal;
+    await navigatePage("settings");
+    expect(signal.aborted).toBe(false);
+    await act(async () =>
+      late.resolve(ok({ accounts: [A], legacy_account_id: "A" })),
+    );
+    expect(screen.getByLabelText("当前账号")).toHaveTextContent("账号A");
+    expect(screen.queryByText("正在读取账号列表…")).not.toBeInTheDocument();
+    expect(
+      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+    ).toHaveLength(0);
+  });
+
+  it("手动检查刷新账号缓存并取消旧列表，迟到响应不能回退刚登录的结果", async () => {
+    accountsPage();
+    let cached = { ...A, is_logged_in: false, login_checked_at: null };
+    const fetch = service([cached]);
+    const original = fetch.getMockImplementation();
+    const old = deferred();
+    let reads = 0;
+    fetch.mockImplementation((url, options) => {
+      if (url === "/api/v1/accounts") {
+        if (++reads === 2) return old.promise;
+        return Promise.resolve(
+          ok({ accounts: [cached], legacy_account_id: "A" }),
+        );
+      }
+      if (url.endsWith("/login/status")) {
+        cached = A;
+        return Promise.resolve(
+          ok({
+            account_id: "A",
+            status: "logged_in",
+            is_logged_in: true,
+            username: "作者A",
+          }),
+        );
+      }
+      return original(url, options);
+    });
+    render(<App />);
+    const row = await screen.findByRole("region", { name: "账号 账号A" });
+    expect(within(row).getByText(/登录状态待检查/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "刷新列表" }));
+    const oldSignal = listCalls(fetch).at(-1)[1].signal;
+    fireEvent.click(within(row).getByRole("button", { name: "刷新状态" }));
+    await within(row).findByText(/已登录/);
+    expect(oldSignal.aborted).toBe(true);
+    await act(async () =>
+      old.resolve(
+        ok({
+          accounts: [{ ...A, is_logged_in: false }],
+          legacy_account_id: "A",
+        }),
+      ),
+    );
+    expect(within(row).getByText(/已登录/)).toBeVisible();
+    expect(listCalls(fetch)).toHaveLength(3);
+    expect(
+      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+    ).toHaveLength(1);
+  });
+
+  it("扫码轮询完成后刷新列表一次并停止轮询", async () => {
+    vi.useFakeTimers();
+    accountsPage();
+    let loggedIn = false;
+    const fetch = service([{ ...A, is_logged_in: false }], "desktop");
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((url, options) => {
+      if (url === "/api/v1/accounts")
+        return Promise.resolve(
+          ok({
+            accounts: [{ ...A, is_logged_in: loggedIn }],
+            legacy_account_id: "A",
+          }),
+        );
+      if (url.endsWith("/login/status")) {
+        loggedIn = true;
+        return Promise.resolve(
+          ok({
+            account_id: "A",
+            is_logged_in: true,
+            status: "logged_in",
+            username: "作者A",
+          }),
+        );
+      }
+      return original(url, options);
+    });
+    render(<App />);
+    await act(async () => {});
+    const row = screen.getByRole("region", { name: "账号 账号A" });
+    fireEvent.click(within(row).getByRole("button", { name: "重新登录" }));
+    await act(async () => {});
+    expect(screen.getByTitle("小红书登录和账号安全验证浏览器")).toBeVisible();
+    await act(async () => vi.advanceTimersByTime(2000));
+    expect(
+      screen.queryByRole("dialog", { name: "扫码登录 · 账号A" }),
+    ).not.toBeInTheDocument();
+    expect(within(row).getByText(/已登录/)).toBeVisible();
+    expect(listCalls(fetch)).toHaveLength(2);
+    await act(async () => vi.advanceTimersByTime(10000));
+    expect(listCalls(fetch)).toHaveLength(2);
+    expect(
+      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+    ).toHaveLength(1);
+  });
+
+  it("重置成功刷新缓存，不启动登录检查并保留当前草稿", async () => {
+    accountsPage();
+    localStorage.setItem(
+      "hongshu-workbench.draft.v1:A",
+      JSON.stringify({ title: "保留的草稿" }),
+    );
+    const fetch = service([A]);
+    render(<App />);
+    const row = await screen.findByRole("region", { name: "账号 账号A" });
+    fireEvent.click(
+      within(row).getByRole("button", { name: "重置浏览器数据" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "确认重置" }));
+    await within(row).findByText(/未登录/);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "重置浏览器数据？" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(listCalls(fetch)).toHaveLength(2);
+    expect(
+      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+    ).toHaveLength(0);
+    await navigatePage("workspace");
+    expect(screen.getByLabelText(/笔记标题/)).toHaveValue("保留的草稿");
+  });
   it("仅有一个账号时自动选择，其他标签页更新最近 ID 不切换本页", async () => {
     service([A]);
     render(<App />);
@@ -148,10 +618,8 @@ describe("账号选择界面", () => {
       "账号B",
     );
     expect(
-      fetch.mock.calls
-        .filter(([url]) => url.endsWith("/login/status"))
-        .map(([, options]) => options.headers["X-XHS-Account-ID"]),
-    ).toEqual(expect.arrayContaining(["A", "B"]));
+      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+    ).toHaveLength(0);
   });
 
   it("添加账号先取得服务端 ID，再选中并直接打开该账号的扫码窗口", async () => {
@@ -201,7 +669,7 @@ describe("账号选择界面", () => {
     "%s 收起扫码弹窗后保留后台会话，继续登录可重新打开并主动结束",
     async (dismiss) => {
       accountsPage();
-      const fetch = service([A], "desktop");
+      const fetch = service([expiredA], "desktop");
       render(<App />);
       const row = await screen.findByRole("region", { name: "账号 账号A" });
       fireEvent.click(within(row).getByRole("button", { name: "重新登录" }));
@@ -260,7 +728,7 @@ describe("账号选择界面", () => {
 
   it("原始大小切换仅调整显示比例，保留登录会话且不重新打开浏览器", async () => {
     accountsPage();
-    const fetch = service([A], "desktop");
+    const fetch = service([expiredA], "desktop");
     render(<App />);
     const row = await screen.findByRole("region", { name: "账号 账号A" });
     fireEvent.click(within(row).getByRole("button", { name: "重新登录" }));
@@ -298,10 +766,17 @@ describe("账号选择界面", () => {
 
   it("登录检查失败时在弹窗中提示，确认登录成功后自动收起", async () => {
     accountsPage();
-    const fetch = service([A], "desktop");
+    const fetch = service([expiredA], "desktop");
     const original = fetch.getMockImplementation();
     let status = "not_logged_in";
     fetch.mockImplementation((url, options) => {
+      if (url === "/api/v1/accounts")
+        return Promise.resolve(
+          ok({
+            accounts: [{ ...expiredA, is_logged_in: status === "logged_in" }],
+            legacy_account_id: "A",
+          }),
+        );
       if (url.endsWith("/login/status") && status === "error")
         return Promise.resolve({
           ok: false,

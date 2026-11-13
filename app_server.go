@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -59,19 +61,31 @@ func (s *AppServer) Start(port string) error {
 		Handler: s.router,
 	}
 
-	// 启动服务器的 goroutine
+	listener, err := net.Listen("tcp", port)
+	if err != nil {
+		return fmt.Errorf("启动 HTTP 服务失败: %w", err)
+	}
+	defer listener.Close()
+	if s.accounts != nil {
+		s.accounts.startStatusMonitor(accountStatusInterval)
+	}
+	serveError := make(chan error, 1)
 	go func() {
-		logrus.Infof("启动红薯创作台 HTTP 服务器: %s", port)
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logrus.Errorf("服务器启动失败: %v", err)
-			os.Exit(1)
-		}
+		logrus.Infof("启动红薯创作台 HTTP 服务器: %s", listener.Addr())
+		serveError <- s.httpServer.Serve(listener)
 	}()
 
-	// 等待中断信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	defer signal.Stop(quit)
+	select {
+	case <-quit:
+	case err := <-serveError:
+		if err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("HTTP 服务异常退出: %w", err)
+		}
+		return nil
+	}
 
 	logrus.Infof("正在关闭服务器...")
 

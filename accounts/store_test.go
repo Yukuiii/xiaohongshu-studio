@@ -432,6 +432,7 @@ func TestFailedMetadataWriteKeepsMemoryAndProfiles(t *testing.T) {
 	_, err = s.Rename(a.ID, "changed")
 	require.Error(t, err)
 	require.Error(t, s.BindIdentity(a.ID, "user-a", "A"))
+	require.Error(t, s.SetLoginStatus(a.ID, true))
 	require.Error(t, s.CommitProfile(a.ID, candidate, "user-a", "A"))
 	require.Error(t, s.CompleteImport(a.ID))
 	require.Error(t, s.Delete(a.ID))

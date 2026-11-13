@@ -87,6 +87,8 @@ type AccountManager struct {
 	visualAccount string
 	visualSession string
 	onLoginEnd    func(string)
+	statusCancel  context.CancelFunc
+	statusDone    chan struct{}
 }
 
 type accountRuntime struct {
@@ -253,7 +255,7 @@ func (r *accountRuntime) launchProfile(a accounts.Account, path string, headless
 	return b, nil
 }
 
-func (r *accountRuntime) openProfile() (accountBrowser, error) {
+func (r *accountRuntime) openProfile(headless bool) (accountBrowser, error) {
 	a, err := r.manager.store.Get(r.id)
 	if err != nil {
 		return nil, err
@@ -265,21 +267,26 @@ func (r *accountRuntime) openProfile() (accountBrowser, error) {
 	if pending != nil {
 		b, err := r.launchProfile(a, r.manager.store.ProfilePath(a), true, pending)
 		if err != nil {
-			return nil, err
+			return b, err
 		}
 		if err := stopAccountBrowser(b); err != nil {
-			return nil, err
+			return b, err
 		}
 		if err := r.manager.store.CompleteImport(r.id); err != nil {
 			return nil, err
 		}
 	}
-	return r.launchProfile(a, r.manager.store.ProfilePath(a), r.manager.headless, nil)
+	return r.launchProfile(a, r.manager.store.ProfilePath(a), headless, nil)
 }
 
 func (r *accountRuntime) borrowBrowser(ctx context.Context, verify bool) (*browserLease, error) {
+	return r.borrowBrowserFor(ctx, verify, false)
+}
+
+// borrowBrowserFor 巡检借用结束后关闭实例，业务任务继续按空闲时间复用。
+func (r *accountRuntime) borrowBrowserFor(ctx context.Context, verify, background bool) (*browserLease, error) {
 	r.mu.Lock()
-	if r.browserBusy || r.loginID != "" || r.removing || r.deleted {
+	if r.browserBusy || r.loginID != "" || r.removing || r.deleted || (background && r.writers > 1) {
 		r.mu.Unlock()
 		return nil, accountBusy()
 	}
@@ -292,9 +299,19 @@ func (r *accountRuntime) borrowBrowser(ctx context.Context, verify bool) (*brows
 	b := r.browser
 	r.mu.Unlock()
 	release := func() {
+		if background {
+			if err := stopAccountBrowser(b); err != nil {
+				logrus.Warnf("账号 %s 巡检浏览器退出失败: %v", r.id, err)
+			}
+		}
 		r.mu.Lock()
+		if background && b != nil && !b.Alive() && r.browser == b {
+			r.browser = nil
+		}
 		r.browserBusy = false
-		r.scheduleIdleLocked(r.browser)
+		if !background || (b != nil && b.Alive()) {
+			r.scheduleIdleLocked(r.browser)
+		}
 		r.mu.Unlock()
 	}
 	ok := false
@@ -308,18 +325,20 @@ func (r *accountRuntime) borrowBrowser(ctx context.Context, verify bool) (*brows
 	}
 	if b == nil || !b.Alive() {
 		var err error
-		b, err = r.openProfile()
+		b, err = r.openProfile(r.manager.headless || background)
+		if b != nil {
+			r.mu.Lock()
+			r.browser = b
+			r.mu.Unlock()
+		}
 		if err != nil {
 			return nil, err
 		}
-		r.mu.Lock()
-		r.browser = b
-		r.mu.Unlock()
 	}
 	// 每次任务都核对真实身份，不能沿用浏览器运行期间的旧验证结果。
 	if verify {
 		if err := r.manager.checkIdentity(ctx, r, b); err != nil {
-			return nil, err
+			return nil, r.cacheLoginFailure(err)
 		}
 	}
 	ok = true
@@ -367,6 +386,7 @@ func (r *accountRuntime) loginStatus(ctx context.Context) (*LoginStatusResponse,
 	defer b.Close()
 	user, err := r.inspectIdentity(ctx, b.accountBrowser)
 	if err != nil {
+		err = r.cacheLoginFailure(err)
 		var failure *accountError
 		if errors.As(err, &failure) && failure.Code == "XHS_LOGIN_REQUIRED" {
 			state, _ := r.service.logins.snapshot()
@@ -454,6 +474,16 @@ func (r *accountRuntime) openLogin(ctx context.Context) (response *LoginBrowserR
 		r.manager.releaseVisual(r.id, session)
 		return nil, accountBusy()
 	}
+	// 活动会话已复用；旧页面不能为已登录账号再复制候选。
+	record, recordErr := r.manager.store.Get(r.id)
+	if recordErr != nil || (record.IsLoggedIn && record.LoginCheckedAt != nil) {
+		r.mu.Unlock()
+		r.manager.releaseVisual(r.id, session)
+		if recordErr != nil {
+			return nil, recordErr
+		}
+		return nil, &accountError{http.StatusConflict, "ACCOUNT_ALREADY_LOGGED_IN", "该账号已登录，无需重新打开登录窗口"}
+	}
 	r.browserBusy = true
 	r.stopIdleLocked()
 	old := r.browser
@@ -491,7 +521,7 @@ func (r *accountRuntime) openLogin(ctx context.Context) (response *LoginBrowserR
 		return nil, err
 	}
 	if pending != nil {
-		initial, err := r.openProfile()
+		initial, err := r.openProfile(true)
 		if err != nil {
 			return nil, err
 		}
@@ -798,11 +828,15 @@ func (m *AccountManager) Close() error {
 	defer m.closeMu.Unlock()
 	m.closing.Store(true)
 	m.mu.Lock()
+	statusCancel, statusDone := m.statusCancel, m.statusDone
 	list := make([]*accountRuntime, 0, len(m.runtimes))
 	for _, r := range m.runtimes {
 		list = append(list, r)
 	}
 	m.mu.Unlock()
+	if statusCancel != nil {
+		statusCancel()
+	}
 	for _, r := range list {
 		r.service.logins.close()
 	}
@@ -815,6 +849,9 @@ func (m *AccountManager) Close() error {
 		_ = m.shutdownBrowsers(list)
 		// 启动中的进程尚未登记到 runtime；必须等待其返回并自行关闭，不能提前释放根锁。
 		<-drained
+	}
+	if statusDone != nil {
+		<-statusDone
 	}
 	if err := m.shutdownBrowsers(list); err != nil {
 		return err

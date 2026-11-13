@@ -121,7 +121,7 @@ func (s *XiaohongshuService) DeleteCookies(ctx context.Context) error {
 		if err := (proto.NetworkClearBrowserCookies{}).Call(page.Context(ctx)); err != nil {
 			return err
 		}
-		return nil
+		return s.account.manager.store.SetLoginStatus(s.account.id, false)
 	}
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()

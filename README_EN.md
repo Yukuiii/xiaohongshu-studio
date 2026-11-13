@@ -78,6 +78,12 @@ Each account saves a complete Chromium user-data directory, including Cookies, l
 
 Account selection belongs to the current page, and switching is blocked during a task. Browser tasks run serially within an account; different accounts can run independently.
 
+The account list displays the last checked sign-in status. Reloading the page or switching accounts or views does not automatically visit Xiaohongshu. The service checks accounts asynchronously at startup and every 10 minutes, skipping busy accounts and active sign-in sessions until the next round. Network errors and timeouts preserve the previous result. Each background check closes the idle browser it used while retaining its data. Status and check time are saved in each account's `account.json` and survive restarts. New accounts show as signed out; previously bound accounts without a check record are shown as awaiting a check.
+
+While visible, the Accounts view refreshes the list silently every 60 seconds. Completing sign-in, clearing Cookies, or resetting browser data updates the cache immediately. Use Refresh status (刷新状态) for an immediate check. Tasks such as search and publication still verify the real signed-in identity.
+
+Signed-in accounts hide the sign-in-again action. A previously bound account offers it only after a check confirms that sign-in is no longer valid. New accounts retain their first sign-in action, and unfinished windows can reconnect to the existing session. Stale requests for an already signed-in account do not create another candidate profile.
+
 In Docker, signing in opens a nearly fullscreen dialog with the real Xiaohongshu page through noVNC. Use Original size (原始大小) to view a small QR code without scaling, then choose Fit to window (适应窗口) to restore the full desktop view. Dismissing the dialog keeps the session running; use Continue sign-in (继续登录) to reconnect. The browser runs fullscreen on the shared desktop, which serves one account at a time. The dialog closes automatically after sign-in is saved. Incomplete sessions remain available for up to 20 minutes, or you can use End sign-in window (结束登录窗口).
 
 Signing in again uses a candidate browser profile. The application activates it after verifying that the real identity matches the account binding and saving the browser data. Cancelling, failing, or scanning with the wrong account preserves the previous profile. Site sessions can still expire and require another sign-in.

@@ -53,6 +53,7 @@ func (s *Store) CommitProfile(id, profileID, userID, nickname string) error {
 		return err
 	}
 	a.ActiveProfile, a.UserID, a.Nickname = profileID, userID, nickname
+	a.setLoginStatus(true)
 	return s.save(a)
 }
 
@@ -93,6 +94,7 @@ func (s *Store) ResetProfile(id string) error {
 	}
 	a.ActiveProfile = profileID
 	a.LegacyImportPending = false
+	a.setLoginStatus(false)
 	if err := s.save(a); err != nil {
 		_ = os.RemoveAll(target)
 		return err

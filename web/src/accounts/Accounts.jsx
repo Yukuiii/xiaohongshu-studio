@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Dialog, Notice } from "../components.jsx";
+import { canStartLogin } from "./useAccount.js";
 import "./accounts.css";
 
 const statusLabels = {
@@ -7,10 +8,10 @@ const statusLabels = {
   waiting_confirmation: "等待手机确认",
   verification_required: "需要安全验证",
   saving: "正在保存登录信息",
-  logged_in: "已连接",
+  logged_in: "已登录",
   expired: "登录会话已过期",
   failed: "登录失败",
-  not_logged_in: "未连接",
+  not_logged_in: "未登录",
 };
 
 export default function Accounts({ account, manager, busy }) {
@@ -52,9 +53,8 @@ export default function Accounts({ account, manager, busy }) {
     url.searchParams.set("resize", "off");
     desktopURL = `${url.pathname}${url.search}`;
   }
-  const label = account.loggedIn
-    ? "已连接"
-    : statusLabels[account.status?.status] || "未连接";
+  const progress =
+    account.browserSession && statusLabels[account.status?.status];
 
   return (
     <>
@@ -65,7 +65,7 @@ export default function Accounts({ account, manager, busy }) {
             账号
           </h1>
           <p className="muted">
-            每个账号独立保存浏览器数据、草稿和发布记录。选中后会检查真实登录状态。
+            每个账号独立保存浏览器数据、草稿和发布记录。登录状态来自最近检查，可手动刷新。
           </p>
         </div>
         <div className="button-group">
@@ -100,6 +100,11 @@ export default function Accounts({ account, manager, busy }) {
       <div aria-label="账号列表">
         {manager.accounts.map((item) => {
           const selected = manager.selectedId === item.id;
+          const continuing =
+            manager.activeLogin?.account_id === item.id ||
+            (selected && account.browserSession && item.is_logged_in !== true);
+          const unchecked =
+            !item.is_logged_in && item.user_id && !item.login_checked_at;
           const browser =
             {
               stopped: "浏览器已停止",
@@ -116,7 +121,7 @@ export default function Accounts({ account, manager, busy }) {
               aria-label={`账号 ${item.name}`}
             >
               <div
-                className={`accounts-avatar${selected && account.loggedIn ? " connected" : ""}`}
+                className={`accounts-avatar${item.is_logged_in ? " connected" : ""}`}
                 aria-hidden="true"
               >
                 {Array.from(item.nickname || item.name || "薯")[0]}
@@ -131,9 +136,14 @@ export default function Accounts({ account, manager, busy }) {
                   {item.user_id ? ` · ${item.user_id}` : ""}
                 </p>
                 <p className="helper">
-                  {browser}
+                  {item.is_logged_in
+                    ? "已登录"
+                    : unchecked
+                      ? "登录状态待检查"
+                      : "未登录"}
+                  {` · ${browser}`}
                   {item.busy ? " · 任务进行中" : ""}
-                  {selected ? ` · ${label}` : " · 登录状态待检查"}
+                  {selected && progress ? ` · ${progress}` : ""}
                 </p>
               </div>
               <div className="accounts-card-actions">
@@ -151,15 +161,19 @@ export default function Accounts({ account, manager, busy }) {
                 >
                   重命名
                 </button>
-                <button
-                  className="button small"
-                  disabled={
-                    locked || ["open", "close"].includes(account.operation)
-                  }
-                  onClick={() => manager.login(item.id)}
-                >
-                  {selected && account.browserSession ? "继续登录" : "重新登录"}
-                </button>
+                {(continuing || canStartLogin(item)) && (
+                  <button
+                    className="button small"
+                    disabled={working}
+                    onClick={() => manager.login(item.id)}
+                  >
+                    {continuing
+                      ? "继续登录"
+                      : item.user_id
+                        ? "重新登录"
+                        : "登录"}
+                  </button>
+                )}
                 {selected && (
                   <button
                     className="button small"
@@ -371,18 +385,21 @@ export default function Accounts({ account, manager, busy }) {
                 {account.operation === "close" ? "正在结束…" : "结束登录窗口"}
               </button>
             )}
-            <button
-              type="button"
-              className="button primary"
-              disabled={working}
-              onClick={account.openLogin}
-            >
-              {account.operation === "open"
-                ? "正在打开…"
-                : account.browserSession
-                  ? "继续登录"
-                  : "打开登录网页"}
-            </button>
+            {(account.browserSession ||
+              canStartLogin(manager.selectedAccount)) && (
+              <button
+                type="button"
+                className="button primary"
+                disabled={working}
+                onClick={account.openLogin}
+              >
+                {account.operation === "open"
+                  ? "正在打开…"
+                  : account.browserSession
+                    ? "继续登录"
+                    : "打开登录网页"}
+              </button>
+            )}
           </div>
         </Dialog>
       )}

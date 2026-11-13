@@ -137,6 +137,7 @@ func TestAccountCandidateLoginCommitLocal(t *testing.T) {
 			if mismatch {
 				require.Equal(t, a.ActiveProfile, current.ActiveProfile)
 				require.Equal(t, "original-user", current.UserID)
+				require.True(t, current.IsLoggedIn, "候选登录失败不能覆盖原 profile 的缓存")
 				require.FileExists(t, filepath.Join(original, "original-marker"))
 				require.NoDirExists(t, store.ProfilePath(copy))
 				r.mu.Lock()
@@ -146,6 +147,8 @@ func TestAccountCandidateLoginCommitLocal(t *testing.T) {
 			} else {
 				require.Equal(t, candidate, current.ActiveProfile)
 				require.Equal(t, "local-user", current.UserID)
+				require.True(t, current.IsLoggedIn)
+				require.NotNil(t, current.LoginCheckedAt)
 				require.FileExists(t, filepath.Join(store.ProfilePath(current), "original-marker"))
 				state, active := r.service.logins.snapshot()
 				require.False(t, active)

@@ -118,6 +118,25 @@ func TestWaitForLoginLocalPageClosed(t *testing.T) {
 	require.NotErrorIs(t, err, context.DeadlineExceeded)
 }
 
+func TestCheckLoginStatusLocalUninitializedPage(t *testing.T) {
+	b := newSearchFixtureBrowser(t)
+	page := b.MustPage()
+	defer page.Close()
+	router := page.HijackRequests()
+	router.MustAdd("*", func(h *rod.Hijack) {
+		h.OnError = func(error) {}
+		h.Response.SetHeader("Content-Type", "text/html; charset=utf-8")
+		h.Response.SetBody(`<main>加载中</main>`)
+	})
+	go router.Run()
+	defer router.Stop()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	loggedIn, err := NewLogin(page).CheckLoginStatus(ctx)
+	require.False(t, loggedIn)
+	require.ErrorIs(t, err, context.DeadlineExceeded, "缺少登录标记的未初始化页面不能判为未登录")
+}
+
 func TestCheckLoginStatusLocal(t *testing.T) {
 	b := newSearchFixtureBrowser(t)
 	for _, tc := range []struct {
@@ -126,6 +145,8 @@ func TestCheckLoginStatusLocal(t *testing.T) {
 		loggedIn bool
 	}{
 		{"waiting_scan", loginFixtureWaiting, false},
+		{"guest", `<script>window.__INITIAL_STATE__ = {user: {userInfo: {value: {guest: true}}}};</script>`, false},
+		{"delayed_login", `<main id="loading"></main><script>setTimeout(() => { document.body.innerHTML = '` + loginFixtureConfirmed + `'; }, 300);</script>`, true},
 		{"waiting_confirmation", `<div class="login-container">扫码成功，请在手机上确认</div>`, false},
 		{"logged_in", loginFixtureConfirmed, true},
 		{"verification_required", loginFixtureVerification, false},

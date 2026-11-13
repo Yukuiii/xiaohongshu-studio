@@ -48,8 +48,51 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 	if err := a.page.Context(checkCtx).WaitLoad(); err != nil {
 		return false, errors.Wrap(err, "load login page failed")
 	}
-	phase, err := a.CurrentPhase(checkCtx)
-	return phase == LoginLoggedIn, err
+	page := a.page.Context(checkCtx)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := checkCtx.Err(); err != nil {
+			return false, err
+		}
+		if CheckPageBlocked(page) != nil {
+			return false, nil
+		}
+		phase, err := a.CurrentPhase(checkCtx)
+		if err != nil {
+			return false, err
+		}
+		switch phase {
+		case LoginLoggedIn:
+			return true, nil
+		case LoginVerificationRequired, LoginWaitingConfirmation:
+			return false, nil
+		}
+		prompt, _, err := page.Has(".login-container")
+		if err != nil {
+			return false, err
+		}
+		if prompt {
+			return false, nil
+		}
+		guest, err := page.Eval(`() => {
+			const u = window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user;
+			const info = u && u.userInfo && u.userInfo.value !== undefined ? u.userInfo.value : (u && u.userInfo);
+			return Boolean(info && info.guest);
+		}`)
+		if err != nil {
+			return false, errors.Wrap(err, "read guest state failed")
+		}
+		if guest.Value.Bool() {
+			return false, nil
+		}
+		// 尚未初始化的页面不能当作登录已失效。
+		select {
+		case <-checkCtx.Done():
+			return false, checkCtx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // CurrentUser 当前登录用户的基础信息。

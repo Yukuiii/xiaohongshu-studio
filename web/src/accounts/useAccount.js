@@ -30,6 +30,14 @@ function isLoggedIn(data) {
   );
 }
 
+export function canStartLogin(account) {
+  if (!account || account.is_logged_in === true) return false;
+  return (
+    !account.user_id ||
+    (account.is_logged_in === false && Boolean(account.login_checked_at))
+  );
+}
+
 function desktopAddress(value, sessionId) {
   const url = new URL(value, window.location.origin);
   if (
@@ -71,14 +79,25 @@ export function useAccount({
   active,
   busy,
   context,
+  summary,
   activeLogin,
   onLoginSession,
+  onStatus,
 }) {
   const [state, setState] = useState(initialState);
   const [pageVisible, setPageVisible] = useState(() => !document.hidden);
   const stateRef = useRef(state);
-  const inputs = useRef({ api, active, busy, context, onLoginSession });
-  inputs.current = { api, active, busy, context, onLoginSession };
+  const inputs = useRef(null);
+  inputs.current = {
+    api,
+    active,
+    busy,
+    context,
+    summary,
+    activeLogin,
+    onLoginSession,
+    onStatus,
+  };
   const mounted = useRef(true);
   const visible = useRef(!document.hidden);
   const request = useRef(null);
@@ -86,6 +105,7 @@ export function useAccount({
   const sequence = useRef(0);
   const appliedSequence = useRef(0);
   const requiredRequests = useRef(new Set());
+  const finishedLogin = useRef(null);
 
   const update = useCallback((patch) => {
     if (!mounted.current) return;
@@ -134,7 +154,7 @@ export function useAccount({
   }, [cancelRequest, update]);
 
   const applyStatus = useCallback(
-    (data, version, scope) => {
+    (data, version, scope, manual = false) => {
       if (
         !mounted.current ||
         inputs.current.context !== scope ||
@@ -145,6 +165,14 @@ export function useAccount({
         throw new Error("登录响应与当前账号不一致，请刷新状态。");
       appliedSequence.current = version;
       const loggedIn = isLoggedIn(data);
+      const wasLoggedIn = stateRef.current.status
+        ? isLoggedIn(stateRef.current.status)
+        : inputs.current.summary?.id === scope.accountId &&
+          inputs.current.summary.is_logged_in === true;
+      const summaryMismatch =
+        inputs.current.summary?.id === scope.accountId &&
+        loggedIn !== (inputs.current.summary.is_logged_in === true);
+      const completedLogin = loggedIn && stateRef.current.browserSession;
       const pending = pendingStatuses.has(data?.status);
       const ended =
         loggedIn ||
@@ -167,6 +195,11 @@ export function useAccount({
       };
       if (pending) patch.browserSession = true;
       if (ended) {
+        if (stateRef.current.sessionId)
+          finishedLogin.current = {
+            accountId: scope.accountId,
+            sessionId: stateRef.current.sessionId,
+          };
         patch.browserSession = false;
         patch.browserConnected = false;
         patch.mode = "";
@@ -180,6 +213,12 @@ export function useAccount({
       else if (ended) inputs.current.onLoginSession?.(null, scope.accountId);
       if (loggedIn) patch.loginVisible = false;
       update(patch);
+      if (
+        manual ||
+        completedLogin ||
+        (!pending && (loggedIn !== wasLoggedIn || summaryMismatch))
+      )
+        inputs.current.onStatus?.(data, scope);
     },
     [update],
   );
@@ -232,7 +271,7 @@ export function useAccount({
           token: current.scope.token,
         });
         if (currentRequest(current))
-          applyStatus(data, current.version, current.scope);
+          applyStatus(data, current.version, current.scope, manual);
       } catch (error) {
         if (!currentRequest(current)) return;
         const canceled =
@@ -275,6 +314,16 @@ export function useAccount({
       ["open", "close"].includes(stateRef.current.operation)
     )
       return;
+    const summary =
+      inputs.current.summary?.id === inputs.current.context.accountId
+        ? inputs.current.summary
+        : null;
+    const continuing =
+      inputs.current.activeLogin?.account_id ===
+        inputs.current.context.accountId ||
+      (stateRef.current.browserSession && summary?.is_logged_in !== true);
+    if (!continuing && summary && !canStartLogin(summary)) return;
+    if (!continuing && !summary && isLoggedIn(stateRef.current.status)) return;
     const current = startRequest("open");
     // POST 被取消时服务端可能已打开浏览器，保留手动结束入口。
     update({
@@ -311,6 +360,20 @@ export function useAccount({
       applyStatus(data, current.version, current.scope);
     } catch (error) {
       if (!currentRequest(current) || error.name === "AbortError") return;
+      if (error.code === "ACCOUNT_ALREADY_LOGGED_IN") {
+        update({ loginVisible: false, browserSession: false });
+        applyStatus(
+          {
+            account_id: current.scope.accountId,
+            is_logged_in: true,
+            status: "logged_in",
+          },
+          current.version,
+          current.scope,
+          true,
+        );
+        return;
+      }
       update({
         ...(error.code === "LOGIN_BROWSER_BUSY"
           ? { browserSession: false, loginVisible: false }
@@ -457,10 +520,21 @@ export function useAccount({
 
   useLayoutEffect(() => {
     invalidate();
-    if (activeLogin?.account_id === context?.accountId) {
+  }, [context, invalidate]);
+
+  useEffect(() => {
+    if (
+      activeLogin &&
+      activeLogin.account_id === context?.accountId &&
+      !stateRef.current.browserSession &&
+      !(
+        finishedLogin.current?.accountId === context?.accountId &&
+        finishedLogin.current?.sessionId === activeLogin.session_id
+      )
+    ) {
       update({ browserSession: true, sessionId: activeLogin.session_id });
     }
-  }, [context, invalidate]);
+  }, [activeLogin, context, update]);
 
   useEffect(() => {
     mounted.current = true;
@@ -489,22 +563,8 @@ export function useAccount({
   }, [cancelRequest, pause]);
 
   useEffect(() => {
-    if (!context?.accountId || active) return;
-    const controller = new AbortController();
-    requireLogin(controller.signal, context).catch(() => {});
-    return () => controller.abort();
-  }, [context, requireLogin]);
-
-  useEffect(() => {
     if (!active) pause();
-    else if (
-      context?.accountId &&
-      !busy &&
-      pageVisible &&
-      (!stateRef.current.browserSession || !stateRef.current.status)
-    )
-      readStatus(false);
-  }, [active, busy, pageVisible, context, pause, readStatus]);
+  }, [active, pause]);
 
   useEffect(() => {
     clearTimer();
@@ -535,10 +595,15 @@ export function useAccount({
     clearTimer,
   ]);
 
+  const cached = summary?.id === context?.accountId ? summary : null;
+  const loggedIn = cached
+    ? cached.is_logged_in === true
+    : isLoggedIn(state.status);
+
   return {
     active: Boolean(active && pageVisible),
-    loggedIn: isLoggedIn(state.status),
-    username: isLoggedIn(state.status) ? state.status.username || "" : "",
+    loggedIn,
+    username: loggedIn ? cached?.nickname || state.status?.username || "" : "",
     status: state.status,
     notice: state.notice,
     loginVisible: state.loginVisible,

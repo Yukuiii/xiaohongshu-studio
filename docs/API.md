@@ -39,7 +39,11 @@ curl http://localhost:18060/api/v1/login/status \
 
 仅有一个有效账号时允许省略此头；零个或多个账号时省略返回 `400 ACCOUNT_REQUIRED`。非法 ID 返回 `400 INVALID_ACCOUNT`，未知或已移除账号返回 `404 ACCOUNT_NOT_FOUND`，不会回退其他账号。以下业务接口示例均适用此规则。`user_id` 请求参数用于指定查询对象，与请求所属账号不同。
 
-账号选择按请求固定，服务不维护全局当前账号；同账号浏览器任务串行，忙时返回 `409 ACCOUNT_BUSY`，不同账号可以独立运行。列表不启动浏览器，`browser_status` 和最近绑定身份不等于登录永不过期。浏览器按需启动并复用，headless 实例空闲 10 分钟后正常关闭；完整 profile 和账号固定 seed 在重启后保留。
+账号选择按请求固定，服务不维护全局当前账号；同账号浏览器任务串行，忙时返回 `409 ACCOUNT_BUSY`，不同账号可以独立运行。列表不启动浏览器，`is_logged_in` 表示最近一次明确检查的结果，`login_checked_at` 表示该次检查时间；`browser_status` 和最近绑定身份不代表登录永不过期。业务浏览器按需启动并复用，空闲 10 分钟后正常关闭；完整 profile 和账号固定 seed 在重启后保留。
+
+服务启动后异步巡检一轮，此后每 10 分钟串行检查各账号。正在执行任务、登录或维护的账号跳过，等待下一轮；网络错误、超时或页面尚未就绪时保留原缓存及检查时间。巡检优先复用空闲浏览器，无实例时启动 headless 浏览器，检查结束后关闭所用实例，不延长其空闲计时。账号状态与基础资料保存在每个账号目录下的 `account.json` 中。新账号及旧 JSON 缺失字段时默认为 `false` / `null`，不根据历史用户 ID 推断已登录。
+
+页面初始化、切换账号和切换页面读取账号列表缓存，不自动调用 `/login/status`；账号页可见期间每 60 秒静默刷新列表。登录成功、清 Cookie、重置 profile 和实时身份检查会及时更新缓存；扫码失败或取消保留原 active profile 的缓存。手动刷新状态和业务任务前的主动核验继续使用实时检查。
 
 `XHS_ACCOUNTS_DIR` 指定数据根；未设时使用旧 Cookie 路径同目录的隐藏目录 `.xhs-accounts/`。服务和维护 CLI 对同一个 root 互斥，CLI 使用前先停止服务。每个账号保存完整 Chromium user-data-dir，旧 v1/v2 Cookie 仅向固定默认账号首次导入，保留源文件；初始化完成后不再扫描，移除默认账号不会复活。旧草稿和托管图片也只迁入固定旧账号，保留原草稿结构、发布结果未知时的防重状态和迁移源。模型配置、服务令牌由整个工作台共用；拥有有效令牌即可访问所有账号，此功能不提供访问者权限隔离。
 
@@ -110,6 +114,8 @@ curl http://localhost:18060/api/v1/login/status \
       "name": "默认账号",
       "user_id": "verified-user-id",
       "nickname": "已验证昵称",
+      "is_logged_in": true,
+      "login_checked_at": "2026-11-13T00:00:00Z",
       "created_at": "2026-11-13T00:00:00Z",
       "updated_at": "2026-11-13T00:00:00Z",
       "browser_status": "stopped",
@@ -122,6 +128,8 @@ curl http://localhost:18060/api/v1/login/status \
 ```
 
 `browser_status` 为 `stopped`、`running` 或 `login`；`active_login` 有值时包含当前可视化登录的 `account_id` 和 `session_id`。`legacy_account_id` 是固定迁移目标，移除后仍保留此值，不能将旧数据迁入其他账号。
+
+`login_checked_at` 为 `null` 表示尚无明确检查结果，不能据此认为旧账号登录已失效。工作台对已登录账号隐藏重新登录入口；已绑定账号只有在 `is_logged_in=false` 且检查时间非空时才显示“重新登录”，未知状态可先点击“刷新状态”。新账号保留首次登录入口，已有登录窗口通过“继续登录”复用原会话。
 
 创建账号和修改备注名：
 
@@ -178,7 +186,7 @@ GET /health
 
 检查所选账号的登录状态。存在可视化登录会话时返回该浏览器的实际进度，不会为每次检查另开浏览器。扫码之后可能还需手机确认或账号安全验证；验证完成并保存登录信息后才算登录成功。
 
-`logged_in` 表示当前会话有效，页面初始化、切换账号和任务前校验也可能返回该状态。它不表示刚刚发生了一次扫码登录；前端仅在活动登录会话完成时显示登录成功提示。
+`logged_in` 表示本次检查确认会话有效，手动刷新状态、扫码进度和任务前校验可能返回该状态。页面初始化、切换账号和切换页面使用 `/accounts` 的缓存，不触发此检查。它不表示刚刚发生了一次扫码登录；前端仅在活动登录会话完成时显示登录成功提示。
 
 **请求**
 ```
@@ -209,7 +217,7 @@ GET /api/v1/login/status
 POST /api/v1/login/browser
 ```
 
-无请求体，使用 `X-XHS-Account-ID` 选择账号。打开或复用该账号的登录浏览器，不提取二维码图片，也不会因为再次查看而重新扫码。noVNC 同一时间只展示一个账号的登录窗口，另一个账号申请时返回 `409 LOGIN_BROWSER_BUSY`；明确结束原窗口后再打开。其他账号的 headless 任务可继续运行。默认应用镜像在同一容器内运行 Go、Chromium 和桌面组件，对外只需端口 `18060`。
+无请求体，使用 `X-XHS-Account-ID` 选择账号。已有活动登录会话时复用原 `session_id`；没有活动会话且缓存已明确登录的账号返回 `409 ACCOUNT_ALREADY_LOGGED_IN`，不会复制新的候选 profile。状态未知或已过期时可先用 `GET /api/v1/login/status` 明确检查结果。接口不提取二维码图片，也不会因为再次查看而重新扫码。noVNC 同一时间只展示一个账号的登录窗口，另一个账号申请时返回 `409 LOGIN_BROWSER_BUSY`；明确结束原窗口后再打开。其他账号的 headless 任务可继续运行。默认应用镜像在同一容器内运行 Go、Chromium 和桌面组件，对外只需端口 `18060`。
 
 成功响应的 `data` 示例：
 
@@ -1137,6 +1145,7 @@ Content-Type: multipart/form-data
 | `ACCOUNT_NOT_FOUND` | 404 | 账号未知或已移除 |
 | `ACCOUNT_BUSY` | 409 | 所选账号存在进行中的任务或登录 |
 | `LOGIN_BROWSER_BUSY` | 409 | 共享桌面正用于另一个账号的登录 |
+| `ACCOUNT_ALREADY_LOGGED_IN` | 409 | 账号已明确登录且没有可复用的活动登录窗口，不创建候选 profile |
 | `LOGIN_SESSION_CHANGED` | 409 | 结束窗口的 session_id 与当前会话不符 |
 | `ACCOUNT_IDENTITY_MISMATCH` | 409 | 扫码真实身份与已有绑定不同 |
 | `ACCOUNT_ALREADY_EXISTS` | 409 | 该真实身份已绑定其他账号 |

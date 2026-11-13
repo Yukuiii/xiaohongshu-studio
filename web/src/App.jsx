@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Workspace from "./Workspace.jsx";
 import Settings from "./Settings.jsx";
 import Accounts from "./accounts/Accounts.jsx";
-import { useAccount } from "./accounts/useAccount.js";
+import { canStartLogin, useAccount } from "./accounts/useAccount.js";
 import { useWorkbench } from "./useWorkbench.js";
 
 const ACCOUNT_KEY = "hongshu-workbench.account.v1";
@@ -69,15 +69,36 @@ export default function App() {
   const [loginAfterSelect, setLoginAfterSelect] = useState(null);
   const preferredId = useRef(savedAccount());
   const listRequest = useRef(null);
+  const initialList = useRef(true);
   const mutation = useRef(false);
   const latest = useRef(null);
   latest.current = { wb, selectedId };
+  const selectedAccount = accounts.find((item) => item.id === selectedId);
   const account = useAccount({
     api: wb.api,
     active: page === "accounts",
     busy: wb.busy || Boolean(managing),
     context: wb.context,
+    summary: selectedAccount,
     activeLogin,
+    onStatus: (data, scope) => {
+      if (latest.current.wb.context !== scope) return;
+      if (data.is_logged_in || data.status === "not_logged_in") {
+        setAccounts((items) =>
+          items.map((item) =>
+            item.id === scope.accountId
+              ? {
+                  ...item,
+                  is_logged_in: data.is_logged_in === true,
+                  nickname: data.username || item.nickname,
+                  user_id: data.user_id || item.user_id,
+                }
+              : item,
+          ),
+        );
+      }
+      reloadAccounts({ silent: true });
+    },
     onLoginSession: (session, id) =>
       setActiveLogin((previous) => {
         if (!session) return previous?.account_id === id ? null : previous;
@@ -87,7 +108,6 @@ export default function App() {
           : session;
       }),
   });
-  const selectedAccount = accounts.find((item) => item.id === selectedId);
 
   function selectAccount(
     id,
@@ -120,22 +140,30 @@ export default function App() {
     return true;
   }
 
-  async function reloadAccounts(initial = false) {
+  async function reloadAccounts({ silent = false } = {}) {
     listRequest.current?.abort();
+    if (document.hidden) {
+      listRequest.current = null;
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     listRequest.current = controller;
-    const token = wb.settings.token;
-    setLoading(true);
+    const token = latest.current.wb.settings.token;
+    const initial = initialList.current;
+    if (!silent || initial) setLoading(true);
     try {
-      const data = await wb.api("/accounts", {
+      const data = await latest.current.wb.api("/accounts", {
         signal: controller.signal,
         token,
       });
       if (
+        listRequest.current !== controller ||
         controller.signal.aborted ||
         latest.current.wb.settings.token !== token
       )
         return;
+      initialList.current = false;
       const items = Array.isArray(data?.accounts) ? data.accounts : [];
       setAccounts(items);
       setLegacyId(data.legacy_account_id || null);
@@ -166,23 +194,63 @@ export default function App() {
           });
       }
     } catch (error) {
-      if (!controller.signal.aborted)
+      if (
+        listRequest.current === controller &&
+        !controller.signal.aborted &&
+        (!silent || initial)
+      )
         setListNotice({ message: error.message, type: "error" });
     } finally {
-      if (listRequest.current === controller && !controller.signal.aborted)
-        setLoading(false);
+      if (listRequest.current === controller) {
+        listRequest.current = null;
+        if (!controller.signal.aborted) setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
+    initialList.current = true;
     setSelectedId(null);
     setAccounts([]);
     setActiveLogin(null);
     setLoginAfterSelect(null);
     account.invalidate();
-    reloadAccounts(true);
+    reloadAccounts();
     return () => listRequest.current?.abort();
   }, [wb.settings.token]);
+
+  useEffect(() => {
+    let timer;
+    const suspend = () => {
+      window.clearInterval(timer);
+      listRequest.current?.abort();
+      listRequest.current = null;
+      setLoading(false);
+    };
+    const resume = () => {
+      window.clearInterval(timer);
+      if (document.hidden) return;
+      if (!mutation.current && !listRequest.current)
+        reloadAccounts({ silent: true });
+      if (page === "accounts") {
+        timer = window.setInterval(() => {
+          if (!document.hidden && !mutation.current && !listRequest.current)
+            reloadAccounts({ silent: true });
+        }, 60000);
+      }
+    };
+    const visibilityChanged = () => (document.hidden ? suspend() : resume());
+    if (page === "accounts" && !document.hidden) resume();
+    document.addEventListener("visibilitychange", visibilityChanged);
+    window.addEventListener("pagehide", suspend);
+    window.addEventListener("pageshow", resume);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+      window.removeEventListener("pagehide", suspend);
+      window.removeEventListener("pageshow", resume);
+    };
+  }, [page, wb.settings.token]);
 
   useEffect(() => {
     if (
@@ -200,6 +268,7 @@ export default function App() {
     if (latest.current.wb.busy || mutation.current) return false;
     mutation.current = true;
     listRequest.current?.abort();
+    listRequest.current = null;
     setLoading(false);
     setManaging(operation);
     setListNotice({ message: "", type: "" });
@@ -240,7 +309,19 @@ export default function App() {
       if (!mutation.current) selectAccount(id);
     },
     login: (id) => {
-      if (!mutation.current && selectAccount(id)) setLoginAfterSelect(id);
+      const item = accounts.find((item) => item.id === id);
+      const continuing =
+        activeLogin?.account_id === id ||
+        (selectedId === id &&
+          account.browserSession &&
+          item?.is_logged_in !== true);
+      if (
+        !mutation.current &&
+        item &&
+        (continuing || canStartLogin(item)) &&
+        selectAccount(id)
+      )
+        setLoginAfterSelect(id);
     },
     create: (name) =>
       manage("create", async (api) => {
@@ -271,10 +352,8 @@ export default function App() {
         setAccounts((items) =>
           items.map((item) => (item.id === id ? data.account : item)),
         );
-        if (id === selectedId) {
-          account.invalidate();
-          account.checkStatus();
-        }
+        if (id === selectedId) account.invalidate();
+        await reloadAccounts({ silent: true });
         setListNotice({
           message: "浏览器数据已重置。账号身份、草稿和素材已保留，请重新登录。",
           type: "",

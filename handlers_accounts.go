@@ -68,18 +68,20 @@ func (s *AppServer) accountMiddleware() gin.HandlerFunc {
 }
 
 type accountSummary struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	UserID        string    `json:"user_id,omitempty"`
-	Nickname      string    `json:"nickname,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	BrowserStatus string    `json:"browser_status"`
-	Busy          bool      `json:"busy"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	UserID         string     `json:"user_id,omitempty"`
+	Nickname       string     `json:"nickname,omitempty"`
+	IsLoggedIn     bool       `json:"is_logged_in"`
+	LoginCheckedAt *time.Time `json:"login_checked_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	BrowserStatus  string     `json:"browser_status"`
+	Busy           bool       `json:"busy"`
 }
 
 func (m *AccountManager) summary(a accounts.Account) accountSummary {
-	result := accountSummary{ID: a.ID, Name: a.Name, UserID: a.UserID, Nickname: a.Nickname, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt, BrowserStatus: "stopped"}
+	result := accountSummary{ID: a.ID, Name: a.Name, UserID: a.UserID, Nickname: a.Nickname, IsLoggedIn: a.IsLoggedIn, LoginCheckedAt: a.LoginCheckedAt, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt, BrowserStatus: "stopped"}
 	m.mu.Lock()
 	r := m.runtimes[a.ID]
 	m.mu.Unlock()

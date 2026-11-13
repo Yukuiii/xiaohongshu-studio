@@ -28,16 +28,18 @@ var (
 )
 
 type Account struct {
-	ID                  string    `json:"id"`
-	Name                string    `json:"name"`
-	UserID              string    `json:"user_id"`
-	Nickname            string    `json:"nickname"`
-	Seed                int       `json:"seed"`
-	ActiveProfile       string    `json:"active_profile"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
-	Deleted             bool      `json:"deleted"`
-	LegacyImportPending bool      `json:"legacy_import_pending"`
+	ID                  string     `json:"id"`
+	Name                string     `json:"name"`
+	UserID              string     `json:"user_id"`
+	Nickname            string     `json:"nickname"`
+	IsLoggedIn          bool       `json:"is_logged_in"`
+	LoginCheckedAt      *time.Time `json:"login_checked_at"`
+	Seed                int        `json:"seed"`
+	ActiveProfile       string     `json:"active_profile"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	Deleted             bool       `json:"deleted"`
+	LegacyImportPending bool       `json:"legacy_import_pending"`
 }
 
 type diskState struct {
@@ -283,7 +285,26 @@ func (s *Store) BindIdentity(id, userID, nickname string) error {
 		return err
 	}
 	a.UserID, a.Nickname = userID, nickname
+	a.setLoginStatus(true)
 	return s.save(a)
+}
+
+// SetLoginStatus 保存最近一次明确的登录检查结果。
+func (s *Store) SetLoginStatus(id string, loggedIn bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.get(id)
+	if err != nil {
+		return err
+	}
+	a.setLoginStatus(loggedIn)
+	return s.save(a)
+}
+
+func (a *Account) setLoginStatus(loggedIn bool) {
+	now := time.Now().UTC()
+	a.IsLoggedIn = loggedIn
+	a.LoginCheckedAt = &now
 }
 
 func (s *Store) checkIdentity(a Account, userID string) error {
