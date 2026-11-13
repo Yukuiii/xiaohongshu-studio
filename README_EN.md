@@ -64,9 +64,12 @@ Go embeds `web/dist/`, so build the frontend before compiling the backend. The r
 
 1. **Configure a model**: Open Settings (设置) and enter the text provider's base URL, API key, and model name. OpenAI-compatible APIs are supported; fetch the model list or enter a name manually.
 2. **Connect an account**: Open Accounts (账号), add or select an account, and open its sign-in page. Scan with the Xiaohongshu app and complete phone confirmation and any security checks shown on the page.
-3. **Research and draft**: Return to Workspace (工作台), enter a topic, search keywords, and writing instructions, then search for references and generate a draft. Adjust the selected references to draft again.
-4. **Edit and add images**: Review the title, body, and tags. Upload images or generate them with an image model, arrange their order, and check the preview.
-5. **Confirm publication**: Verify the selected account, content, and visibility, then confirm in the publication dialog.
+3. **Find inspiration**: Return to Workspace (工作台). In the first tab, enter a topic and keywords, search, and select reference posts. Choose Next (下一步) when ready to write.
+4. **Write**: Add writing instructions and generate from the selected references, or write manually. Edit the title, body, and tags while checking the live preview.
+5. **Add images**: Open the images tab to upload pictures or generate them with an image model. Check the cover and other images in the preview.
+6. **Confirm publication**: Open the final tab, verify the selected account, content, and visibility, then confirm in the publication dialog.
+
+Use the tabs to return to earlier steps without losing your work. The preview stays on the right on desktop and appears below the controls on narrow screens.
 
 The provider URL must include any required version path, such as `https://api.openai.com/v1`; the application does not append `/v1`. Text and image models can use different providers. Image generation requires an OpenAI-compatible `images/generations` endpoint; uploading images does not require an image model. Selected reference material is sent to your configured text provider.
 

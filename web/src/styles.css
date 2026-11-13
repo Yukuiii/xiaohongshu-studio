@@ -343,37 +343,129 @@ h1 span {
   white-space: nowrap;
   background: #f9f9f3;
 }
-.steps {
-  list-style: none;
-  display: flex;
-  margin: 30px 0 25px;
-  padding: 0;
-  gap: 32px;
+.workspace-intro {
+  margin-bottom: 20px;
 }
-.steps li {
+.workspace-intro .eyebrow {
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+.workspace-intro h1 {
+  font-size: 30px;
+  margin-bottom: 6px;
+}
+.workspace-intro .muted {
   font-size: 12px;
-  color: #9b9c94;
+}
+.workspace-status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
-.steps li span {
+.workspace-status .notice {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.workspace-status > button {
+  flex-shrink: 0;
+}
+.publish-reminder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 5px;
+  background: #eeeee7;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  scroll-margin-top: 20px;
+}
+.steps [role="tab"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 48px;
+  padding: 9px 5px;
+  background: transparent;
+  border-radius: 9px;
+  color: #83847a;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.steps [role="tab"] > span {
   display: grid;
   place-items: center;
-  border: 1px solid #dcdcd4;
+  width: 23px;
+  height: 23px;
+  flex-shrink: 0;
+  border: 1px solid #d6d6cc;
   border-radius: 50%;
-  width: 25px;
-  height: 25px;
   font-size: 10px;
 }
-.steps li.active {
+.steps [aria-selected="true"] {
+  background: var(--white);
   color: var(--red);
   font-weight: 650;
+  box-shadow: 0 2px 6px #292b2908;
 }
-.steps li.active span {
+.steps [aria-selected="true"] > span {
   background: var(--red);
   border-color: var(--red);
   color: white;
+}
+.step-panel {
+  min-width: 0;
+  scroll-margin-top: 20px;
+}
+.step-panel:focus-visible {
+  outline: 2px solid #e6a296;
+  outline-offset: 4px;
+}
+.step-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 2px 0 10px;
+}
+.step-navigation > .button-group {
+  margin-left: auto;
+}
+.writing-assist {
+  margin-bottom: 26px;
+  padding: 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.writing-instructions {
+  margin-top: 14px;
+}
+.writing-instructions summary {
+  color: #6f7166;
+  font-size: 12px;
+  cursor: pointer;
+}
+.writing-instructions summary span {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.step-summary {
+  margin: 22px 0;
+  padding: 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
 }
 .workspace-grid {
   display: grid;
@@ -385,6 +477,80 @@ h1 span {
   display: grid;
   gap: 22px;
   min-width: 0;
+}
+@media (min-width: 1051px) {
+  .workspace.creation-workspace {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 80px);
+    min-height: 560px;
+    padding: 22px 32px 16px;
+  }
+  .creation-workspace > [data-view="workspace"] {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .creation-workspace .workspace-intro {
+    flex-shrink: 0;
+    margin-bottom: 16px;
+  }
+  .creation-workspace .workspace-intro h1 {
+    font-size: 26px;
+    margin-bottom: 4px;
+  }
+  .creation-workspace .workspace-intro .eyebrow,
+  .creation-workspace .desk-label {
+    display: none;
+  }
+  .creation-workspace .onboarding {
+    flex-shrink: 0;
+    margin: 0 0 16px;
+  }
+  .creation-workspace .workspace-status,
+  .creation-workspace .publish-reminder,
+  .creation-workspace > .notice {
+    flex-shrink: 0;
+  }
+  .creation-workspace .workspace-grid {
+    flex: 1;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .creation-workspace .editor-column {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    gap: 16px;
+  }
+  .creation-workspace .steps,
+  .creation-workspace .step-navigation {
+    flex-shrink: 0;
+  }
+  .creation-workspace .step-panel {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    overscroll-behavior: contain;
+  }
+  .creation-workspace .source-list {
+    max-height: none;
+    overflow: visible;
+  }
+  .creation-workspace .preview-column {
+    top: 0;
+    height: 100%;
+    max-height: 100%;
+  }
+  .creation-workspace .page-footer {
+    flex-shrink: 0;
+    margin-top: 12px;
+    padding: 10px 0 0;
+  }
 }
 .card {
   padding: 28px 30px;
@@ -723,9 +889,16 @@ textarea {
   color: #aaa597;
   margin-left: 10px;
 }
-.preview-sticky {
+.preview-column {
   position: sticky;
-  top: 25px;
+  top: 24px;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+.preview-sticky {
+  padding: 0 2px;
 }
 .preview-heading {
   display: flex;
@@ -855,6 +1028,12 @@ textarea {
   margin-bottom: 12px;
   max-height: 420px;
   overflow: auto;
+}
+@media (min-width: 1051px) {
+  .preview-body > p {
+    max-height: none;
+    overflow: visible;
+  }
 }
 .preview-body .preview-tags {
   color: #5f7c85;
@@ -1146,9 +1325,9 @@ fieldset label:first-of-type {
     width: 100%;
     max-width: 410px;
     margin: auto;
-  }
-  .preview-sticky {
     position: static;
+    max-height: none;
+    overflow: visible;
   }
 }
 @media (max-width: 760px) {
@@ -1238,12 +1417,21 @@ fieldset label:first-of-type {
     font-size: 22px;
   }
   .steps {
-    gap: 22px;
-    margin-top: 25px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    scroll-margin-top: 136px;
   }
-  .steps li {
-    font-size: 11px;
-    gap: 6px;
+  .step-panel {
+    scroll-margin-top: 136px;
+  }
+  .steps [role="tab"] {
+    min-height: 44px;
+    font-size: 12px;
+  }
+  .step-navigation > .button-group {
+    flex-wrap: nowrap;
+  }
+  .step-navigation .button {
+    font-size: 12px;
   }
   .workspace-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -1263,9 +1451,9 @@ fieldset label:first-of-type {
     max-width: 410px;
     width: 100%;
     margin: auto;
-  }
-  .preview-sticky {
     position: static;
+    max-height: none;
+    overflow: visible;
   }
   .preview-cover {
     aspect-ratio: 4/4;
@@ -1345,10 +1533,6 @@ fieldset label:first-of-type {
   }
   .form-bottom .button-group {
     margin-left: auto;
-  }
-  .steps {
-    justify-content: space-between;
-    gap: 9px;
   }
   .dialog-actions .button {
     flex: 1;

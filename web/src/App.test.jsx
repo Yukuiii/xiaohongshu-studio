@@ -138,6 +138,202 @@ const deferred = () => {
 const listCalls = (fetch) =>
   fetch.mock.calls.filter(([url]) => url === "/api/v1/accounts");
 
+describe("分步创作工作台", () => {
+  function workspaceService(accounts = [A]) {
+    const fetch = service(accounts);
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) => {
+      if (path.startsWith("/api/v1/images/"))
+        return Promise.resolve({
+          ok: true,
+          blob: async () => new Blob(["image"], { type: "image/png" }),
+        });
+      if (path === "/api/v1/login/status")
+        return Promise.resolve(
+          ok({
+            account_id: options.headers["X-XHS-Account-ID"],
+            user_id: "user-A",
+            username: "作者A",
+            is_logged_in: true,
+            status: "logged_in",
+          }),
+        );
+      if (path === "/api/v1/publish")
+        return Promise.resolve(ok({ status: "发布完成" }));
+      return original(path, options);
+    });
+    return fetch;
+  }
+
+  it("每次只展示当前步骤，往返保留文字、图片和同一个预览节点", async () => {
+    localStorage.setItem(
+      "hongshu-workbench.draft.v1:A",
+      JSON.stringify({
+        title: "原稿标题",
+        content: "原稿正文",
+        tags: "#分享",
+        images: [
+          { id: "one", name: "封面", path: "/images/one.png" },
+          { id: "two", name: "内页", path: "/images/two.png" },
+        ],
+        sources: [
+          { id: "ref", token: "token", title: "参考笔记", selected: true },
+        ],
+      }),
+    );
+    const fetch = workspaceService();
+    render(<App />);
+    const first = await screen.findByRole("tab", { name: "寻找灵感" });
+    await waitFor(() => expect(first).toBeEnabled());
+    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+    expect(screen.getByRole("tabpanel", { name: "寻找灵感" })).toBeVisible();
+    expect(screen.getByLabelText("参考笔记")).toBeChecked();
+    const preview = screen.getByRole("complementary", { name: "笔记实时预览" });
+    const cover = within(preview).getByRole("img", { name: "笔记配图 1" });
+    fireEvent.click(screen.getByRole("button", { name: "预览下一张配图" }));
+    expect(within(preview).getByRole("img", { name: "笔记配图 2" })).toBe(
+      cover,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /下一步：撰写文案/ }));
+    expect(screen.getByRole("tabpanel", { name: "撰写文案" })).toHaveFocus();
+    fireEvent.change(screen.getByLabelText("笔记标题"), {
+      target: { value: "修改后的标题" },
+    });
+    fireEvent.change(screen.getByLabelText("正文"), {
+      target: { value: "修改后的正文" },
+    });
+    expect(preview.querySelector("#preview-title")).toHaveTextContent(
+      "修改后的标题",
+    );
+    expect(preview.querySelector("#preview-content")).toHaveTextContent(
+      "修改后的正文",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /下一步：制作配图/ }));
+    expect(screen.getByRole("tabpanel", { name: "制作配图" })).toBeVisible();
+    expect(screen.getByRole("img", { name: "内页" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "上一步" }));
+    expect(screen.getByLabelText("笔记标题")).toHaveValue("修改后的标题");
+    expect(screen.getByLabelText("正文")).toHaveValue("修改后的正文");
+    fireEvent.click(first);
+    expect(screen.getByLabelText("参考笔记")).toBeChecked();
+    expect(screen.getByRole("complementary", { name: "笔记实时预览" })).toBe(
+      preview,
+    );
+    expect(within(preview).getByRole("img", { name: "笔记配图 2" })).toBe(
+      cover,
+    );
+    expect(
+      fetch.mock.calls.some(([path]) => /feeds|compose|publish/.test(path)),
+    ).toBe(false);
+  });
+
+  it("Tab 支持键盘切换，无参考时可手写并直接进入后续步骤", async () => {
+    workspaceService();
+    render(<App />);
+    const first = await screen.findByRole("tab", { name: "寻找灵感" });
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+    const writing = screen.getByRole("tab", { name: "撰写文案" });
+    expect(writing).toHaveFocus();
+    expect(writing).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("button", { name: /按参考生成文案/ }),
+    ).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("笔记标题"), {
+      target: { value: "手写笔记" },
+    });
+    fireEvent.keyDown(writing, { key: "End" });
+    const publish = screen.getByRole("tab", { name: "确认发布" });
+    expect(publish).toHaveFocus();
+    expect(screen.getByRole("tabpanel", { name: "确认发布" })).toBeVisible();
+    fireEvent.keyDown(publish, { key: "Home" });
+    expect(first).toHaveFocus();
+    fireEvent.keyDown(first, { key: "ArrowLeft" });
+    expect(publish).toHaveFocus();
+    expect(document.querySelector("#preview-title")).toHaveTextContent(
+      "手写笔记",
+    );
+  });
+
+  it("切换账号后回到第一步，重新进入文案时读取对应账号草稿", async () => {
+    localStorage.setItem("hongshu-workbench.account.v1", "A");
+    localStorage.setItem(
+      "hongshu-workbench.draft.v1:A",
+      JSON.stringify({ title: "A草稿" }),
+    );
+    localStorage.setItem(
+      "hongshu-workbench.draft.v1:B",
+      JSON.stringify({ title: "B草稿" }),
+    );
+    workspaceService([A, B]);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: "撰写文案" }));
+    expect(screen.getByLabelText("笔记标题")).toHaveValue("A草稿");
+    await navigatePage("accounts");
+    const row = screen.getByRole("region", { name: "账号 账号B" });
+    fireEvent.click(within(row).getByRole("button", { name: "切换账号" }));
+    await navigatePage("workspace");
+    expect(screen.getByRole("tab", { name: "寻找灵感" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(document.querySelector("#preview-title")).toHaveTextContent("B草稿");
+    fireEvent.click(screen.getByRole("tab", { name: "撰写文案" }));
+    expect(screen.getByLabelText("笔记标题")).toHaveValue("B草稿");
+    expect(
+      JSON.parse(localStorage.getItem("hongshu-workbench.draft.v1:A")).title,
+    ).toBe("A草稿");
+  });
+
+  it("只有第四步可检查发布，进入步骤不提交，确认勾选后才发送发布请求", async () => {
+    localStorage.setItem(
+      "hongshu-workbench.draft.v1:A",
+      JSON.stringify({
+        title: "待发布笔记",
+        content: "已核对的正文",
+        images: [{ id: "pic", name: "配图", path: "/images/pic.png" }],
+      }),
+    );
+    const fetch = workspaceService();
+    render(<App />);
+    const first = await screen.findByRole("tab", { name: "寻找灵感" });
+    await waitFor(() => expect(first).toBeEnabled());
+    expect(
+      screen.queryByRole("button", { name: /检查并发布/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "确认发布" }));
+    expect(screen.getByLabelText("谁可以看")).toBeVisible();
+    expect(fetch.mock.calls.some(([path]) => path === "/api/v1/publish")).toBe(
+      false,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /检查并发布/ }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "准备好分享了吗？",
+    });
+    const confirm = within(dialog).getByRole("button", {
+      name: "确认发布",
+      exact: true,
+    });
+    expect(confirm).toBeDisabled();
+    expect(fetch.mock.calls.some(([path]) => path === "/api/v1/publish")).toBe(
+      false,
+    );
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", { name: /我已核对正文/ }),
+    );
+    fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.filter(([path]) => path === "/api/v1/publish"),
+      ).toHaveLength(1),
+    );
+    const request = fetch.mock.calls.find(
+      ([path]) => path === "/api/v1/publish",
+    );
+    expect(request[1].headers["X-XHS-Account-ID"]).toBe("A");
+    await screen.findByText(/笔记发布完成！/);
+  });
+});
+
 describe("账号选择界面", () => {
   it("已登录账号隐藏登录入口，加载和切换均不打开登录窗口", async () => {
     accountsPage();
@@ -347,6 +543,7 @@ describe("账号选择界面", () => {
     render(<App />);
     await act(async () => {});
     await navigatePage("workspace");
+    fireEvent.click(screen.getByRole("tab", { name: "撰写文案" }));
     fireEvent.change(screen.getByLabelText(/笔记标题/), {
       target: { value: "正在写的草稿" },
     });
@@ -554,6 +751,7 @@ describe("账号选择界面", () => {
       fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
     ).toHaveLength(0);
     await navigatePage("workspace");
+    fireEvent.click(screen.getByRole("tab", { name: "撰写文案" }));
     expect(screen.getByLabelText(/笔记标题/)).toHaveValue("保留的草稿");
   });
   it("仅有一个账号时自动选择，其他标签页更新最近 ID 不切换本页", async () => {
@@ -613,6 +811,7 @@ describe("账号选择界面", () => {
       screen.getByRole("button", { name: "工作台", exact: true }),
     );
     await screen.findByRole("heading", { name: "今天，想分享什么？" });
+    fireEvent.click(screen.getByRole("tab", { name: "撰写文案" }));
     expect(screen.getByLabelText(/笔记标题/)).toHaveValue("B标题");
     expect(document.querySelector("#preview-author")).toHaveTextContent(
       "账号B",

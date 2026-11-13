@@ -1,5 +1,13 @@
+import { useEffect, useRef, useState } from "react";
 import { Notice, Dialog } from "./components.jsx";
 import { parseTags, sourceURL, titleLength } from "./useWorkbench.js";
+
+const steps = [
+  { id: "inspiration", label: "寻找灵感" },
+  { id: "writing", label: "撰写文案" },
+  { id: "images", label: "制作配图" },
+  { id: "publish", label: "确认发布" },
+];
 
 export default function Workspace({
   workbench: wb,
@@ -8,6 +16,47 @@ export default function Workspace({
   openSettings,
 }) {
   const { draft, busy, images, sources } = wb;
+  const [step, setStep] = useState(0);
+  const tabs = useRef([]);
+  const panels = useRef([]);
+  const focusPanel = useRef(false);
+
+  useEffect(() => {
+    setStep(0);
+    focusPanel.current = false;
+  }, [wb.context.accountId]);
+
+  useEffect(() => {
+    if (!focusPanel.current) return;
+    focusPanel.current = false;
+    panels.current[step]?.focus({ preventScroll: true });
+    tabs.current[step]?.closest('[role="tablist"]')?.scrollIntoView?.({
+      block: "start",
+      behavior: "instant",
+    });
+  }, [step]);
+
+  function goToStep(next, focus = false) {
+    if (busy) return;
+    focusPanel.current = focus;
+    setStep(next);
+  }
+
+  function onTabKeyDown(event, index) {
+    let next;
+    if (event.key === "ArrowRight") next = (index + 1) % steps.length;
+    else if (event.key === "ArrowLeft")
+      next = (index + steps.length - 1) % steps.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = steps.length - 1;
+    else return;
+    event.preventDefault();
+    if (!busy) {
+      goToStep(next);
+      tabs.current[next]?.focus();
+    }
+  }
+
   const titleCount = titleLength(draft.title);
   const contentCount = Array.from(draft.content).length;
   const previewIndex = Math.min(
@@ -19,7 +68,7 @@ export default function Workspace({
   const selectedCount = sources.filter((source) => source.selected).length;
   return (
     <>
-      <header className="intro">
+      <header className="intro workspace-intro">
         <div>
           <p className="eyebrow">从一个灵感，到一篇好笔记</p>
           <h1 id="workspace-title" tabIndex={-1}>
@@ -43,9 +92,10 @@ export default function Workspace({
             ✦
           </span>
           <div>
-            <strong>先准备好你的创作台</strong>
+            <strong>按需连接你的创作工具</strong>
             <p>
-              在「设置」连接文字模型，再到「账号」添加小红书账号，即可搜索资料并生成草稿。配图也可以直接上传。
+              搜索参考需要先登录账号，AI
+              写稿需要连接文字模型。也可以直接手写文案、上传配图。
             </p>
           </div>
           <button
@@ -59,52 +109,69 @@ export default function Workspace({
           </button>
         </section>
       )}
-      <ol className="steps" aria-label="创作进度">
-        <li className="active">
-          <span>01</span>寻找灵感
-        </li>
-        <li className={draft.title || draft.content ? "active" : ""}>
-          <span>02</span>打磨笔记
-        </li>
-        <li
-          className={
-            draft.title && draft.content && images.length ? "active" : ""
-          }
-        >
-          <span>03</span>确认发布
-        </li>
-      </ol>
-      <Notice id="status" notice={wb.status} />
-      {wb.uncertain && (
-        <div id="publish-uncertain" className="notice warning">
-          <strong>上次发布的结果尚未确认</strong>
-          <p>
-            请求可能已经发送成功。请先打开小红书账号核对笔记，避免重复发布。核对后可解除锁定。
-          </p>
-          <label className="check-label">
-            <input
-              type="checkbox"
-              id="reviewed-publish"
-              checked={wb.reviewedPublish}
-              disabled={busy}
-              onChange={(event) => wb.setReviewedPublish(event.target.checked)}
-            />
-            我已在小红书核对发布结果
-          </label>
-          <button
-            type="button"
-            id="unlock-publish"
-            className="button small"
-            disabled={busy || !wb.reviewedPublish}
-            onClick={wb.unlockPublish}
-          >
-            解除发布锁定
-          </button>
-        </div>
-      )}
       <div className="workspace-grid">
         <div className="editor-column">
-          <section className="card" aria-labelledby="research-title">
+          <div className="steps" role="tablist" aria-label="创作步骤">
+            {steps.map((item, index) => (
+              <button
+                key={item.id}
+                ref={(node) => {
+                  tabs.current[index] = node;
+                }}
+                type="button"
+                id={`workspace-tab-${item.id}`}
+                role="tab"
+                aria-selected={step === index}
+                aria-controls={`workspace-panel-${item.id}`}
+                tabIndex={step === index ? 0 : -1}
+                disabled={busy}
+                onClick={() => goToStep(index)}
+                onKeyDown={(event) => onTabKeyDown(event, index)}
+              >
+                <span aria-hidden="true">{index + 1}</span>
+                {item.label}
+              </button>
+            ))}
+          </div>
+          {(wb.status.message || wb.researching) && (
+            <div className="workspace-status">
+              <Notice id="status" notice={wb.status} />
+              {wb.researching && (
+                <button
+                  type="button"
+                  id="cancel-research"
+                  className="button quiet small"
+                  onClick={wb.cancelResearch}
+                >
+                  取消操作
+                </button>
+              )}
+            </div>
+          )}
+          {wb.uncertain && step !== 3 && (
+            <div className="notice warning publish-reminder">
+              <span>上次发布的结果尚未确认，请先核对，避免重复发布。</span>
+              <button
+                type="button"
+                className="button small"
+                disabled={busy}
+                onClick={() => goToStep(3, true)}
+              >
+                前往核对
+              </button>
+            </div>
+          )}
+          <section
+            className="card step-panel"
+            id="workspace-panel-inspiration"
+            role="tabpanel"
+            aria-labelledby="workspace-tab-inspiration"
+            hidden={step !== 0}
+            tabIndex={-1}
+            ref={(node) => {
+              panels.current[0] = node;
+            }}
+          >
             <div className="section-heading">
               <div>
                 <span className="section-kicker">01 / RESEARCH</span>
@@ -143,45 +210,18 @@ export default function Workspace({
                 placeholder="快手早餐，健康早餐，上班族早餐"
                 disabled={busy}
               />
-              <label htmlFor="instructions">
-                你希望怎么写 <span className="field-note">选填</span>
-              </label>
-              <textarea
-                id="instructions"
-                rows={3}
-                value={draft.instructions}
-                onChange={change("instructions")}
-                placeholder="例如：语气自然、步骤清楚，面向厨房新手；不要编造亲身体验。"
-                disabled={busy}
-              />
               <div className="form-bottom">
-                <span className="helper">搜索参考 → 读取正文 → 整理草稿</span>
-                <div className="button-group">
-                  {wb.researching && (
-                    <button
-                      type="button"
-                      id="cancel-research"
-                      className="button quiet"
-                      onClick={wb.cancelResearch}
-                    >
-                      取消
-                    </button>
-                  )}
-                  <button
-                    id="research-button"
-                    type="submit"
-                    className="button primary"
-                    disabled={busy}
-                  >
-                    {wb.operation === "research" ? (
-                      "正在搜索与写稿…"
-                    ) : (
-                      <>
-                        搜索并生成草稿 <span aria-hidden="true">↗</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+                <span className="helper">搜索真实笔记，挑选想参考的内容</span>
+                <button
+                  id="research-button"
+                  type="submit"
+                  className="button primary"
+                  disabled={busy}
+                >
+                  {wb.operation === "research"
+                    ? "正在搜索…"
+                    : "搜索参考笔记 ↗"}
+                </button>
               </div>
             </form>
             <div className="sources-section">
@@ -192,17 +232,6 @@ export default function Workspace({
                     {selectedCount} / {sources.length}
                   </span>
                 </h3>
-                <button
-                  type="button"
-                  id="regenerate"
-                  className="button text-button"
-                  disabled={busy || !selectedCount}
-                  onClick={() => wb.research(false, account.requireLogin)}
-                >
-                  {wb.operation === "regenerate"
-                    ? "正在重新生成…"
-                    : "按所选资料重新生成 ↗"}
-                </button>
               </div>
               <p className="helper">
                 默认选取前 3 篇，可调整为 1–5
@@ -269,21 +298,62 @@ export default function Workspace({
               </div>
             </div>
           </section>
-          <section className="card" aria-labelledby="draft-title">
+          <section
+            className="card step-panel"
+            id="workspace-panel-writing"
+            role="tabpanel"
+            aria-labelledby="workspace-tab-writing"
+            hidden={step !== 1}
+            tabIndex={-1}
+            ref={(node) => {
+              panels.current[1] = node;
+            }}
+          >
             <div className="section-heading">
               <div>
-                <span className="section-kicker">02 / EDIT</span>
+                <span className="section-kicker">02 / WRITE</span>
                 <h2 id="draft-title">把表达，变成你的</h2>
               </div>
-              <button
-                type="button"
-                id="save-draft"
-                className="button quiet small"
-                disabled={busy}
-                onClick={wb.save}
-              >
-                保存草稿
-              </button>
+              <span className="pill">{selectedCount} 篇参考</span>
+            </div>
+            <div className="writing-assist">
+              <p className="helper">
+                {selectedCount
+                  ? `已选择 ${selectedCount} 篇参考。生成后可以继续修改，也可以直接手写。`
+                  : "可以直接撰写，或返回「寻找灵感」选择参考资料后生成。"}
+              </p>
+              <details className="writing-instructions">
+                <summary>
+                  补充写作要求 <span>选填</span>
+                </summary>
+                <label htmlFor="instructions">你希望怎么写</label>
+                <textarea
+                  id="instructions"
+                  rows={3}
+                  value={draft.instructions}
+                  onChange={change("instructions")}
+                  placeholder="例如：语气自然、步骤清楚，面向厨房新手；不要编造亲身体验。"
+                  disabled={busy}
+                />
+              </details>
+              <div className="form-bottom">
+                <span className="helper">
+                  只有成功读取正文的资料才会用于写稿
+                </span>
+                <button
+                  type="button"
+                  id="regenerate"
+                  className="button"
+                  disabled={busy || !selectedCount}
+                  onClick={() => wb.research(false, account.requireLogin)}
+                >
+                  {wb.operation === "regenerate"
+                    ? "正在生成文案…"
+                    : draft.title || draft.content
+                      ? "按参考重新生成 ✦"
+                      : "按参考生成文案 ✦"}
+                </button>
+              </div>
             </div>
             <div className="label-row">
               <label htmlFor="title">笔记标题</label>
@@ -336,7 +406,17 @@ export default function Workspace({
               协助表达，你负责判断。请确认事实、原创性与图片使用权。
             </div>
           </section>
-          <section className="card" aria-labelledby="images-title">
+          <section
+            className="card step-panel"
+            id="workspace-panel-images"
+            role="tabpanel"
+            aria-labelledby="workspace-tab-images"
+            hidden={step !== 2}
+            tabIndex={-1}
+            ref={(node) => {
+              panels.current[2] = node;
+            }}
+          >
             <div className="section-heading">
               <div>
                 <span className="section-kicker">03 / VISUALS</span>
@@ -428,8 +508,144 @@ export default function Workspace({
               </div>
             </details>
           </section>
+          <section
+            className="card step-panel"
+            id="workspace-panel-publish"
+            role="tabpanel"
+            aria-labelledby="workspace-tab-publish"
+            hidden={step !== 3}
+            tabIndex={-1}
+            ref={(node) => {
+              panels.current[3] = node;
+            }}
+          >
+            <div className="section-heading">
+              <div>
+                <span className="section-kicker">04 / PUBLISH</span>
+                <h2>最后，再检查一遍</h2>
+              </div>
+            </div>
+            <p className="helper">
+              核对右侧预览、发布账号和可见范围，准备好后再继续。
+            </p>
+            <dl className="publish-summary step-summary">
+              <dt>发布账号</dt>
+              <dd>
+                {selectedAccount?.name}
+                {selectedAccount?.nickname
+                  ? ` / ${selectedAccount.nickname}`
+                  : ""}
+              </dd>
+              <dt>笔记标题</dt>
+              <dd>{draft.title || "尚未填写标题"}</dd>
+              <dt>正文</dt>
+              <dd>{contentCount} / 1000 字</dd>
+              <dt>配图</dt>
+              <dd>{images.length} / 9 张</dd>
+            </dl>
+            {wb.uncertain && (
+              <div id="publish-uncertain" className="notice warning">
+                <strong>上次发布的结果尚未确认</strong>
+                <p>
+                  请求可能已经发送成功。请先打开小红书账号核对笔记，避免重复发布。核对后可解除锁定。
+                </p>
+                <label className="check-label">
+                  <input
+                    type="checkbox"
+                    id="reviewed-publish"
+                    checked={wb.reviewedPublish}
+                    disabled={busy}
+                    onChange={(event) =>
+                      wb.setReviewedPublish(event.target.checked)
+                    }
+                  />
+                  我已在小红书核对发布结果
+                </label>
+                <button
+                  type="button"
+                  id="unlock-publish"
+                  className="button small"
+                  disabled={busy || !wb.reviewedPublish}
+                  onClick={wb.unlockPublish}
+                >
+                  解除发布锁定
+                </button>
+              </div>
+            )}
+            <section className="publish-panel">
+              <label htmlFor="visibility">谁可以看</label>
+              <select
+                id="visibility"
+                value={draft.visibility}
+                onChange={change("visibility")}
+                disabled={busy}
+              >
+                {["公开可见", "仅自己可见", "仅互关好友可见"].map((value) => (
+                  <option key={value}>{value}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                id="publish-open"
+                className="button primary publish-button"
+                disabled={busy}
+                onClick={() =>
+                  wb.preparePublish(account.requireLogin, selectedAccount)
+                }
+              >
+                {wb.operation === "publish-check" ? (
+                  "正在检查账号…"
+                ) : (
+                  <>
+                    检查并发布 <span aria-hidden="true">→</span>
+                  </>
+                )}
+              </button>
+              <p>核对完成后，在确认窗口中提交。</p>
+              {wb.publishValidation && (
+                <div
+                  id="publish-validation"
+                  className="inline-error"
+                  role="status"
+                >
+                  {wb.publishValidation}
+                </div>
+              )}
+            </section>
+          </section>
+          <div className="step-navigation" aria-label="步骤操作">
+            <button
+              type="button"
+              id="save-draft"
+              className="button quiet small"
+              disabled={busy}
+              onClick={wb.save}
+            >
+              保存草稿
+            </button>
+            <div className="button-group">
+              <button
+                type="button"
+                className="button"
+                disabled={busy || step === 0}
+                onClick={() => goToStep(step - 1, true)}
+              >
+                上一步
+              </button>
+              {step < steps.length - 1 && (
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={busy}
+                  onClick={() => goToStep(step + 1, true)}
+                >
+                  下一步：{steps[step + 1].label} →
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-        <aside className="preview-column" aria-label="笔记预览与发布">
+        <aside className="preview-column" aria-label="笔记实时预览">
           <div className="preview-sticky">
             <div className="preview-heading">
               <span className="section-kicker">LIVE PREVIEW</span>
@@ -516,46 +732,6 @@ export default function Workspace({
             <p className="preview-disclaimer">
               预览仅供排版参考，实际展示以小红书为准
             </p>
-            <section className="publish-panel">
-              <label htmlFor="visibility">谁可以看</label>
-              <select
-                id="visibility"
-                value={draft.visibility}
-                onChange={change("visibility")}
-                disabled={busy}
-              >
-                {["公开可见", "仅自己可见", "仅互关好友可见"].map((value) => (
-                  <option key={value}>{value}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                id="publish-open"
-                className="button primary publish-button"
-                disabled={busy}
-                onClick={() =>
-                  wb.preparePublish(account.requireLogin, selectedAccount)
-                }
-              >
-                {wb.operation === "publish-check" ? (
-                  "正在检查账号…"
-                ) : (
-                  <>
-                    检查并发布 <span aria-hidden="true">→</span>
-                  </>
-                )}
-              </button>
-              <p>先确认，再发布。不会自动发布任何内容。</p>
-              {wb.publishValidation && (
-                <div
-                  id="publish-validation"
-                  className="inline-error"
-                  role="status"
-                >
-                  {wb.publishValidation}
-                </div>
-              )}
-            </section>
           </div>
         </aside>
       </div>

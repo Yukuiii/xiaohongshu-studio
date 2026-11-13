@@ -842,10 +842,10 @@ export function useWorkbench() {
   async function research(search, requireLogin) {
     await run(
       search ? "research" : "regenerate",
-      search ? "正在搜索与写稿…" : "正在重新生成…",
+      search ? "正在搜索参考笔记…" : "正在生成文案…",
       async (scope) => {
         const { settings, draft } = current.current;
-        validateConfig(settings.text, "文字模型");
+        if (!search) validateConfig(settings.text, "文字模型");
         if (!draft.topic.trim()) throw new Error("请先填写创作选题。");
         const keywords = [
           ...new Set(
@@ -918,8 +918,12 @@ export function useWorkbench() {
               throw new Error(
                 "搜索结果缺少可读取正文的访问凭证，请换一组关键词。未调用写稿模型。",
               );
+            notice(
+              `已找到 ${sources.length} 篇参考，选中 ${selected} 篇。可以调整选择，再进入「撰写文案」。`,
+            );
+          } else {
+            await composeSelected(signal, scope);
           }
-          await composeSelected(signal, scope);
         } finally {
           if (isCurrent(scope)) {
             researchController.current = null;

@@ -97,6 +97,202 @@ async function ready() {
   return hook;
 }
 
+describe("搜索与写稿步骤", () => {
+  async function researchFixture({ configured = true } = {}) {
+    localStorage.setItem(
+      key("A"),
+      JSON.stringify({
+        topic: "早餐灵感",
+        keywords: "快手早餐,健康早餐",
+        title: "保留的标题",
+        content: "保留的正文",
+        tags: "#原有话题",
+        "image-prompt": "原有画面",
+        sources: [
+          {
+            id: "old",
+            token: "old-token",
+            title: "原有参考",
+            selected: true,
+            content: "已有参考正文",
+          },
+        ],
+      }),
+    );
+    const original = modelStore({
+      text: configured
+        ? {
+            base_url: "https://model.example/v1",
+            model: "text-model",
+            api_key: "secret",
+          }
+        : {},
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((path, options) => {
+        if (path === "/api/v1/feeds/search")
+          return Promise.resolve(
+            ok({
+              feeds: [1, 2, 3].map((n) => ({
+                id: `ref-${n}`,
+                xsecToken: `token-${n}`,
+                noteCard: {
+                  displayTitle: `参考${n}`,
+                  user: { nickname: "作者" },
+                },
+              })),
+            }),
+          );
+        if (path === "/api/v1/feeds/detail") {
+          const body = JSON.parse(options.body);
+          return Promise.resolve(
+            ok({
+              data: {
+                note: { title: body.feed_id, desc: `真实正文 ${body.feed_id}` },
+              },
+            }),
+          );
+        }
+        if (path === "/api/v1/ai/compose")
+          return Promise.resolve(
+            ok({
+              title: "生成的标题",
+              content: "生成的正文",
+              tags: ["早餐"],
+              image_prompt: "早餐画面",
+            }),
+          );
+        return original(path, options);
+      }),
+    );
+    const hook = renderHook(useWorkbench);
+    await open(hook.result, "A");
+    await waitFor(() => expect(hook.result.current.settingsReady).toBe(true));
+    const requireLogin = vi
+      .fn()
+      .mockResolvedValue({ account_id: "A", is_logged_in: true });
+    return { ...hook, fetch, requireLogin };
+  }
+
+  it("没有模型配置也可只搜索，去重并选择参考，不读取正文、不生成或覆盖旧稿", async () => {
+    const { result, fetch, requireLogin } = await researchFixture({
+      configured: false,
+    });
+    const previous = { ...result.current.draft };
+    await act(async () => result.current.research(true, requireLogin));
+    expect(requireLogin).toHaveBeenCalledTimes(1);
+    expect(
+      fetch.mock.calls.filter(([path]) => path === "/api/v1/feeds/search"),
+    ).toHaveLength(2);
+    expect(
+      fetch.mock.calls.some(
+        ([path]) =>
+          path === "/api/v1/feeds/detail" || path === "/api/v1/ai/compose",
+      ),
+    ).toBe(false);
+    expect(result.current.sources).toHaveLength(3);
+    expect(result.current.sources.every((source) => source.selected)).toBe(
+      true,
+    );
+    expect(result.current.draft).toEqual(previous);
+    expect(JSON.parse(localStorage.getItem(key("A"))).sources).toHaveLength(3);
+    expect(result.current.status.message).toContain("撰写文案");
+  });
+
+  it("单独写稿只读取已选参考，并使用真实正文生成", async () => {
+    const { result, fetch, requireLogin } = await researchFixture();
+    await act(async () => result.current.research(true, requireLogin));
+    act(() => {
+      result.current.selectSource("ref-2", false);
+      result.current.selectSource("ref-3", false);
+    });
+    await act(async () => result.current.research(false, requireLogin));
+    const details = fetch.mock.calls.filter(
+      ([path]) => path === "/api/v1/feeds/detail",
+    );
+    expect(details).toHaveLength(1);
+    expect(JSON.parse(details[0][1].body).feed_id).toBe("ref-1");
+    const compose = fetch.mock.calls.find(
+      ([path]) => path === "/api/v1/ai/compose",
+    );
+    expect(JSON.parse(compose[1].body).sources).toEqual([
+      expect.objectContaining({ id: "ref-1", content: "真实正文 ref-1" }),
+    ]);
+    expect(result.current.draft).toMatchObject({
+      title: "生成的标题",
+      content: "生成的正文",
+      tags: "#早餐",
+      "image-prompt": "早餐画面",
+    });
+  });
+
+  it("所选正文全部读取失败时保留旧稿，不调用写稿模型", async () => {
+    const { result, fetch, requireLogin } = await researchFixture();
+    await act(async () => result.current.research(true, requireLogin));
+    const previous = { ...result.current.draft };
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) =>
+      path === "/api/v1/feeds/detail"
+        ? Promise.resolve(ok({ data: { note: { desc: "" } } }))
+        : original(path, options),
+    );
+    await act(async () => result.current.research(false, requireLogin));
+    expect(
+      fetch.mock.calls.some(([path]) => path === "/api/v1/ai/compose"),
+    ).toBe(false);
+    expect(result.current.draft).toEqual(previous);
+    expect(result.current.status.message).toContain("原有草稿已保留");
+  });
+
+  it("写稿失败保留已有文案和图片提示词", async () => {
+    const { result, fetch, requireLogin } = await researchFixture();
+    const previous = { ...result.current.draft };
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) =>
+      path === "/api/v1/ai/compose"
+        ? Promise.resolve(ok({ title: "", content: "" }))
+        : original(path, options),
+    );
+    await act(async () => result.current.research(false, requireLogin));
+    expect(result.current.draft).toEqual(previous);
+    expect(result.current.status.message).toContain("模型没有返回完整草稿");
+  });
+
+  it("取消搜索后忽略迟到响应，不覆盖原参考或继续写稿", async () => {
+    const { result, fetch, requireLogin } = await researchFixture();
+    const previous = { ...result.current.draft };
+    const sources = result.current.sources;
+    const late = deferred();
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) =>
+      path === "/api/v1/feeds/search" ? late.promise : original(path, options),
+    );
+    let task;
+    act(() => {
+      task = result.current.research(true, requireLogin);
+    });
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(([path]) => path === "/api/v1/feeds/search"),
+      ).toBe(true),
+    );
+    await act(async () => {
+      result.current.cancelResearch();
+      late.resolve(ok({ feeds: [{ id: "late", xsecToken: "late-token" }] }));
+      await task;
+    });
+    expect(result.current.draft).toEqual(previous);
+    expect(result.current.sources).toEqual(sources);
+    expect(result.current.busy).toBe(false);
+    expect(result.current.researching).toBe(false);
+    expect(result.current.status.message).toContain("操作已取消");
+    expect(
+      fetch.mock.calls.some(([path]) => path === "/api/v1/ai/compose"),
+    ).toBe(false);
+  });
+});
+
 describe("服务端模型配置", () => {
   const legacyKey = "hongshu-workbench.settings.v1";
   const tokenKey = "hongshu-workbench.token.v1";
