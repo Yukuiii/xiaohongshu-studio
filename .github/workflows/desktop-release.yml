@@ -112,9 +112,9 @@ jobs:
         with:
           name: Xiaohongshu Studio ${{ github.ref_name }}
           files: |
-            dist/*.dmg
-            dist/*-setup.exe
-            dist/*.msi
+            dist/**/*.dmg
+            dist/**/*-setup.exe
+            dist/**/*.msi
           generate_release_notes: true
           body: |
             ## 红薯创作台 ${{ github.ref_name }}
