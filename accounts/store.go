@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,6 +33,7 @@ type Account struct {
 	Name                string     `json:"name"`
 	UserID              string     `json:"user_id"`
 	Nickname            string     `json:"nickname"`
+	Avatar              string     `json:"avatar,omitempty"`
 	IsLoggedIn          bool       `json:"is_logged_in"`
 	LoginCheckedAt      *time.Time `json:"login_checked_at"`
 	Seed                int        `json:"seed"`
@@ -287,6 +289,38 @@ func (s *Store) BindIdentity(id, userID, nickname string) error {
 	a.UserID, a.Nickname = userID, nickname
 	a.setLoginStatus(true)
 	return s.save(a)
+}
+
+// SetAvatar 保存账号头像地址；空值、非 HTTPS 或非小红书图床地址不覆盖已有头像。
+func (s *Store) SetAvatar(id, avatar string) error {
+	if !validAvatarURL(avatar) {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.get(id)
+	if err != nil {
+		return err
+	}
+	if a.Avatar == avatar {
+		return nil
+	}
+	a.Avatar = avatar
+	return s.save(a)
+}
+
+func validAvatarURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	for _, suffix := range []string{"xhscdn.com", "xiaohongshu.com"} {
+		if host == suffix || strings.HasSuffix(host, "."+suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // SetLoginStatus 保存最近一次明确的登录检查结果。

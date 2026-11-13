@@ -16,6 +16,8 @@ type userInfo struct {
 	Nickname  string `json:"nickname"`
 	UserID    string `json:"userId"`
 	UserIDAlt string `json:"user_id"`
+	Images    string `json:"images"`
+	Imageb    string `json:"imageb"`
 }
 
 // FetchCurrentUser 使用账号会话读取 explore 页面里的登录身份，不渲染页面。
@@ -66,5 +68,9 @@ func parseCurrentUser(page []byte) (*CurrentUser, error) {
 	if userID == "" {
 		return nil, errors.New("无法确认小红书账号身份")
 	}
-	return &CurrentUser{Nickname: info.Nickname, UserID: userID}, nil
+	avatar := info.Images
+	if avatar == "" {
+		avatar = info.Imageb
+	}
+	return &CurrentUser{Nickname: info.Nickname, UserID: userID, Avatar: avatar}, nil
 }

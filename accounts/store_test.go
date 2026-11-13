@@ -458,3 +458,22 @@ func TestFailedMetadataWriteKeepsMemoryAndProfiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, a, loaded)
 }
+
+func TestSetAvatarPersistsAndValidates(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "accounts")
+	s := openStore(t, root, "", 0)
+	a := s.List()[0]
+	require.NoError(t, s.BindIdentity(a.ID, "user-a", "昵称"))
+	avatar := "https://sns-avatar-qc.xhscdn.com/avatar/example.webp?imageView2/2/w/360/format/webp"
+	require.NoError(t, s.SetAvatar(a.ID, avatar))
+	require.Equal(t, avatar, s.List()[0].Avatar)
+
+	var stored Account
+	require.NoError(t, json.Unmarshal(readTestFile(t, filepath.Join(root, a.ID, "account.json")), &stored))
+	require.Equal(t, avatar, stored.Avatar)
+
+	for _, invalid := range []string{"", "http://sns-avatar-qc.xhscdn.com/a.webp", "https://evil.example/a.webp", "javascript:alert(1)"} {
+		require.NoError(t, s.SetAvatar(a.ID, invalid))
+		require.Equal(t, avatar, s.List()[0].Avatar, invalid)
+	}
+}

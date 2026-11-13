@@ -360,6 +360,23 @@ describe("账号选择界面", () => {
     ).toBe(false);
   });
 
+  it("账号卡片优先显示头像，缺少头像时使用昵称首字", async () => {
+    accountsPage();
+    const avatar = "https://sns-avatar-qc.xhscdn.com/avatar/example.webp";
+    service([{ ...A, avatar }, B]);
+    render(<App />);
+    const rowA = await screen.findByRole("region", { name: "账号 账号A" });
+    const image = rowA.querySelector(".accounts-avatar img");
+    expect(image).toHaveAttribute("src", avatar);
+    expect(image).toHaveAttribute("referrerpolicy", "no-referrer");
+    fireEvent.error(image);
+    expect(rowA.querySelector(".accounts-avatar img")).toBeNull();
+    expect(rowA.querySelector(".accounts-avatar")).toHaveTextContent("作");
+    const rowB = screen.getByRole("region", { name: "账号 账号B" });
+    expect(rowB.querySelector(".accounts-avatar img")).toBeNull();
+    expect(rowB.querySelector(".accounts-avatar")).toHaveTextContent("账");
+  });
+
   it("绑定账号状态未知时先检查，确认失效后才提供重新登录", async () => {
     accountsPage();
     const fetch = service([{ ...expiredA, login_checked_at: null }]);

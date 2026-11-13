@@ -3,6 +3,28 @@ import { Dialog, Notice } from "../components.jsx";
 import { canStartLogin } from "./useAccount.js";
 import "./accounts.css";
 
+function AccountAvatar({ account }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div
+      className={`accounts-avatar${account.is_logged_in ? " connected" : ""}`}
+      aria-hidden="true"
+    >
+      {account.avatar && !failed ? (
+        <img
+          src={account.avatar}
+          alt=""
+          referrerPolicy="no-referrer"
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        Array.from(account.nickname || account.name || "薯")[0]
+      )}
+    </div>
+  );
+}
+
 const statusLabels = {
   waiting_scan: "等待扫码",
   waiting_confirmation: "等待手机确认",
@@ -120,12 +142,7 @@ export default function Accounts({ account, manager, busy }) {
               className={`card accounts-card${selected ? " selected" : ""}`}
               aria-label={`账号 ${item.name}`}
             >
-              <div
-                className={`accounts-avatar${item.is_logged_in ? " connected" : ""}`}
-                aria-hidden="true"
-              >
-                {Array.from(item.nickname || item.name || "薯")[0]}
-              </div>
+              <AccountAvatar key={item.avatar || item.id} account={item} />
               <div className="accounts-info">
                 <span className="section-kicker">
                   {selected ? "当前创作账号" : "小红书账号"}

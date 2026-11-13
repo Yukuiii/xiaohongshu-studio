@@ -174,6 +174,9 @@ func loginAccount(ctx context.Context, store *accounts.Store, a accounts.Account
 	if err := store.CommitProfile(a.ID, candidateID, user.UserID, user.Nickname); err != nil {
 		return err
 	}
+	if err := store.SetAvatar(a.ID, user.Avatar); err != nil {
+		return err
+	}
 	committed = true
 	logrus.Infof("账号 %s 登录已保存", a.ID)
 	return nil

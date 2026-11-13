@@ -116,6 +116,7 @@ curl http://localhost:18060/api/v1/account/verify \
       "name": "默认账号",
       "user_id": "verified-user-id",
       "nickname": "已验证昵称",
+      "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/example.webp",
       "is_logged_in": true,
       "login_checked_at": "2026-11-13T00:00:00Z",
       "created_at": "2026-11-13T00:00:00Z",
@@ -129,7 +130,7 @@ curl http://localhost:18060/api/v1/account/verify \
 }
 ```
 
-`browser_status` 为 `stopped`、`running` 或 `login`；`active_login` 有值时包含当前可视化登录的 `account_id` 和 `session_id`。`legacy_account_id` 是固定迁移目标，移除后仍保留此值，不能将旧数据迁入其他账号。
+`avatar` 来自最近一次身份核验的头像地址，缺失时前端使用昵称首字占位。`browser_status` 为 `stopped`、`running` 或 `login`；`active_login` 有值时包含当前可视化登录的 `account_id` 和 `session_id`。`legacy_account_id` 是固定迁移目标，移除后仍保留此值，不能将旧数据迁入其他账号。
 
 `login_checked_at` 为 `null` 表示尚无明确检查结果，不能据此认为旧账号登录已失效。工作台对已登录账号隐藏重新登录入口；已绑定账号只有在 `is_logged_in=false` 且检查时间非空时才显示“重新登录”，未知状态可先点击“刷新状态”。新账号保留首次登录入口，已有登录窗口通过“继续登录”复用原会话。
 

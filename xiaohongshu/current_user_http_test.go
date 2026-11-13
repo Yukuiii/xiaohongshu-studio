@@ -17,8 +17,13 @@ func TestParseCurrentUser(t *testing.T) {
 	}{
 		{
 			name: "直接返回身份对象",
-			page: bodyHTML(`{"user":{"userInfo":{"user_id":"5c678e9b","nickname":"苏铭","guest":false}}}`),
-			want: &CurrentUser{Nickname: "苏铭", UserID: "5c678e9b"},
+			page: bodyHTML(`{"user":{"userInfo":{"user_id":"5c678e9b","nickname":"苏铭","guest":false,"images":"https://sns-avatar-qc.xhscdn.com/avatar/a.webp","imageb":"https://sns-avatar-qc.xhscdn.com/avatar/b.webp"}}}`),
+			want: &CurrentUser{Nickname: "苏铭", UserID: "5c678e9b", Avatar: "https://sns-avatar-qc.xhscdn.com/avatar/a.webp"},
+		},
+		{
+			name: "头像缺失 images 时使用 imageb",
+			page: bodyHTML(`{"user":{"userInfo":{"userId":"user-b","nickname":"作者B","imageb":"https://sns-avatar-qc.xhscdn.com/avatar/b.webp"}}}`),
+			want: &CurrentUser{Nickname: "作者B", UserID: "user-b", Avatar: "https://sns-avatar-qc.xhscdn.com/avatar/b.webp"},
 		},
 		{
 			name: "兼容 value 包装",

@@ -99,6 +99,7 @@ func (a *LoginAction) CheckLoginStatus(ctx context.Context) (bool, error) {
 type CurrentUser struct {
 	Nickname string `json:"nickname"`
 	UserID   string `json:"userId"`
+	Avatar   string `json:"avatar,omitempty"`
 }
 
 // CurrentUser 从当前页面的 __INITIAL_STATE__ 读取登录用户信息。
@@ -110,7 +111,7 @@ func (a *LoginAction) CurrentUser(ctx context.Context) (*CurrentUser, error) {
 		const u = window.__INITIAL_STATE__ && window.__INITIAL_STATE__.user;
 		const info = u && u.userInfo && u.userInfo.value !== undefined ? u.userInfo.value : (u && u.userInfo);
 		if (!info || info.guest) return "";
-		return JSON.stringify({nickname: info.nickname, userId: info.userId || info.user_id});
+		return JSON.stringify({nickname: info.nickname, userId: info.userId || info.user_id, avatar: info.images || info.imageb || ""});
 	}`)
 	if err != nil {
 		return nil, errors.Wrap(err, "read current user state failed")

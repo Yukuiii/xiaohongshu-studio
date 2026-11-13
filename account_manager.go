@@ -369,6 +369,9 @@ func (r *accountRuntime) inspectIdentity(ctx context.Context, b accountBrowser) 
 	if err := r.manager.store.BindIdentity(r.id, user.UserID, user.Nickname); err != nil {
 		return nil, err
 	}
+	if err := r.manager.store.SetAvatar(r.id, user.Avatar); err != nil {
+		return nil, err
+	}
 	return user, nil
 }
 
@@ -666,7 +669,12 @@ func (r *accountRuntime) monitorLogin(action *xiaohongshu.LoginAction, b account
 				return err
 			}
 			stopped = true
-			saved, err := r.service.logins.save(seq, ctx, *user, func() error { return r.manager.store.CommitProfile(r.id, candidate, user.UserID, user.Nickname) })
+			saved, err := r.service.logins.save(seq, ctx, *user, func() error {
+				if err := r.manager.store.CommitProfile(r.id, candidate, user.UserID, user.Nickname); err != nil {
+					return err
+				}
+				return r.manager.store.SetAvatar(r.id, user.Avatar)
+			})
 			if saved {
 				committed = true
 				cancel()
