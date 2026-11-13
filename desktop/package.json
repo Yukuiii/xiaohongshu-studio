@@ -1,0 +1,17 @@
+{
+  "name": "xiaohongshu-studio-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "prepare:assets": "node scripts/prepare.mjs",
+    "dev": "node scripts/prepare.mjs && tauri dev",
+    "build": "node scripts/prepare.mjs --build-web && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4"
+  }
+}

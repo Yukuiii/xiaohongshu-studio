@@ -1,6 +1,6 @@
 # 红薯创作台 · Xiaohongshu Studio
 
-[English](./README_EN.md) · [Docker 部署](./docker/README.md) · [HTTP API](./docs/API.md) · [贡献指南](./CONTRIBUTING.md)
+[English](./README_EN.md) · [桌面端](./desktop/README.md) · [Docker 部署](./docker/README.md) · [HTTP API](./docs/API.md) · [贡献指南](./CONTRIBUTING.md)
 
 面向小红书图文创作的自部署工作台。在浏览器中完成选题搜索、参考整理、AI 写稿、配图和发布确认，并支持多个账号独立保存登录状态、浏览器数据和草稿。
 

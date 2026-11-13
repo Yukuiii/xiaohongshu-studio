@@ -85,12 +85,31 @@ func browserCacheDir() (string, error) {
 	return filepath.Join(base, "xiaohongshu-mcp", "browser", browserVersion), nil
 }
 
+func bundledBrowser(dir, binName string) (string, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", fmt.Errorf("预置浏览器目录不可用: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("预置浏览器路径不是目录: %s", dir)
+	}
+	bin := findBinary(dir, binName)
+	if bin == "" {
+		return "", fmt.Errorf("预置浏览器目录 %s 中未找到 %s", dir, binName)
+	}
+	return bin, nil
+}
+
 // EnsureBrowser 确保本地存在内置浏览器二进制，返回其路径。
-// 已缓存则直接返回；否则下载 → 校验 SHA256 → 解压。当前平台无预编译二进制时返回 error。
+// 优先使用 XHS_BROWSER_DIR 指定的预置目录；否则查缓存，缺失时下载 → 校验 SHA256 → 解压。
 func EnsureBrowser() (string, error) {
 	asset, binName, ok := platformAsset()
 	if !ok {
 		return "", fmt.Errorf("当前平台 %s/%s 无预编译浏览器，暂不支持", runtime.GOOS, runtime.GOARCH)
+	}
+
+	if bundledDir := strings.TrimSpace(os.Getenv("XHS_BROWSER_DIR")); bundledDir != "" {
+		return bundledBrowser(bundledDir, binName)
 	}
 
 	cacheDir, err := browserCacheDir()

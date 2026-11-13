@@ -1,6 +1,6 @@
 # Xiaohongshu Studio · 红薯创作台
 
-[中文](./README.md) · [Docker deployment](./docker/README.md) · [HTTP API](./docs/API.md) · [Contributing](./CONTRIBUTING.md)
+[中文](./README.md) · [Desktop app](./desktop/README.md) · [Docker deployment](./docker/README.md) · [HTTP API](./docs/API.md) · [Contributing](./CONTRIBUTING.md)
 
 A self-hosted workspace for creating Xiaohongshu image posts. Research topics, select references, draft with AI, add images, and confirm publication in your browser. Manage multiple accounts with separate sign-in sessions, browser data, and drafts. The application interface is in Chinese.
 

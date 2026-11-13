@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Xiaohongshu Studio",
+  "mainBinaryName": "xiaohongshu-studio-desktop",
+  "version": "0.1.0",
+  "identifier": "com.xiaohongshu.studio",
+  "build": {
+    "frontendDist": "../loading"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "红薯创作台",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/xiaohongshu-studio"
+    ],
+    "resources": {
+      "resources/browser": "browser"
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}

@@ -45,6 +45,11 @@ func NewAccountAppServer(manager *AccountManager, token string) *AppServer {
 
 // Start 启动服务器
 func (s *AppServer) Start(port string) error {
+	return s.StartContext(context.Background(), port, nil)
+}
+
+// StartContext 启动服务器，支持通过 ctx 取消触发优雅退出，并在监听就绪后回调实际地址。
+func (s *AppServer) StartContext(ctx context.Context, port string, onListen func(net.Addr)) error {
 	defer func() {
 		if s.accounts != nil {
 			if err := s.accounts.Close(); err != nil {
@@ -69,6 +74,9 @@ func (s *AppServer) Start(port string) error {
 	if s.accounts != nil {
 		s.accounts.startStatusMonitor(accountStatusInterval)
 	}
+	if onListen != nil {
+		onListen(listener.Addr())
+	}
 	serveError := make(chan error, 1)
 	go func() {
 		logrus.Infof("启动红薯创作台 HTTP 服务器: %s", listener.Addr())
@@ -79,6 +87,7 @@ func (s *AppServer) Start(port string) error {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(quit)
 	select {
+	case <-ctx.Done():
 	case <-quit:
 	case err := <-serveError:
 		if err != nil && err != http.ErrServerClosed {
@@ -89,10 +98,10 @@ func (s *AppServer) Start(port string) error {
 
 	logrus.Infof("正在关闭服务器...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := s.httpServer.Shutdown(ctx); err != nil {
+	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 		logrus.Warnf("等待连接关闭超时，强制退出: %v", err)
 		_ = s.httpServer.Close()
 	} else {
