@@ -18,6 +18,7 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
 	"github.com/xpzouying/xiaohongshu-mcp/accounts"
+	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
 type fakeAccountBrowser struct {
@@ -163,9 +164,9 @@ func TestAccountHTTPSelectionAndImageOwnership(t *testing.T) {
 		router.ServeHTTP(response, body)
 		return response
 	}
-	require.Equal(t, http.StatusBadRequest, request("GET", "/api/v1/login/status", "", nil).Code)
-	require.Equal(t, http.StatusBadRequest, request("GET", "/api/v1/login/status", "../invalid", nil).Code)
-	require.Equal(t, http.StatusNotFound, request("GET", "/api/v1/login/status", "00000000000000000000000000000000", nil).Code)
+	require.Equal(t, http.StatusBadRequest, request("GET", "/api/v1/account/verify", "", nil).Code)
+	require.Equal(t, http.StatusBadRequest, request("GET", "/api/v1/account/verify", "../invalid", nil).Code)
+	require.Equal(t, http.StatusNotFound, request("GET", "/api/v1/account/verify", "00000000000000000000000000000000", nil).Code)
 	upload := request("POST", "/api/v1/images/upload", a.ID, uploadImageRequest(t, testPNG(t)))
 	require.Equal(t, http.StatusOK, upload.Code, upload.Body.String())
 	var payload struct {
@@ -244,4 +245,67 @@ func TestImagePreviewLeasesAreConcurrent(t *testing.T) {
 	}
 	_, err = r.lease(false)
 	require.Error(t, err)
+}
+
+func TestLoginSessionStatusReadsCacheWithoutBrowser(t *testing.T) {
+	manager := testAccountManager(t)
+	account, err := manager.store.Create("会话账号")
+	require.NoError(t, err)
+	require.NoError(t, manager.store.BindIdentity(account.ID, "user-1", "作者"))
+	manager.factory = func(accounts.Account, string, bool, []byte) (accountBrowser, error) {
+		t.Fatal("读取会话进度不应启动浏览器")
+		return nil, nil
+	}
+	r, err := manager.runtime(account.ID)
+	require.NoError(t, err)
+
+	response, err := r.loginSessionStatus()
+	require.NoError(t, err)
+	require.True(t, response.IsLoggedIn)
+	require.Equal(t, xiaohongshu.LoginLoggedIn, response.Status)
+	require.Equal(t, "作者", response.Username)
+	require.Equal(t, "user-1", response.UserID)
+}
+
+func TestVerifyLoginStatusUsesRealtimeCheck(t *testing.T) {
+	manager := testAccountManager(t)
+	account, err := manager.store.Create("核验账号")
+	require.NoError(t, err)
+	var started int
+	manager.factory = func(accounts.Account, string, bool, []byte) (accountBrowser, error) {
+		started++
+		return newFakeAccountBrowser(), nil
+	}
+	manager.checkIdentity = func(ctx context.Context, r *accountRuntime, _ accountBrowser) error {
+		return r.manager.store.BindIdentity(r.id, "user-9", "核验昵称")
+	}
+	r, err := manager.runtime(account.ID)
+	require.NoError(t, err)
+
+	response, err := r.verifyLoginStatus(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, started)
+	require.True(t, response.IsLoggedIn)
+	require.Equal(t, "核验昵称", response.Username)
+	require.Equal(t, "user-9", response.UserID)
+}
+
+func TestVerifyLoginStatusCachesDefiniteFailure(t *testing.T) {
+	manager := testAccountManager(t)
+	account, err := manager.store.Create("失效账号")
+	require.NoError(t, err)
+	require.NoError(t, manager.store.BindIdentity(account.ID, "user-2", "原昵称"))
+	manager.checkIdentity = func(context.Context, *accountRuntime, accountBrowser) error {
+		return &accountError{http.StatusConflict, "XHS_LOGIN_REQUIRED", "该账号尚未登录或登录已失效，请重新登录"}
+	}
+	r, err := manager.runtime(account.ID)
+	require.NoError(t, err)
+
+	response, err := r.verifyLoginStatus(context.Background())
+	require.NoError(t, err)
+	require.False(t, response.IsLoggedIn)
+	require.Equal(t, xiaohongshu.LoginNotLoggedIn, response.Status)
+	record, err := manager.store.Get(account.ID)
+	require.NoError(t, err)
+	require.False(t, record.IsLoggedIn)
 }

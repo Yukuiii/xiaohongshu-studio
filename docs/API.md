@@ -17,7 +17,7 @@
 AUTH_TOKEN=your-secret-token ./xiaohongshu-studio
 
 # 调用 HTTP API
-curl http://localhost:18060/api/v1/login/status \
+curl http://localhost:18060/api/v1/account/verify \
   -H "Authorization: Bearer your-secret-token"
 ```
 
@@ -32,7 +32,7 @@ Vite + React 创作台位于 `/`（内嵌的 `web/dist/index.html`），公开�
 账号管理接口和 `/api/v1/ai/models` 不要求选择账号。登录、搜索、详情、发布、互动、用户资料、写稿、生图、图片上传与读取等账号业务请求均携带 `X-XHS-Account-ID`，例如：
 
 ```bash
-curl http://localhost:18060/api/v1/login/status \
+curl http://localhost:18060/api/v1/account/verify \
   -H "Authorization: Bearer your-secret-token" \
   -H "X-XHS-Account-ID: 11111111111111111111111111111111"
 ```
@@ -41,9 +41,9 @@ curl http://localhost:18060/api/v1/login/status \
 
 账号选择按请求固定，服务不维护全局当前账号；同账号浏览器任务串行，忙时返回 `409 ACCOUNT_BUSY`，不同账号可以独立运行。列表不启动浏览器，`is_logged_in` 表示最近一次明确检查的结果，`login_checked_at` 表示该次检查时间；`browser_status` 和最近绑定身份不代表登录永不过期。业务浏览器按需启动并复用，空闲 10 分钟后正常关闭；完整 profile 和账号固定 seed 在重启后保留。
 
-服务启动后异步巡检一轮，此后每 10 分钟串行检查各账号。正在执行任务、登录或维护的账号跳过，等待下一轮；网络错误、超时或页面尚未就绪时保留原缓存及检查时间。巡检优先复用空闲浏览器，无实例时启动 headless 浏览器，检查结束后关闭所用实例，不延长其空闲计时。账号状态与基础资料保存在每个账号目录下的 `account.json` 中。新账号及旧 JSON 缺失字段时默认为 `false` / `null`，不根据历史用户 ID 推断已登录。
+服务启动后异步巡检一轮，此后每 10 分钟串行检查各账号。正在执行任务、登录或维护的账号跳过，等待下一轮；网络错误、超时或页面尚未就绪时保留原缓存及检查时间。巡检通过账号浏览器的 Cookie/UA 发起 HTTP 页面请求核验身份，不渲染 explore 页面；优先复用空闲浏览器，无实例时启动 headless 浏览器，检查结束后关闭所用实例，不延长其空闲计时。账号状态与基础资料保存在每个账号目录下的 `account.json` 中。新账号及旧 JSON 缺失字段时默认为 `false` / `null`，不根据历史用户 ID 推断已登录。
 
-页面初始化、切换账号和切换页面读取账号列表缓存，不自动调用 `/login/status`；账号页可见期间每 60 秒静默刷新列表。登录成功、清 Cookie、重置 profile 和实时身份检查会及时更新缓存；扫码失败或取消保留原 active profile 的缓存。手动刷新状态和业务任务前的主动核验继续使用实时检查。
+页面初始化、切换账号和切换页面读取账号列表缓存，不自动调用 `/login/session` 或 `/account/verify`；账号页可见期间每 60 秒静默刷新列表。登录成功、清 Cookie、重置 profile 和实时身份检查会及时更新缓存；扫码失败或取消保留原 active profile 的缓存。登录弹窗扫码期间轮询 `/login/session`；手动刷新状态和业务任务前的主动核验使用 `/account/verify` 实时检查。
 
 `XHS_ACCOUNTS_DIR` 指定数据根；未设时使用旧 Cookie 路径同目录的隐藏目录 `.xhs-accounts/`。服务和维护 CLI 对同一个 root 互斥，CLI 使用前先停止服务。每个账号保存完整 Chromium user-data-dir，旧 v1/v2 Cookie 仅向固定默认账号首次导入，保留源文件；初始化完成后不再扫描，移除默认账号不会复活。旧草稿和托管图片也只迁入固定旧账号，保留原草稿结构、发布结果未知时的防重状态和迁移源。模型配置、服务令牌由整个工作台共用；拥有有效令牌即可访问所有账号，此功能不提供访问者权限隔离。
 
@@ -78,7 +78,8 @@ curl http://localhost:18060/api/v1/login/status \
 | GET/POST | `/api/v1/accounts` | 列出或创建账号 |
 | PATCH/DELETE | `/api/v1/accounts/:id` | 修改备注名或移除账号 |
 | POST | `/api/v1/accounts/:id/reset-profile` | 重置所选账号的完整浏览器数据 |
-| GET | `/api/v1/login/status` | 检查所选账号登录状态 |
+| GET | `/api/v1/login/session` | 读取登录弹窗扫码进度（不启动浏览器） |
+| GET | `/api/v1/account/verify` | 手动核验所选账号登录状态 |
 | POST/DELETE | `/api/v1/login/browser` | 打开或结束所选账号的可视化登录浏览器 |
 | DELETE | `/api/v1/login/cookies` | 仅清除所选浏览器 Cookie |
 | POST | `/api/v1/publish` | 发布图文内容 |
@@ -156,7 +157,7 @@ Content-Type: application/json
 
 ### 1. 健康检查
 
-检查服务状态。此接口公开，不启动浏览器，也不表示小红书账号已登录；账号状态请调用 `/api/v1/login/status`。
+检查服务状态。此接口公开，不启动浏览器，也不表示小红书账号已登录；账号状态请调用 `/api/v1/account/verify`。
 
 响应中的 `version` 为当前运行程序的实际构建版本；下例以开发构建的 `dev` 为例。
 
@@ -183,15 +184,13 @@ GET /health
 
 ### 2. 登录管理
 
-#### 2.1 检查登录状态
+#### 2.1 手动核验登录状态
 
-检查所选账号的登录状态。存在可视化登录会话时返回该浏览器的实际进度，不会为每次检查另开浏览器。扫码之后可能还需手机确认或账号安全验证；验证完成并保存登录信息后才算登录成功。
-
-`logged_in` 表示本次检查确认会话有效，手动刷新状态、扫码进度和任务前校验可能返回该状态。页面初始化、切换账号和切换页面使用 `/accounts` 的缓存，不触发此检查。它不表示刚刚发生了一次扫码登录；前端仅在活动登录会话完成时显示登录成功提示。
+实时核验所选账号的登录态与身份，并把结果写入 `is_logged_in` 和 `login_checked_at`。核验使用账号浏览器会话的 Cookie 和 UA 发起 HTTP 页面请求，不渲染 explore 页面；账号页“刷新状态”和发布前检查使用该接口。
 
 **请求**
 ```
-GET /api/v1/login/status
+GET /api/v1/account/verify
 ```
 
 **响应**
@@ -202,23 +201,49 @@ GET /api/v1/login/status
     "is_logged_in": true,
     "status": "logged_in",
     "message": "登录成功",
-    "username": "用户名"
+    "username": "用户名",
+    "user_id": "用户ID"
   },
   "message": "检查登录状态成功"
 }
 ```
 
+`logged_in` 表示本次核验确认会话有效。页面初始化、切换账号和切换页面使用 `/accounts` 的缓存，不触发实时核验。它不表示刚刚发生了一次扫码登录；前端仅在活动登录会话完成时显示登录成功提示。
+
+#### 2.2 读取登录会话进度
+
+返回登录弹窗的扫码、手机确认、安全验证和保存进度。存在活动登录会话时读取内存快照，不启动浏览器；没有活动会话时读取账号缓存中的最近登录结果。
+
+**请求**
+```
+GET /api/v1/login/session
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "is_logged_in": false,
+    "status": "waiting_scan",
+    "message": "请使用手机小红书扫描二维码",
+    "session_id": "current-session-id"
+  },
+  "message": "读取登录会话成功"
+}
+```
+
 `status` 区分 `waiting_scan`（等待扫码）、`waiting_confirmation`（等待手机确认）、`verification_required`（需要账号安全验证）、`saving`（正在保存登录信息）、`logged_in`（已登录）、`expired`（浏览器会话到期）、`failed`（处理失败）、`not_logged_in`（未登录且无活动会话）。`message` 为相应的可读说明。扫码成功或仍有验证弹窗时，`is_logged_in` 为 `false`。
 
-「账号」页先创建或选择账号，再使用该 ID 打开真实扫码页面。重新登录使用已关闭 active profile 的候选副本；只有稳定登录、真实 `userID` 与已有绑定一致且未被其他账号绑定，候选浏览器正常关闭落盘后，才原子切换 active 指针并报告成功。未知、错配、重复身份或保存失败均保留原 profile。登录区域打开期间串行检查该账号进度，收起或隐藏页面停止前端轮询；后台窗口可继续保留到期限。成功时关闭浏览器、断开桌面连接并收起登录区域。
+「账号」页先创建或选择账号，再使用该 ID 打开真实扫码页面。重新登录使用已关闭 active profile 的候选副本；只有稳定登录、真实 `userID` 与已有绑定一致且未被其他账号绑定，候选浏览器正常关闭落盘后，才原子切换 active 指针并报告成功。未知、错配、重复身份或保存失败均保留原 profile。登录区域打开期间轮询 `/login/session`，收起或隐藏页面停止前端轮询；后台窗口可继续保留到期限。成功时关闭浏览器、断开桌面连接并收起登录区域。
 
-#### 2.2 可视化登录浏览器
+#### 2.3 可视化登录浏览器
 
 ```http
 POST /api/v1/login/browser
 ```
 
-无请求体，使用 `X-XHS-Account-ID` 选择账号。已有活动登录会话时复用原 `session_id`；没有活动会话且缓存已明确登录的账号返回 `409 ACCOUNT_ALREADY_LOGGED_IN`，不会复制新的候选 profile。状态未知或已过期时可先用 `GET /api/v1/login/status` 明确检查结果。接口不提取二维码图片，也不会因为再次查看而重新扫码。noVNC 同一时间只展示一个账号的登录窗口，另一个账号申请时返回 `409 LOGIN_BROWSER_BUSY`；明确结束原窗口后再打开。其他账号的 headless 任务可继续运行。默认应用镜像在同一容器内运行 Go、Chromium 和桌面组件，对外只需端口 `18060`。
+无请求体，使用 `X-XHS-Account-ID` 选择账号。已有活动登录会话时复用原 `session_id`；没有活动会话且缓存已明确登录的账号返回 `409 ACCOUNT_ALREADY_LOGGED_IN`，不会复制新的候选 profile。状态未知或已过期时可先用 `GET /api/v1/account/verify` 明确检查结果。接口不提取二维码图片，也不会因为再次查看而重新扫码。noVNC 同一时间只展示一个账号的登录窗口，另一个账号申请时返回 `409 LOGIN_BROWSER_BUSY`；明确结束原窗口后再打开。其他账号的 headless 任务可继续运行。默认应用镜像在同一容器内运行 Go、Chromium 和桌面组件，对外只需端口 `18060`。
 
 成功响应的 `data` 示例：
 
@@ -244,7 +269,7 @@ POST /api/v1/login/browser
 
 Linux 无桌面且未使用默认应用镜像时，打开接口返回明确错误，不会退回隐藏二维码流程。
 
-#### 2.3 清除所选浏览器 Cookie
+#### 2.4 清除所选浏览器 Cookie
 
 `DELETE /api/v1/login/cookies` 携带所选账号头，只清除该账号持久 profile 内的 Cookie；保留 localStorage、IndexedDB、缓存、账号 ID、seed 与身份绑定，不删除旧 Cookie 迁移源，也不影响其他账号。完整清空站点数据请在用户确认后调用 `POST /api/v1/accounts/:id/reset-profile`。账号忙或登录中返回 `409 ACCOUNT_BUSY`。
 

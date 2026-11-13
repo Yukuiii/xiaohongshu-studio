@@ -66,7 +66,7 @@ func TestParseFeedBody(t *testing.T) {
 		{name: "缺少初始化数据", page: "<html><body>加载中</body></html>", wantErr: "缺少初始化数据"},
 		{name: "没有该笔记", page: bodyHTML(`{"note":{"noteDetailMap":{}}}`), wantErr: "无权访问"},
 		{name: "正文为空", page: bodyHTML(`{"note":{"noteDetailMap":{"` + bodyFixtureID + `":{"note":{"desc":"   "}}}}}`), wantErr: "没有可用正文"},
-		{name: "数据格式错误", page: bodyHTML(`{"note":`), wantErr: "解析笔记页面数据失败"},
+		{name: "数据格式错误", page: bodyHTML(`{"note":`), wantErr: "解析页面数据失败"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -94,7 +94,7 @@ func TestFeedBodyFetcherKeepsOnlyXiaohongshuCookies(t *testing.T) {
 	require.NoError(t, err)
 	target, err := url.Parse("https://www.xiaohongshu.com/explore/" + bodyFixtureID)
 	require.NoError(t, err)
-	cookies := fetcher.client.Jar.Cookies(target)
+	cookies := fetcher.session.client.Jar.Cookies(target)
 	got := make(map[string]string, len(cookies))
 	for _, cookie := range cookies {
 		got[cookie.Name] = cookie.Value
@@ -188,7 +188,7 @@ func TestFeedBodyFetcherRejectsCrossSiteRedirect(t *testing.T) {
 
 func TestFeedBodyFetcherRejectsOversizedPage(t *testing.T) {
 	server := newBodyServer(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(bytes.Repeat([]byte("a"), feedBodyMaxBytes+1))
+		_, _ = w.Write(bytes.Repeat([]byte("a"), httpPageMaxBytes+1))
 	})
 	fetcher := newTestFetcher(t)
 	_, err := fetcher.fetchURL(t.Context(), server.URL+"/explore/"+bodyFixtureID, bodyFixtureID)

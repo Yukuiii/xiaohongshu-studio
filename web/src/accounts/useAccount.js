@@ -265,11 +265,14 @@ export function useAccount({
       if (manual)
         update({ notice: { message: "正在检查登录状态…", type: "busy" } });
       try {
-        const data = await inputs.current.api("/login/status", {
-          signal: current.controller.signal,
-          accountId: current.scope.accountId,
-          token: current.scope.token,
-        });
+        const data = await inputs.current.api(
+          manual ? "/account/verify" : "/login/session",
+          {
+            signal: current.controller.signal,
+            accountId: current.scope.accountId,
+            token: current.scope.token,
+          },
+        );
         if (currentRequest(current))
           applyStatus(data, current.version, current.scope, manual);
       } catch (error) {
@@ -468,7 +471,7 @@ export function useAccount({
       try {
         if (controller.signal.aborted)
           throw new DOMException("请求已取消", "AbortError");
-        const data = await inputs.current.api("/login/status", {
+        const data = await inputs.current.api("/account/verify", {
           signal: controller.signal,
           accountId: scope.accountId,
           token: scope.token,

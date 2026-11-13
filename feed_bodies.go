@@ -30,7 +30,7 @@ func (s *XiaohongshuService) FetchFeedBodies(ctx context.Context, items []FeedBo
 	if err != nil {
 		return nil, fmt.Errorf("读取账号会话失败: %w", err)
 	}
-	client, err := newFeedBodyHTTPClient()
+	client, err := newSessionHTTPClient()
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +79,8 @@ func runFeedBodyBatch(ctx context.Context, items []FeedBodyRequest, fetch feedBo
 	return results
 }
 
-// newFeedBodyHTTPClient 构造与浏览器一致的代理配置，供只读正文请求使用。
-func newFeedBodyHTTPClient() (*http.Client, error) {
+// newSessionHTTPClient 构造与浏览器一致的代理配置，供账号会话只读请求使用。
+func newSessionHTTPClient() (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	proxyValue := strings.TrimSpace(configs.Proxy())
 	if proxyValue == "" {

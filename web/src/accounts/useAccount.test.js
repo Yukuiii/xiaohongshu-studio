@@ -562,7 +562,7 @@ describe("登录请求隔离", () => {
       );
     });
     expect(api).toHaveBeenLastCalledWith(
-      "/login/status",
+      "/account/verify",
       expect.objectContaining({ accountId: "A", token: "token" }),
     );
     api.mockResolvedValueOnce(

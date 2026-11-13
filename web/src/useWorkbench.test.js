@@ -172,19 +172,13 @@ describe("搜索与写稿步骤", () => {
     const hook = renderHook(useWorkbench);
     await open(hook.result, "A");
     await waitFor(() => expect(hook.result.current.settingsReady).toBe(true));
-    const requireLogin = vi
-      .fn()
-      .mockResolvedValue({ account_id: "A", is_logged_in: true });
-    return { ...hook, fetch, requireLogin };
+    return { ...hook, fetch };
   }
 
   it("没有模型配置也可只搜索，去重并选择参考，不读取正文、不生成或覆盖旧稿", async () => {
-    const { result, fetch, requireLogin } = await researchFixture({
-      configured: false,
-    });
+    const { result, fetch } = await researchFixture({ configured: false });
     const previous = { ...result.current.draft };
-    await act(async () => result.current.research(true, requireLogin));
-    expect(requireLogin).toHaveBeenCalledTimes(1);
+    await act(async () => result.current.research(true));
     expect(
       fetch.mock.calls.filter(([path]) => path === "/api/v1/feeds/search"),
     ).toHaveLength(2);
@@ -204,13 +198,13 @@ describe("搜索与写稿步骤", () => {
   });
 
   it("单独写稿只批量读取已选参考，并使用真实正文生成", async () => {
-    const { result, fetch, requireLogin } = await researchFixture();
-    await act(async () => result.current.research(true, requireLogin));
+    const { result, fetch } = await researchFixture();
+    await act(async () => result.current.research(true));
     act(() => {
       result.current.selectSource("ref-2", false);
       result.current.selectSource("ref-3", false);
     });
-    await act(async () => result.current.research(false, requireLogin));
+    await act(async () => result.current.research(false));
     const bodies = fetch.mock.calls.filter(
       ([path]) => path === "/api/v1/feeds/bodies",
     );
@@ -238,8 +232,8 @@ describe("搜索与写稿步骤", () => {
   });
 
   it("已有正文的参考直接复用，不重复发起读取请求", async () => {
-    const { result, fetch, requireLogin } = await researchFixture();
-    await act(async () => result.current.research(false, requireLogin));
+    const { result, fetch } = await researchFixture();
+    await act(async () => result.current.research(false));
     expect(
       fetch.mock.calls.some(([path]) => path === "/api/v1/feeds/bodies"),
     ).toBe(false);
@@ -252,8 +246,8 @@ describe("搜索与写稿步骤", () => {
   });
 
   it("部分参考读取失败时跳过该篇并继续写稿", async () => {
-    const { result, fetch, requireLogin } = await researchFixture();
-    await act(async () => result.current.research(true, requireLogin));
+    const { result, fetch } = await researchFixture();
+    await act(async () => result.current.research(true));
     const original = fetch.getMockImplementation();
     fetch.mockImplementation((path, options) => {
       if (path !== "/api/v1/feeds/bodies") return original(path, options);
@@ -273,7 +267,7 @@ describe("搜索与写稿步骤", () => {
         }),
       );
     });
-    await act(async () => result.current.research(false, requireLogin));
+    await act(async () => result.current.research(false));
     const compose = fetch.mock.calls.find(
       ([path]) => path === "/api/v1/ai/compose",
     );
@@ -288,8 +282,8 @@ describe("搜索与写稿步骤", () => {
   });
 
   it("所选正文全部读取失败时保留旧稿，不调用写稿模型", async () => {
-    const { result, fetch, requireLogin } = await researchFixture();
-    await act(async () => result.current.research(true, requireLogin));
+    const { result, fetch } = await researchFixture();
+    await act(async () => result.current.research(true));
     const previous = { ...result.current.draft };
     const original = fetch.getMockImplementation();
     fetch.mockImplementation((path, options) => {
@@ -304,7 +298,7 @@ describe("搜索与写稿步骤", () => {
         }),
       );
     });
-    await act(async () => result.current.research(false, requireLogin));
+    await act(async () => result.current.research(false));
     expect(
       fetch.mock.calls.some(([path]) => path === "/api/v1/ai/compose"),
     ).toBe(false);
@@ -313,7 +307,7 @@ describe("搜索与写稿步骤", () => {
   });
 
   it("写稿失败保留已有文案和图片提示词", async () => {
-    const { result, fetch, requireLogin } = await researchFixture();
+    const { result, fetch } = await researchFixture();
     const previous = { ...result.current.draft };
     const original = fetch.getMockImplementation();
     fetch.mockImplementation((path, options) =>
@@ -321,13 +315,13 @@ describe("搜索与写稿步骤", () => {
         ? Promise.resolve(ok({ title: "", content: "" }))
         : original(path, options),
     );
-    await act(async () => result.current.research(false, requireLogin));
+    await act(async () => result.current.research(false));
     expect(result.current.draft).toEqual(previous);
     expect(result.current.status.message).toContain("模型没有返回完整草稿");
   });
 
   it("取消搜索后忽略迟到响应，不覆盖原参考或继续写稿", async () => {
-    const { result, fetch, requireLogin } = await researchFixture();
+    const { result, fetch } = await researchFixture();
     const previous = { ...result.current.draft };
     const sources = result.current.sources;
     const late = deferred();
@@ -337,7 +331,7 @@ describe("搜索与写稿步骤", () => {
     );
     let task;
     act(() => {
-      task = result.current.research(true, requireLogin);
+      task = result.current.research(true);
     });
     await waitFor(() =>
       expect(

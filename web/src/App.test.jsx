@@ -94,7 +94,14 @@ function service(accounts = [A, B], mode = "native") {
         status: "waiting_scan",
         is_logged_in: false,
       });
-    if (url.endsWith("/login/status")) {
+    if (url.endsWith("/login/session")) {
+      return ok({
+        account_id: options.headers["X-XHS-Account-ID"],
+        is_logged_in: false,
+        status: "waiting_scan",
+      });
+    }
+    if (url.endsWith("/account/verify")) {
       const id = options.headers["X-XHS-Account-ID"];
       accounts = accounts.map((item) =>
         item.id === id
@@ -148,7 +155,7 @@ describe("分步创作工作台", () => {
           ok: true,
           blob: async () => new Blob(["image"], { type: "image/png" }),
         });
-      if (path === "/api/v1/login/status")
+      if (path === "/api/v1/account/verify")
         return Promise.resolve(
           ok({
             account_id: options.headers["X-XHS-Account-ID"],
@@ -368,7 +375,7 @@ describe("账号选择界面", () => {
     );
     await screen.findByRole("dialog", { name: "扫码登录 · 账号A" });
     expect(
-      fetch.mock.calls.filter(([path]) => path.endsWith("/login/status")),
+      fetch.mock.calls.filter(([path]) => path.endsWith("/account/verify")),
     ).toHaveLength(1);
     expect(
       fetch.mock.calls.filter(
@@ -387,7 +394,7 @@ describe("账号选择界面", () => {
       ]);
       const original = fetch.getMockImplementation();
       fetch.mockImplementation((path, options) =>
-        path.endsWith("/login/status")
+        path.endsWith("/account/verify")
           ? Promise.resolve({
               ok: false,
               status: 503,
@@ -488,7 +495,7 @@ describe("账号选择界面", () => {
     expect(
       fetch.mock.calls.filter(
         ([path]) =>
-          path.endsWith("/login/status") || path.endsWith("/login/browser"),
+          path.endsWith("/account/verify") || path.endsWith("/login/browser"),
       ),
     ).toHaveLength(0);
   });
@@ -523,7 +530,7 @@ describe("账号选择界面", () => {
     expect(listCalls(fetch)).toHaveLength(3);
     await navigatePage("workspace");
     expect(
-      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+      fetch.mock.calls.filter(([url]) => url.endsWith("/account/verify")),
     ).toHaveLength(0);
     hidden.mockRestore();
   });
@@ -627,7 +634,7 @@ describe("账号选择界面", () => {
     expect(screen.getByLabelText("当前账号")).toHaveTextContent("账号A");
     expect(screen.queryByText("正在读取账号列表…")).not.toBeInTheDocument();
     expect(
-      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+      fetch.mock.calls.filter(([url]) => url.endsWith("/account/verify")),
     ).toHaveLength(0);
   });
 
@@ -645,7 +652,7 @@ describe("账号选择界面", () => {
           ok({ accounts: [cached], legacy_account_id: "A" }),
         );
       }
-      if (url.endsWith("/login/status")) {
+      if (url.endsWith("/account/verify")) {
         cached = A;
         return Promise.resolve(
           ok({
@@ -677,7 +684,7 @@ describe("账号选择界面", () => {
     expect(within(row).getByText(/已登录/)).toBeVisible();
     expect(listCalls(fetch)).toHaveLength(3);
     expect(
-      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+      fetch.mock.calls.filter(([url]) => url.endsWith("/account/verify")),
     ).toHaveLength(1);
   });
 
@@ -695,7 +702,7 @@ describe("账号选择界面", () => {
             legacy_account_id: "A",
           }),
         );
-      if (url.endsWith("/login/status")) {
+      if (url.endsWith("/login/session")) {
         loggedIn = true;
         return Promise.resolve(
           ok({
@@ -723,7 +730,7 @@ describe("账号选择界面", () => {
     await act(async () => vi.advanceTimersByTime(10000));
     expect(listCalls(fetch)).toHaveLength(2);
     expect(
-      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+      fetch.mock.calls.filter(([url]) => url.endsWith("/login/session")),
     ).toHaveLength(1);
   });
 
@@ -748,7 +755,7 @@ describe("账号选择界面", () => {
     );
     expect(listCalls(fetch)).toHaveLength(2);
     expect(
-      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+      fetch.mock.calls.filter(([url]) => url.endsWith("/account/verify")),
     ).toHaveLength(0);
     await navigatePage("workspace");
     fireEvent.click(screen.getByRole("tab", { name: "撰写文案" }));
@@ -817,7 +824,7 @@ describe("账号选择界面", () => {
       "账号B",
     );
     expect(
-      fetch.mock.calls.filter(([url]) => url.endsWith("/login/status")),
+      fetch.mock.calls.filter(([url]) => url.endsWith("/account/verify")),
     ).toHaveLength(0);
   });
 
@@ -976,13 +983,13 @@ describe("账号选择界面", () => {
             legacy_account_id: "A",
           }),
         );
-      if (url.endsWith("/login/status") && status === "error")
+      if (url.endsWith("/account/verify") && status === "error")
         return Promise.resolve({
           ok: false,
           status: 503,
           json: async () => ({ success: false, message: "暂时无法检查登录" }),
         });
-      if (url.endsWith("/login/status") && status === "logged_in")
+      if (url.endsWith("/account/verify") && status === "logged_in")
         return Promise.resolve(
           ok({
             account_id: "A",

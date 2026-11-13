@@ -100,7 +100,8 @@ func TestProtectedRoutesRequireBearerToken(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/api/v1/login/status"},
+		{http.MethodGet, "/api/v1/login/session"},
+		{http.MethodGet, "/api/v1/account/verify"},
 		{http.MethodPost, "/api/v1/login/browser"},
 		{http.MethodDelete, "/api/v1/login/browser"},
 		{http.MethodDelete, "/api/v1/login/cookies"},
@@ -175,6 +176,16 @@ func TestRemovedProtocolEndpointsReturnNotFound(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestLoginStatusEndpointRemoved(t *testing.T) {
+	router := setupRoutes(NewAppServer(nil, ""))
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		request := httptest.NewRequest(method, "/api/v1/login/status", nil)
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		assert.Equal(t, http.StatusNotFound, recorder.Code)
 	}
 }
 

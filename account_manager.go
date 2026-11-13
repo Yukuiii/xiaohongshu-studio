@@ -20,6 +20,7 @@ import (
 	"github.com/xpzouying/xiaohongshu-mcp/browser"
 	"github.com/xpzouying/xiaohongshu-mcp/configs"
 	"github.com/xpzouying/xiaohongshu-mcp/cookies"
+	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
@@ -347,18 +348,19 @@ func (r *accountRuntime) borrowBrowserFor(ctx context.Context, verify, backgroun
 }
 
 func (r *accountRuntime) inspectIdentity(ctx context.Context, b accountBrowser) (*xiaohongshu.CurrentUser, error) {
-	p := b.NewPage()
-	defer p.Close()
-	login := xiaohongshu.NewLogin(p)
-	logged, err := login.CheckLoginStatus(ctx)
+	userAgent, cookies, err := b.Session(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("读取账号会话失败: %w", err)
+	}
+	client, err := newSessionHTTPClient()
 	if err != nil {
 		return nil, err
 	}
-	if !logged {
-		return nil, &accountError{http.StatusConflict, "XHS_LOGIN_REQUIRED", "该账号尚未登录或登录已失效，请重新登录"}
-	}
-	user, err := login.CurrentUser(ctx)
+	user, err := xiaohongshu.FetchCurrentUser(ctx, client, userAgent, cookies)
 	if err != nil {
+		if errors.Is(err, xhsErrors.ErrLoginRequired) {
+			return nil, &accountError{http.StatusConflict, "XHS_LOGIN_REQUIRED", "该账号尚未登录或登录已失效，请重新登录"}
+		}
 		return nil, err
 	}
 	if user == nil || user.UserID == "" {
@@ -370,7 +372,8 @@ func (r *accountRuntime) inspectIdentity(ctx context.Context, b accountBrowser) 
 	return user, nil
 }
 
-func (r *accountRuntime) loginStatus(ctx context.Context) (*LoginStatusResponse, error) {
+// loginSessionStatus 只返回登录弹窗的扫码进度；无活动会话时读取账号缓存，不启动浏览器。
+func (r *accountRuntime) loginSessionStatus() (*LoginStatusResponse, error) {
 	if state, active := r.service.logins.snapshot(); active {
 		response := loginSessionResponse(state)
 		r.mu.Lock()
@@ -380,22 +383,36 @@ func (r *accountRuntime) loginStatus(ctx context.Context) (*LoginStatusResponse,
 		r.mu.Unlock()
 		return response, nil
 	}
+	record, err := r.manager.store.Get(r.id)
+	if err != nil {
+		return nil, err
+	}
+	response := &LoginStatusResponse{AccountID: r.id}
+	if record.IsLoggedIn {
+		response.IsLoggedIn = true
+		response.Username = record.Nickname
+		response.UserID = record.UserID
+		response.Status = xiaohongshu.LoginLoggedIn
+		response.Message = "登录成功"
+		return response, nil
+	}
+	response.Status = xiaohongshu.LoginNotLoggedIn
+	response.Message = loginPhaseMessage(xiaohongshu.LoginNotLoggedIn)
+	return response, nil
+}
+
+// verifyLoginStatus 实时核验登录态与账号身份，并更新缓存。
+func (r *accountRuntime) verifyLoginStatus(ctx context.Context) (*LoginStatusResponse, error) {
 	b, err := r.borrowBrowser(ctx, false)
 	if err != nil {
 		return nil, err
 	}
 	defer b.Close()
-	user, err := r.inspectIdentity(ctx, b.accountBrowser)
-	if err != nil {
+	if err := r.manager.checkIdentity(ctx, r, b.accountBrowser); err != nil {
 		err = r.cacheLoginFailure(err)
 		var failure *accountError
 		if errors.As(err, &failure) && failure.Code == "XHS_LOGIN_REQUIRED" {
-			state, _ := r.service.logins.snapshot()
-			phase := state.phase
-			if phase != xiaohongshu.LoginFailed && phase != xiaohongshu.LoginExpired {
-				phase = xiaohongshu.LoginNotLoggedIn
-			}
-			response := loginProgressResponse(phase)
+			response := loginProgressResponse(xiaohongshu.LoginNotLoggedIn)
 			r.mu.Lock()
 			response.AccountID = r.id
 			response.ErrorCode = r.loginCode
@@ -407,7 +424,11 @@ func (r *accountRuntime) loginStatus(ctx context.Context) (*LoginStatusResponse,
 		}
 		return nil, err
 	}
-	return &LoginStatusResponse{AccountID: r.id, IsLoggedIn: true, Username: user.Nickname, UserID: user.UserID, Status: xiaohongshu.LoginLoggedIn, Message: "登录成功"}, nil
+	record, err := r.manager.store.Get(r.id)
+	if err != nil {
+		return nil, err
+	}
+	return &LoginStatusResponse{AccountID: r.id, IsLoggedIn: true, Username: record.Nickname, UserID: record.UserID, Status: xiaohongshu.LoginLoggedIn, Message: "登录成功"}, nil
 }
 
 func randomSessionID() (string, error) {

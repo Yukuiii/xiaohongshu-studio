@@ -131,15 +131,21 @@ func (s *XiaohongshuService) DeleteCookies(ctx context.Context) error {
 	return cookieLoader.DeleteCookies()
 }
 
-// CheckLoginStatus 活动期间只读取可视化会话，结束后重新检查真实登录态。
-func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatusResponse, error) {
+// LoginSessionStatus 只返回登录弹窗的扫码进度；无活动会话时读取账号缓存，不启动浏览器。
+func (s *XiaohongshuService) LoginSessionStatus() (*LoginStatusResponse, error) {
 	if s.account != nil {
-		return s.account.loginStatus(ctx)
+		return s.account.loginSessionStatus()
 	}
-	state, active := s.logins.snapshot()
-	phase := state.phase
-	if active {
+	if state, active := s.logins.snapshot(); active {
 		return loginSessionResponse(state), nil
+	}
+	return loginProgressResponse(xiaohongshu.LoginNotLoggedIn), nil
+}
+
+// VerifyLoginStatus 实时核验登录态与账号身份。
+func (s *XiaohongshuService) VerifyLoginStatus(ctx context.Context) (*LoginStatusResponse, error) {
+	if s.account != nil {
+		return s.account.verifyLoginStatus(ctx)
 	}
 
 	b, err := s.newBrowser(ctx)
@@ -157,10 +163,9 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
 		return nil, err
 	}
 
+	phase := xiaohongshu.LoginNotLoggedIn
 	if isLoggedIn {
 		phase = xiaohongshu.LoginLoggedIn
-	} else if phase != xiaohongshu.LoginExpired && phase != xiaohongshu.LoginFailed {
-		phase = xiaohongshu.LoginNotLoggedIn
 	}
 	response := loginProgressResponse(phase)
 

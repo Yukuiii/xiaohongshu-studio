@@ -183,7 +183,7 @@ export default function Workspace({
               id="research-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                wb.research(true, account.requireLogin);
+                wb.research(true);
               }}
             >
               <label htmlFor="topic">
@@ -345,7 +345,7 @@ export default function Workspace({
                   id="regenerate"
                   className="button"
                   disabled={busy || !selectedCount}
-                  onClick={() => wb.research(false, account.requireLogin)}
+                  onClick={() => wb.research(false)}
                 >
                   {wb.operation === "regenerate"
                     ? "正在生成文案…"

@@ -222,12 +222,10 @@ func TestLoginBrowserReusesActiveSession(t *testing.T) {
 	require.Equal(t, 20*time.Minute, loginBrowserTimeout)
 }
 
-func TestCheckLoginStatusUsesActiveSession(t *testing.T) {
+func TestLoginSessionStatusUsesActiveSession(t *testing.T) {
 	service := NewXiaohongshuService()
 	seq := service.logins.start(func() {}, time.Now().Add(time.Minute))
 	defer service.CloseLoginBrowser()
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
 	for _, phase := range []xiaohongshu.LoginPhase{
 		xiaohongshu.LoginWaitingScan,
 		xiaohongshu.LoginWaitingConfirmation,
@@ -239,7 +237,7 @@ func TestCheckLoginStatusUsesActiveSession(t *testing.T) {
 	} {
 		t.Run(string(phase), func(t *testing.T) {
 			service.logins.setPhase(seq, phase)
-			status, err := service.CheckLoginStatus(ctx)
+			status, err := service.LoginSessionStatus()
 			require.NoError(t, err)
 			require.Equal(t, phase, status.Status)
 			require.Equal(t, phase == xiaohongshu.LoginLoggedIn, status.IsLoggedIn)

@@ -841,7 +841,7 @@ export function useWorkbench() {
     );
   }
 
-  async function research(search, requireLogin) {
+  async function research(search) {
     await run(
       search ? "research" : "regenerate",
       search ? "正在搜索参考笔记…" : "正在生成文案…",
@@ -864,9 +864,6 @@ export function useWorkbench() {
         update({ researching: true });
         const signal = controller.signal;
         try {
-          await requireLogin(signal, scope);
-          ensureCurrent(scope);
-          signal.throwIfAborted();
           if (search) {
             const found = new Map();
             for (let index = 0; index < keywords.length; index++) {

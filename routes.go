@@ -47,7 +47,8 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 	api.POST("/ai/models", appServer.aiModelsHandler)
 	api.Use(appServer.accountMiddleware())
 	{
-		api.GET("/login/status", appServer.checkLoginStatusHandler)
+		api.GET("/login/session", appServer.loginSessionHandler)
+		api.GET("/account/verify", appServer.accountVerifyHandler)
 		api.POST("/login/browser", appServer.openLoginBrowserHandler)
 		api.DELETE("/login/browser", appServer.closeLoginBrowserHandler)
 		api.DELETE("/login/cookies", appServer.deleteCookiesHandler)

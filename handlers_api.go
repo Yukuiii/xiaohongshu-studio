@@ -51,9 +51,21 @@ func respondSuccess(c *gin.Context, data any, message string) {
 	c.JSON(http.StatusOK, response)
 }
 
-// checkLoginStatusHandler 检查登录状态
-func (s *AppServer) checkLoginStatusHandler(c *gin.Context) {
-	status, err := s.service(c).CheckLoginStatus(c.Request.Context())
+// loginSessionHandler 读取登录弹窗进度，不主动核验账号。
+func (s *AppServer) loginSessionHandler(c *gin.Context) {
+	status, err := s.service(c).LoginSessionStatus()
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "STATUS_CHECK_FAILED",
+			"读取登录会话失败", err)
+		return
+	}
+
+	respondSuccess(c, status, "读取登录会话成功")
+}
+
+// accountVerifyHandler 手动核验账号登录态，并更新缓存。
+func (s *AppServer) accountVerifyHandler(c *gin.Context) {
+	status, err := s.service(c).VerifyLoginStatus(c.Request.Context())
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "STATUS_CHECK_FAILED",
 			"检查登录状态失败", err)

@@ -32,7 +32,7 @@ func TestRespondErrorLogLevel(t *testing.T) {
 
 			gin.SetMode(gin.TestMode)
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
-			c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/login/status", nil)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/account/verify", nil)
 
 			respondError(c, tt.statusCode, "CODE", "消息", nil)
 

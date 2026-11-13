@@ -13,7 +13,7 @@ describe("账号请求契约", () => {
     vi.stubGlobal("fetch", fetch);
     const api = createAPI(settings);
     for (const path of [
-      "/login/status",
+      "/account/verify",
       "/login/browser",
       "/images/i",
       "/images/upload",
