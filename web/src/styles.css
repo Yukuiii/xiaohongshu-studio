@@ -16,6 +16,7 @@
   color: var(--ink);
   background: var(--paper);
   font-synthesis: none;
+  color-scheme: light;
 }
 * {
   box-sizing: border-box;
@@ -1006,7 +1007,7 @@ textarea {
   margin: 0 0 8px;
   color: #7c7c70;
 }
-.publish-panel select {
+.publish-panel .select-trigger {
   background: #fafaf6;
   font-size: 12px;
 }

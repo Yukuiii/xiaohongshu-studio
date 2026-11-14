@@ -21,7 +21,19 @@ const deferred = () => {
 };
 function Notifications({ children }) { return <>{children}<NotificationHost /></>; }
 const render = (ui) => renderUI(ui, { wrapper: Notifications });
-const change = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+const choiceLabels = {
+  发布账号: { A: "账号A", B: "账号B" },
+  发布类型: { image: "图文 · 生成 1 张配图", long_text: "长文 · 原生文字排版" },
+  执行频率: { daily: "每天", weekly: "每周", monthly: "每月", custom: "自定义 Cron" },
+  星期: { 0: "周日", 1: "周一", 2: "周二", 3: "周三", 4: "周四", 5: "周五", 6: "周六" },
+};
+const change = (label, value) => {
+  const field = screen.getByLabelText(label);
+  if (choiceLabels[label]) {
+    fireEvent.click(field);
+    fireEvent.click(screen.getByRole("option", { name: choiceLabels[label][value], exact: true }));
+  } else fireEvent.change(field, { target: { value } });
+};
 
 
 describe("定时任务用户操作", () => {
@@ -58,7 +70,7 @@ describe("定时任务用户操作", () => {
     const api = vi.fn(async (path, options) => options.method === "PUT" ? { schedule: { ...schedule, ...options.body } } : { schedules: [schedule] });
     render(<Schedules api={api} token="token" active accounts={accounts} />);
     fireEvent.click(await screen.findByRole("button", { name: "编辑", exact: true }));
-    expect(screen.getByLabelText("执行频率")).toHaveValue(mode);
+    expect(screen.getByLabelText("执行频率")).toHaveTextContent(choiceLabels.执行频率[mode]);
     change("任务名称", "修改名称");
     fireEvent.click(screen.getByRole("button", { name: "保存并自动发布" }));
     await waitFor(() => expect(api.mock.calls.find(([, options]) => options.method === "PUT")?.[1].body.cron).toBe(cron));
@@ -146,12 +158,12 @@ describe("定时任务用户操作", () => {
     });
     render(<Schedules api={api} token="token" active accounts={accounts} />);
     fireEvent.click(await screen.findByRole("button", { name: "编辑", exact: true }));
-    expect(screen.getByLabelText("发布类型")).toHaveValue("image");
+    expect(screen.getByLabelText("发布类型")).toHaveTextContent(choiceLabels.发布类型.image);
     change("发布类型", "long_text");
     fireEvent.click(screen.getByRole("button", { name: "保存并自动发布" }));
     await waitFor(() => expect(screen.queryByLabelText("发布类型")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "编辑", exact: true }));
-    expect(screen.getByLabelText("发布类型")).toHaveValue("long_text");
+    expect(screen.getByLabelText("发布类型")).toHaveTextContent(choiceLabels.发布类型.long_text);
     fireEvent.click(screen.getByRole("button", { name: "取消编辑" }));
     fireEvent.click(screen.getByRole("button", { name: "暂停", exact: true }));
     await waitFor(() => expect(api.mock.calls.filter(([, options]) => options.method === "PUT").at(-1)[1].body).toMatchObject({ publication_type: "long_text", enabled: false }));

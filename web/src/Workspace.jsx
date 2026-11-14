@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "./components.jsx";
+import Select from "./Select.jsx";
 import { parseTags, sourceURL, titleLength } from "./useWorkbench.js";
 import { ToastNotice } from "./notifications.jsx";
 
@@ -592,7 +593,7 @@ export default function Workspace({
             )}
             <section className="publish-panel">
               <label htmlFor="visibility">谁可以看</label>
-              <select
+              <Select
                 id="visibility"
                 value={draft.visibility}
                 onChange={change("visibility")}
@@ -601,7 +602,7 @@ export default function Workspace({
                 {["公开可见", "仅自己可见", "仅互关好友可见"].map((value) => (
                   <option key={value}>{value}</option>
                 ))}
-              </select>
+              </Select>
               <button
                 type="button"
                 id="publish-open"

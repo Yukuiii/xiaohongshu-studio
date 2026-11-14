@@ -58,6 +58,8 @@ Each account accepts one unfinished publication task at a time; different accoun
 
 Routine reads such as task lists, account lists, and model settings do not show loading toasts. Active operations use upper-right toasts for progress and results; result toasts dismiss after about two seconds and have no close button.
 
+Select controls use consistent light menus, with arrow-key navigation, Enter to confirm, and Escape to cancel. Menus stay within the viewport on narrow screens.
+
 The provider URL must include any required version path, such as `https://api.openai.com/v1`; the application does not append `/v1`. Text and image models can use different providers. Image generation requires an OpenAI-compatible `images/generations` endpoint; uploading images does not require an image model. Selected reference material is sent to your configured text provider.
 
 The workspace currently focuses on image posts: titles allow 20 counted characters, with English letters and digits counting as half; bodies allow 1,000 characters. Posts use 1–9 JPEG, PNG, WebP, or GIF images, up to 10 MiB each. See the [HTTP API](./docs/API.md) for video publication and other operations.

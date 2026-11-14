@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ToastNotice } from "./notifications.jsx";
 import { useSchedules } from "./useSchedules.js";
+import Select from "./Select.jsx";
 import "./schedules.css";
 
 const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -71,28 +72,28 @@ function ScheduleForm({ schedule, accounts, busy, onSave, onCancel }) {
         <fieldset disabled={Boolean(busy)} className="schedule-fields">
           <div className="schedule-form-grid">
             <div><label htmlFor="schedule-name">任务名称</label><input id="schedule-name" required value={form.name} onChange={(event) => change("name", event.target.value)} /></div>
-            <div><label htmlFor="schedule-account">发布账号</label><select id="schedule-account" required value={form.account_id} onChange={(event) => change("account_id", event.target.value)}>
+            <div><label htmlFor="schedule-account">发布账号</label><Select id="schedule-account" required value={form.account_id} onChange={(event) => change("account_id", event.target.value)}>
               <option value="">请选择账号</option>
               {schedule && !accounts.some((item) => item.id === form.account_id) && <option value={form.account_id}>{schedule.account_name || form.account_id}（不可用）</option>}
               {accounts.map((item) => <option key={item.id} value={item.id}>{item.name}{item.user_id ? "" : "（尚未登录绑定）"}</option>)}
-            </select></div>
+            </Select></div>
             <div><label htmlFor="schedule-keyword">搜索关键词</label><input id="schedule-keyword" required value={form.keyword} onChange={(event) => change("keyword", event.target.value)} /></div>
             <div><label htmlFor="schedule-topic">创作选题</label><input id="schedule-topic" required value={form.topic} onChange={(event) => change("topic", event.target.value)} /></div>
           </div>
           <label htmlFor="schedule-publication-type">发布类型</label>
-          <select id="schedule-publication-type" value={form.publication_type} onChange={(event) => change("publication_type", event.target.value)}>
+          <Select id="schedule-publication-type" value={form.publication_type} onChange={(event) => change("publication_type", event.target.value)}>
             <option value="image">图文 · 生成 1 张配图</option><option value="long_text">长文 · 原生文字排版</option>
-          </select>
+          </Select>
           <p className="helper">{form.publication_type === "long_text" ? "使用平台原生长文文字排版卡片，不调用生图模型。" : "使用设置中已保存的生图模型生成 1 张图片，再发布图文。缺少模型配置时仍可保存，请在执行前补全设置。"}</p>
           <label htmlFor="schedule-instructions">写作要求</label><textarea id="schedule-instructions" rows={4} placeholder="例如：面向新手，语气自然，给出具体步骤" value={form.instructions} onChange={(event) => change("instructions", event.target.value)} />
           <div className="schedule-form-grid">
             <div><label htmlFor="schedule-reference-count">参考数量</label><input id="schedule-reference-count" type="number" min="1" max="20" step="1" required value={form.reference_count} onChange={(event) => change("reference_count", event.target.value)} /></div>
             <div><label htmlFor="schedule-timezone">时区</label><input id="schedule-timezone" required placeholder="Asia/Shanghai" value={form.timezone} onChange={(event) => change("timezone", event.target.value)} /></div>
-            <div><label htmlFor="schedule-mode">执行频率</label><select id="schedule-mode" value={form.mode} onChange={(event) => change("mode", event.target.value)}>
+            <div><label htmlFor="schedule-mode">执行频率</label><Select id="schedule-mode" value={form.mode} onChange={(event) => change("mode", event.target.value)}>
               <option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option><option value="custom">自定义 Cron</option>
-            </select></div>
+            </Select></div>
             {form.mode !== "custom" && <div><label htmlFor="schedule-time">执行时间</label><input id="schedule-time" type="time" required value={form.time} onChange={(event) => change("time", event.target.value)} /></div>}
-            {form.mode === "weekly" && <div><label htmlFor="schedule-weekday">星期</label><select id="schedule-weekday" value={form.weekday} onChange={(event) => change("weekday", event.target.value)}>{weekdays.map((day, index) => <option value={index} key={day}>{day}</option>)}</select></div>}
+            {form.mode === "weekly" && <div><label htmlFor="schedule-weekday">星期</label><Select id="schedule-weekday" value={form.weekday} onChange={(event) => change("weekday", event.target.value)}>{weekdays.map((day, index) => <option value={index} key={day}>{day}</option>)}</Select></div>}
             {form.mode === "monthly" && <div><label htmlFor="schedule-day">每月日期</label><input id="schedule-day" type="number" min="1" max="31" step="1" required value={form.day} onChange={(event) => change("day", event.target.value)} /></div>}
           </div>
           {form.mode === "custom" && <><label htmlFor="schedule-cron">Cron 表达式</label><input id="schedule-cron" required value={form.cron} onChange={(event) => change("cron", event.target.value)} /><p className="helper">五个字段：分 时 日 月 星期。例如 0 9 * * 1-5 表示工作日 09:00。</p></>}
