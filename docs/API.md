@@ -31,7 +31,7 @@ Vite + React 创作台位于 `/`（内嵌的 `web/dist/index.html`），公开�
 
 ## 账号选择与持久化
 
-账号管理接口和 `/api/v1/ai/models` 不要求选择账号。登录、搜索、详情、发布、互动、用户资料、写稿、生图、图片上传与读取等账号业务请求均携带 `X-XHS-Account-ID`，例如：
+账号管理接口、任务查询接口和 `/api/v1/ai/models` 不要求选择账号。登录、搜索、详情、发布、互动、用户资料、写稿、生图、图片上传与读取等账号业务请求均携带 `X-XHS-Account-ID`，例如：
 
 ```bash
 curl http://localhost:18060/api/v1/account/verify \
@@ -41,7 +41,7 @@ curl http://localhost:18060/api/v1/account/verify \
 
 仅有一个有效账号时允许省略此头；零个或多个账号时省略返回 `400 ACCOUNT_REQUIRED`。非法 ID 返回 `400 INVALID_ACCOUNT`，未知或已移除账号返回 `404 ACCOUNT_NOT_FOUND`，不会回退其他账号。以下业务接口示例均适用此规则。`user_id` 请求参数用于指定查询对象，与请求所属账号不同。
 
-账号选择按请求固定，服务不维护全局当前账号；同账号浏览器任务串行，忙时返回 `409 ACCOUNT_BUSY`，不同账号可以独立运行。列表不启动浏览器，`is_logged_in` 表示最近一次明确检查的结果，`login_checked_at` 表示该次检查时间；`browser_status` 和最近绑定身份不代表登录永不过期。业务浏览器按需启动并复用，空闲 10 分钟后正常关闭；完整 profile 和账号固定 seed 在重启后保留。
+账号选择按请求固定，服务不维护全局当前账号；同账号浏览器操作串行，普通请求忙时返回 `409 ACCOUNT_BUSY`，后台发布任务等待浏览器空闲后执行；不同账号可以独立运行。列表不启动浏览器，`is_logged_in` 表示最近一次明确检查的结果，`login_checked_at` 表示该次检查时间；`browser_status` 和最近绑定身份不代表登录永不过期。业务浏览器按需启动并复用，空闲 10 分钟后正常关闭；完整 profile 和账号固定 seed 在重启后保留。
 
 服务启动后异步巡检一轮，此后每 10 分钟串行检查各账号。正在执行任务、登录或维护的账号跳过，等待下一轮；网络错误、超时或页面尚未就绪时保留原缓存及检查时间。巡检通过账号浏览器的 Cookie/UA 发起 HTTP 页面请求核验身份，不渲染 explore 页面；优先复用空闲浏览器，无实例时启动 headless 浏览器，检查结束后关闭所用实例，不延长其空闲计时。账号状态与基础资料保存在 SQLite 的 `accounts` 表中。新账号默认为 `false` / `null`，不根据历史用户 ID 推断已登录。
 
@@ -49,7 +49,7 @@ curl http://localhost:18060/api/v1/account/verify \
 
 源码及 Docker 的数据根固定为当前工作目录下的 `data/`，Docker 工作目录为 `/app`，因此使用 `/app/data`；桌面端直接使用系统应用数据目录，具体位置见[桌面端说明](../desktop/README.md#运行期数据目录)。数据根中的 `accounts/` 保存各账号的完整 Chromium user-data-dir，`studio.db` 保存元数据，`uploads/` 保存上传和生成的图片。账号浏览器正常退出和服务启动时会清理 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留 Cookie、Local Storage、IndexedDB、Service Worker 和浏览器配置。模型配置、服务令牌由整个工作台共用；拥有有效令牌即可访问所有账号，此功能不提供访问者权限隔离。
 
-SQLite 数据库包含 `accounts`、`settings`、`drafts`、`publish_protection` 四张表。全新数据库不创建默认账号，也不自动导入旧 JSON、Cookie 文件或浏览器 localStorage 草稿。源码旧 `.xhs-accounts/`、根目录 `studio.db` 和临时图片不会自动迁移，旧文件保留；Docker 和桌面端的数据路径不变，无需搬迁。数据根下的 `cookies.json` 仅供底层 Cookie 文件 API 兼容使用，不会自动恢复账号。
+SQLite 数据库包含 `accounts`、`settings`、`drafts`、`publish_protection` 和 `publish_tasks` 五张表。全新数据库不创建默认账号，也不自动导入旧 JSON、Cookie 文件或浏览器 localStorage 草稿。源码旧 `.xhs-accounts/`、根目录 `studio.db` 和临时图片不会自动迁移，旧文件保留；Docker 和桌面端的数据路径不变，无需搬迁。数据根下的 `cookies.json` 仅供底层 Cookie 文件 API 兼容使用，不会自动恢复账号。
 
 ## 通用响应格式
 
@@ -86,8 +86,10 @@ SQLite 数据库包含 `accounts`、`settings`、`drafts`、`publish_protection`
 | GET | `/api/v1/account/verify` | 手动核验所选账号登录状态 |
 | POST/DELETE | `/api/v1/login/browser` | 打开或结束所选账号的可视化登录浏览器 |
 | DELETE | `/api/v1/login/cookies` | 仅清除所选浏览器 Cookie |
-| POST | `/api/v1/publish` | 发布图文内容 |
-| POST | `/api/v1/publish_video` | 发布视频内容 |
+| POST | `/api/v1/publish` | 创建图文发布任务，返回 202 |
+| POST | `/api/v1/publish_video` | 创建视频发布任务，返回 202 |
+| GET | `/api/v1/tasks` | 分页读取全账号任务记录 |
+| GET | `/api/v1/tasks/:id` | 读取单个任务状态与结果 |
 | GET | `/api/v1/feeds/list` | 获取 Feeds 列表 |
 | GET/POST | `/api/v1/feeds/search` | 搜索 Feeds |
 | POST | `/api/v1/feeds/detail` | 获取 Feed 详情 |
@@ -291,14 +293,19 @@ X-XHS-Account-ID: 11111111111111111111111111111111
 
 ### 3. 内容发布
 
+发布接口现在是异步接口，返回 `202 Accepted` 和 `data.task`，不再等待浏览器完成发布。HTTP 请求结束、页面切换或刷新不会取消已接收任务；请通过任务接口读取结果。同一账号同时只允许一个未完成任务，不同账号可独立执行。
+
+建议为每次用户确认生成 `Idempotency-Key`，同一次确认重试必须复用原值。同账号、同 key、同内容返回原任务（包括已结束任务），不会重复执行；同 key 不同内容返回 `409 IDEMPOTENCY_KEY_REUSED`。已有未完成任务时，不同 key 即使内容相同也返回 `409 PUBLISH_TASK_ACTIVE`。缺省时由服务端生成。提交前账号须已绑定并确认登录，执行时仍会核验真实身份。
+
 #### 3.1 发布图文内容
 
-发布图文笔记内容到小红书。
+创建图文发布任务，提交内容和图片引用按当前请求保存快照。
 
 **请求**
 ```
 POST /api/v1/publish
 Content-Type: application/json
+Idempotency-Key: image-publish-001
 ```
 
 **请求体**
@@ -332,29 +339,38 @@ Content-Type: application/json
 - `visibility` (string, optional): 可见范围，支持: `公开可见`(默认)、`仅自己可见`、`仅互关好友可见`。不填则默认公开可见
 - `products` (array, optional): 商品关键词列表，用于绑定带货商品。填写商品名称或商品ID，自动搜索并选择第一个匹配结果，需账号已开通商品功能
 
-**响应**
+**响应：202 Accepted（示例）**
 ```json
 {
   "success": true,
   "data": {
-    "title": "笔记标题",
-    "content": "笔记内容",
-    "images": 2,
-    "at_users": ["小明", "旅行日记"],
-    "status": "发布完成"
+    "task": {
+      "id": "0123456789abcdef0123456789abcdef",
+      "account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "account_name": "主账号",
+      "kind": "publish",
+      "title": "笔记标题",
+      "status": "queued",
+      "message": "等待发布",
+      "created_at": "2026-11-14T08:00:00Z",
+      "updated_at": "2026-11-14T08:00:00Z",
+      "started_at": null,
+      "finished_at": null
+    }
   },
-  "message": "发布成功"
+  "message": "发布任务已接收"
 }
 ```
 
 #### 3.2 发布视频内容
 
-发布视频内容到小红书（仅支持本地视频文件）。
+创建视频发布任务，仅支持服务端可访问的本地视频文件。
 
 **请求**
 ```
 POST /api/v1/publish_video
 Content-Type: application/json
+Idempotency-Key: video-publish-001
 ```
 
 **请求体**
@@ -377,17 +393,26 @@ Content-Type: application/json
 - `visibility` (string, optional): 可见范围，支持: `公开可见`(默认)、`仅自己可见`、`仅互关好友可见`。不填则默认公开可见
 - `products` (array, optional): 商品关键词列表，用于绑定带货商品。填写商品名称或商品ID，自动搜索并选择第一个匹配结果，需账号已开通商品功能
 
-**响应**
+**响应：202 Accepted（示例）**
 ```json
 {
   "success": true,
   "data": {
-    "title": "视频标题",
-    "content": "视频内容描述",
-    "video": "/Users/username/Videos/video.mp4",
-    "status": "发布完成"
+    "task": {
+      "id": "fedcba9876543210fedcba9876543210",
+      "account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "account_name": "主账号",
+      "kind": "publish_video",
+      "title": "视频标题",
+      "status": "queued",
+      "message": "等待发布",
+      "created_at": "2026-11-14T08:00:00Z",
+      "updated_at": "2026-11-14T08:00:00Z",
+      "started_at": null,
+      "finished_at": null
+    }
   },
-  "message": "视频发布成功"
+  "message": "发布任务已接收"
 }
 ```
 
@@ -395,6 +420,26 @@ Content-Type: application/json
 - 仅支持本地视频文件路径，不支持 HTTP 链接
 - 视频处理时间较长，请耐心等待
 - 建议视频文件大小不超过 1GB
+
+#### 3.3 任务列表与执行状态
+
+```http
+GET /api/v1/tasks?page=1&page_size=20
+GET /api/v1/tasks/0123456789abcdef0123456789abcdef
+```
+
+两个接口读取整个工作台的任务，无需 `X-XHS-Account-ID`；启用访问令牌时仍需 Bearer。列表返回 `data.tasks`、`data.total`、`data.page`、`data.page_size`，按创建时间倒序排列；每页默认 20 条，最多 100 条。详情返回 `data.task`，字段与提交响应中的任务一致。
+
+| status | 含义 |
+| --- | --- |
+| `queued` | 已接收，等待账号浏览器可用 |
+| `running` | 正在执行发布 |
+| `succeeded` | 已确认发布完成，`result` 包含原发布结果 |
+| `failed` | 发布失败，`error` 包含原因 |
+| `uncertain` | 无法确认发布结果，需到小红书核对后处理发布保护 |
+
+任务还提供 `message`、创建/更新/开始/结束时间。查询失败任务仍返回 HTTP 200，请以 `task.status` 和 `task.error` 判断结果，不要用重复 POST 代替查询。任务存入 SQLite，服务重启后排队任务继续执行；遗留执行中记录转为 `uncertain`，不自动重发。账号移除后保留任务历史和提交时备注名。
+
 
 ---
 
@@ -1171,7 +1216,7 @@ Content-Type: application/json
 }
 ```
 
-模型应返回包含标题和正文的 JSON；支持 JSON 代码围栏，格式不正确则报错。超长文章保留原文供编辑，不截断、不自动重试。页面在发布前校验标题、正文和图片，最终通过已有 `POST /api/v1/publish` 发布。
+模型应返回包含标题和正文的 JSON；支持 JSON 代码围栏，格式不正确则报错。超长文章保留原文供编辑，不截断、不自动重试。页面在发布前校验标题、正文和图片，最终通过 `POST /api/v1/publish` 创建后台发布任务。
 
 #### 8.3 上传与读取图片
 
@@ -1243,16 +1288,16 @@ Content-Type: application/json
 GET /api/v1/publish-protection
 ```
 
-返回 `revision`、`uncertain` 和 `last_published`。发布前先读取；`uncertain=true` 表示上次发布结果尚未确认，不得再次发布。
+返回 `revision`、`uncertain`、`last_published` 和 `active_task_id`。活动任务期间 `active_task_id` 非空，禁止再次发布或手动解锁；无活动任务但 `uncertain=true` 时，须先核对实际发布结果。
 
 ```http
 PUT /api/v1/publish-protection
 Content-Type: application/json
 
-{"base_revision": 1, "uncertain": true, "last_published": ""}
+{"base_revision": 1, "uncertain": false, "last_published": ""}
 ```
 
-条件更新成功返回新 `revision`；版本不一致返回 `409 PROTECTION_REVISION_CONFLICT`，应重新核对发布结果。开始发布前写入 `uncertain=true`，确认成功后写入 `uncertain=false` 和内容指纹。
+发布任务的创建和完成会在服务端事务中自动更新保护，客户端不再预写或完成后回写保护。上述 PUT 仅用于人工核对后解锁，须使用最新 `revision` 并保留已读取的 `last_published`（示例假定为空）；活动任务返回 `409 PUBLISH_TASK_ACTIVE`，版本不一致返回 `409 PROTECTION_REVISION_CONFLICT`。
 
 ## 错误代码
 
@@ -1279,8 +1324,17 @@ Content-Type: application/json
 | `DRAFT_REVISION_CONFLICT` | 409 | 草稿已在其他窗口或浏览器更新 |
 | `PROTECTION_REVISION_CONFLICT` | 409 | 发布防重记录已更新 |
 | `DELETE_COOKIES_FAILED` | 500 | 删除 Cookies 失败 |
-| `PUBLISH_FAILED` | 500 | 发布图文内容失败 |
-| `PUBLISH_VIDEO_FAILED` | 500 | 发布视频内容失败 |
+| `TASK_SUBMIT_FAILED` | 500 | 创建发布任务失败 |
+| `TASKS_UNAVAILABLE` | 503 | 任务服务尚未就绪或正在关闭 |
+| `TASK_NOT_FOUND` | 404 | 任务不存在 |
+| `INVALID_TASK` | 400 | 任务标识无效 |
+| `INVALID_REQUEST_ID` | 400 | 幂等请求标识无效 |
+| `TASK_LIST_FAILED` | 500 | 读取任务列表失败 |
+| `TASK_READ_FAILED` | 500 | 读取任务详情失败 |
+| `PUBLISH_TASK_ACTIVE` | 409 | 该账号有未完成任务，暂不能再次提交或解锁 |
+| `PUBLISH_UNCERTAIN` | 409 | 上次结果尚未核对，禁止再次发布 |
+| `ALREADY_PUBLISHED` | 409 | 相同内容已有成功发布记录 |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | 同一幂等 key 被用于不同发布内容 |
 | `LIST_FEEDS_FAILED` | 500 | 获取 Feeds 列表失败 |
 | `SEARCH_FEEDS_FAILED` | 500 | 搜索 Feeds 失败 |
 | `GET_FEED_DETAIL_FAILED` | 500 | 获取 Feed 详情失败 |

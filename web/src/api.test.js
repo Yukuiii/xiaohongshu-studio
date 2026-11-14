@@ -22,6 +22,7 @@ describe("账号请求契约", () => {
       "/ai/compose",
       "/ai/image",
       "/publish",
+      "/publish_video",
     ])
       await api(path, { accountId: "A" });
     for (const [, options] of fetch.mock.calls) {
@@ -35,10 +36,27 @@ describe("账号请求契约", () => {
       "/accounts/A/reset-profile",
       "/ai/models",
       "/settings",
+      "/tasks?page=2&page_size=20",
+      "/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     ])
       await api(path, { accountId: "A" });
     for (const [, options] of fetch.mock.calls)
       expect(options.headers).not.toHaveProperty("X-XHS-Account-ID");
+  });
+
+  it("异步提交传递同一次确认的幂等键并读取 202 任务", async () => {
+    const task = { id: "a".repeat(32), status: "queued", account_id: "A" };
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 202, json: async () => ({ success: true, data: { task } }),
+    });
+    vi.stubGlobal("fetch", fetch);
+    const data = await createAPI(settings)("/publish", {
+      method: "POST", accountId: "A", body: { title: "笔记" }, idempotencyKey: "confirmation-key",
+    });
+    expect(data.task).toEqual(task);
+    expect(fetch.mock.calls[0][1].headers).toMatchObject({
+      "Idempotency-Key": "confirmation-key", "X-XHS-Account-ID": "A",
+    });
   });
 
   it.each(["ACCOUNT_BUSY", "LOGIN_BROWSER_BUSY"])(

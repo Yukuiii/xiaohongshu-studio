@@ -2,11 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import Workspace from "./Workspace.jsx";
 import Settings from "./Settings.jsx";
 import Accounts from "./accounts/Accounts.jsx";
+import Tasks from "./Tasks.jsx";
 import { canStartLogin, useAccount } from "./accounts/useAccount.js";
 import { useWorkbench } from "./useWorkbench.js";
 import logo from "./assets/logo-128.png";
+import { NotificationHost, ToastNotice } from "./notifications.jsx";
 
 const ACCOUNT_KEY = "hongshu-workbench.account.v1";
+const storageWarning = {
+  message:
+    "浏览器本地存储不可用或空间不足。你仍可继续本次创作，但刷新可能丢失配置和草稿，请先复制重要内容。",
+  type: "warning",
+};
 
 function savedAccount() {
   try {
@@ -16,7 +23,7 @@ function savedAccount() {
   }
 }
 
-const pages = { workspace: "工作台", accounts: "账号", settings: "设置" };
+const pages = { workspace: "工作台", tasks: "任务", accounts: "账号", settings: "设置" };
 const currentPage = () =>
   Object.hasOwn(pages, location.hash.slice(1))
     ? location.hash.slice(1)
@@ -44,6 +51,11 @@ function NavIcon({ page }) {
         <>
           <circle cx="12" cy="8" r="4" />
           <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
+        </>
+      ) : page === "tasks" ? (
+        <>
+          <rect x="4" y="3" width="16" height="18" rx="2" />
+          <path d="m8 9 1 1 2-2M13 9h3M8 15h8" />
         </>
       ) : (
         <>
@@ -177,13 +189,12 @@ export default function App() {
             ? items[0]
             : null;
         if (next) selectAccount(next.id, items, data.legacy_account_id);
-        else
+        else if (preferred)
           setListNotice({
-            message: preferred
-              ? "上次选择的账号已不可用，请明确选择其他账号或添加账号。"
-              : "请选择创作账号，或添加账号后扫码登录。",
+            message: "上次选择的账号已不可用，请明确选择其他账号或添加账号。",
             type: "warning",
           });
+        else setListNotice({ message: "", type: "" });
       } else if (
         latest.current.selectedId &&
         !items.some((item) => item.id === latest.current.selectedId)
@@ -333,6 +344,7 @@ export default function App() {
         setAccounts(items);
         if (selectAccount(data.account.id, items))
           setLoginAfterSelect(data.account.id);
+        setListNotice({ message: "账号已添加，请完成扫码登录。", type: "" });
       }),
     rename: (id, name) =>
       manage("rename", async (api) => {
@@ -343,6 +355,7 @@ export default function App() {
         setAccounts((items) =>
           items.map((item) => (item.id === id ? data.account : item)),
         );
+        setListNotice({ message: "账号备注已更新。", type: "" });
       }),
     reset: (id) =>
       manage("reset", async (api) => {
@@ -384,6 +397,8 @@ export default function App() {
       }),
   };
   const uiBusy = wb.busy || Boolean(managing);
+  const needsAccount =
+    !loading && accounts.length === 0 && listNotice.type !== "error";
   const route = useRef(null);
   route.current = {
     page,
@@ -476,11 +491,7 @@ export default function App() {
         </span>
       </header>
       <main className="workspace">
-        {!wb.persistenceAvailable && (
-          <div id="storage-notice" className="notice warning" role="status">
-            浏览器本地存储不可用或空间不足。你仍可继续本次创作，但刷新可能丢失配置和草稿，请先复制重要内容。
-          </div>
-        )}
+        <ToastNotice active={!wb.persistenceAvailable} notice={storageWarning} />
         <section
           className="page-view"
           data-view="workspace"
@@ -498,30 +509,41 @@ export default function App() {
             <section className="card">
               <p className="eyebrow">连接你的创作身份</p>
               <h1 id="workspace-title" tabIndex={-1}>
-                请选择创作账号
+                {needsAccount ? "请先添加账号" : "请选择创作账号"}
               </h1>
               <p className="muted">
-                每个账号拥有独立草稿和发布记录。选择账号后即可继续创作，模型设置和服务访问令牌共用。
+                {needsAccount
+                  ? "添加小红书账号并完成扫码登录后，即可开始创作。"
+                  : "每个账号拥有独立草稿和发布记录。选择账号后即可继续创作，模型设置和服务访问令牌共用。"}
               </p>
-              {listNotice.message && <p role="status">{listNotice.message}</p>}
               <div className="button-group">
                 <button
                   className="button primary"
                   disabled={uiBusy}
                   onClick={() => navigate("accounts")}
                 >
-                  前往账号页
+                  {needsAccount ? "添加账号" : "前往账号页"}
                 </button>
-                <button
-                  className="button"
-                  disabled={uiBusy}
-                  onClick={() => navigate("settings")}
-                >
-                  打开设置
-                </button>
+                {!needsAccount && (
+                  <button
+                    className="button"
+                    disabled={uiBusy}
+                    onClick={() => navigate("settings")}
+                  >
+                    打开设置
+                  </button>
+                )}
               </div>
             </section>
           )}
+        </section>
+        <section
+          className="page-view"
+          data-view="tasks"
+          aria-labelledby="tasks-title"
+          hidden={page !== "tasks"}
+        >
+          <Tasks api={wb.api} token={wb.settings.token} active={page === "tasks"} />
         </section>
         <section
           className="page-view"
@@ -540,6 +562,7 @@ export default function App() {
           <Settings workbench={wb} active={page === "settings"} />
         </section>
       </main>
+      <NotificationHost />
     </div>
   );
 }

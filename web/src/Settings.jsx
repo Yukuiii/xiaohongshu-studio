@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Dialog, Notice } from "./components.jsx";
+import { Dialog } from "./components.jsx";
+import { ToastNotice } from "./notifications.jsx";
 
 export default function Settings({ workbench: wb, active = true }) {
   const [confirmClear, setConfirmClear] = useState(false);
@@ -33,7 +34,6 @@ export default function Settings({ workbench: wb, active = true }) {
           部署会保存到数据卷，换浏览器或重建容器后可继续使用。已保存的 API Key
           不会返回浏览器。
         </p>
-        {wb.settingsLoading && <p role="status">正在读取服务端模型配置…</p>}
         {["text", "image"].map((kind) => (
           <fieldset key={kind} disabled={wb.busy || wb.settingsLoading}>
             <legend>
@@ -132,7 +132,7 @@ export default function Settings({ workbench: wb, active = true }) {
             这是工作台服务的访问凭证，与模型 API Key 不同。
           </p>
         </details>
-        <Notice id="settings-status" notice={wb.settingsStatus} />
+        <ToastNotice notice={wb.settingsStatus} />
         <div className="dialog-actions">
           <button
             type="button"
@@ -159,9 +159,6 @@ export default function Settings({ workbench: wb, active = true }) {
           将删除文字和生图模型的地址、名称及 API
           Key，所有使用此工作台的浏览器都会受到影响。账号、草稿和本浏览器的服务访问令牌会保留。
         </p>
-        <Notice
-          notice={wb.settingsStatus.type === "error" ? wb.settingsStatus : null}
-        />
         <div className="dialog-actions">
           <button
             type="button"

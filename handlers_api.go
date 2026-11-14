@@ -98,39 +98,43 @@ func (s *AppServer) deleteCookiesHandler(c *gin.Context) {
 // publishHandler 发布内容
 func (s *AppServer) publishHandler(c *gin.Context) {
 	var req PublishRequest
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxPublishTaskBytes)
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
 			"请求参数错误", err)
 		return
 	}
 
-	result, err := s.service(c).PublishContent(c.Request.Context(), &req)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "PUBLISH_FAILED",
-			"发布失败", err)
+	if !s.requireTaskManager(c) {
 		return
 	}
-
-	respondSuccess(c, result, "发布成功")
+	task, err := s.tasks.SubmitImage(c.Request.Context(), requestAccountID(c), c.GetHeader(idempotencyHeader), &req)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "TASK_SUBMIT_FAILED", "提交发布任务失败", err)
+		return
+	}
+	respondTaskAccepted(c, task)
 }
 
 // publishVideoHandler 发布视频内容
 func (s *AppServer) publishVideoHandler(c *gin.Context) {
 	var req PublishVideoRequest
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxPublishTaskBytes)
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
 			"请求参数错误", err)
 		return
 	}
 
-	result, err := s.service(c).PublishVideo(c.Request.Context(), &req)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "PUBLISH_VIDEO_FAILED",
-			"视频发布失败", err)
+	if !s.requireTaskManager(c) {
 		return
 	}
-
-	respondSuccess(c, result, "视频发布成功")
+	task, err := s.tasks.SubmitVideo(c.Request.Context(), requestAccountID(c), c.GetHeader(idempotencyHeader), &req)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "TASK_SUBMIT_FAILED", "提交视频任务失败", err)
+		return
+	}
+	respondTaskAccepted(c, task)
 }
 
 // listFeedsHandler 获取Feeds列表

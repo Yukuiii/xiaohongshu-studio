@@ -45,6 +45,8 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 	api.DELETE("/accounts/:id", appServer.deleteAccountHandler)
 	api.POST("/accounts/:id/reset-profile", appServer.resetAccountHandler)
 	api.POST("/ai/models", appServer.aiModelsHandler)
+	api.GET("/tasks", appServer.listPublishTasksHandler)
+	api.GET("/tasks/:id", appServer.getPublishTaskHandler)
 	api.Use(appServer.accountMiddleware())
 	{
 		api.GET("/login/session", appServer.loginSessionHandler)

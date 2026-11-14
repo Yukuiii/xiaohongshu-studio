@@ -1,19 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
 
-export function Notice({ notice, id }) {
-  if (!notice?.message) return null;
-  return (
-    <div
-      id={id}
-      className={`notice ${notice.type || ""}`}
-      role="status"
-      aria-live="polite"
-    >
-      {notice.message}
-    </div>
-  );
-}
-
 export function Dialog({
   open,
   onClose,

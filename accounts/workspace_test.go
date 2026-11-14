@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -81,4 +82,88 @@ func TestWorkspaceRequiresAliveAccount(t *testing.T) {
 	require.True(t, errors.Is(err, ErrNotFound))
 	_, err = s.SaveProtection(a.ID, 0, false, "", nil)
 	require.True(t, errors.Is(err, ErrNotFound))
+}
+
+func TestPublishProtectionCannotUnlockActiveTask(t *testing.T) {
+	for _, running := range []bool{false, true} {
+		name := "queued"
+		if running {
+			name = "running"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, a := publishTaskStore(t)
+			ctx := context.Background()
+			reviewed := int64(0)
+			before, err := s.SaveProtection(a.ID, 0, false, "older-published", &reviewed)
+			require.NoError(t, err)
+			task, err := s.EnqueuePublishTask(ctx, publishTaskInput(a.ID, "unlock-guard"), before.Revision)
+			require.NoError(t, err)
+			if running {
+				_, err = s.StartPublishTask(ctx, task.ID)
+				require.NoError(t, err)
+			}
+			locked, err := s.LoadProtection(a.ID)
+			require.NoError(t, err)
+			require.Equal(t, task.ID, locked.ActiveTaskID)
+			require.False(t, locked.ReviewedRevision.Valid)
+			reviewed = locked.Revision
+			_, err = s.SaveProtection(a.ID, locked.Revision, false, "overwritten", &reviewed)
+			require.ErrorIs(t, err, ErrTaskActive)
+			_, err = s.SaveProtection(a.ID, 0, false, "overwritten", nil)
+			require.ErrorIs(t, err, ErrTaskActive, "活动任务错误优先于版本冲突")
+			after, err := s.LoadProtection(a.ID)
+			require.NoError(t, err)
+			require.Equal(t, locked, after)
+			_, err = s.FinishPublishTask(ctx, task.ID, TaskOutcome{Status: TaskUncertain})
+			require.NoError(t, err)
+			uncertain, err := s.LoadProtection(a.ID)
+			require.NoError(t, err)
+			require.Empty(t, uncertain.ActiveTaskID)
+			require.True(t, uncertain.Uncertain)
+			require.Equal(t, "older-published", uncertain.LastPublished)
+			reviewed = uncertain.Revision
+			unlocked, err := s.SaveProtection(a.ID, uncertain.Revision, false, uncertain.LastPublished, &reviewed)
+			require.NoError(t, err)
+			require.False(t, unlocked.Uncertain)
+			require.Equal(t, uncertain.Revision+1, unlocked.Revision)
+			require.True(t, unlocked.ReviewedRevision.Valid)
+			require.Equal(t, reviewed, unlocked.ReviewedRevision.Int64)
+			_, err = s.EnqueuePublishTask(ctx, publishTaskInput(a.ID, "after-review"), unlocked.Revision)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestSaveProtectionAndEnqueueAreAtomic(t *testing.T) {
+	s, a := publishTaskStore(t)
+	ctx := context.Background()
+	start := make(chan struct{})
+	enqueued := make(chan error, 1)
+	saved := make(chan error, 1)
+	go func() {
+		<-start
+		_, err := s.EnqueuePublishTask(ctx, publishTaskInput(a.ID, "protection-race"), 0)
+		enqueued <- err
+	}()
+	go func() {
+		<-start
+		_, err := s.SaveProtection(a.ID, 0, false, "manual-save", nil)
+		saved <- err
+	}()
+	close(start)
+	enqueueErr, saveErr := <-enqueued, <-saved
+	protection, err := s.LoadProtection(a.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), protection.Revision)
+	if enqueueErr == nil {
+		require.ErrorIs(t, saveErr, ErrTaskActive)
+		require.True(t, protection.Uncertain)
+		require.NotEmpty(t, protection.ActiveTaskID)
+	} else {
+		require.ErrorIs(t, enqueueErr, ErrTaskProtectionConflict)
+		require.NoError(t, saveErr)
+		require.False(t, protection.Uncertain)
+		require.Empty(t, protection.ActiveTaskID)
+		require.Equal(t, "manual-save", protection.LastPublished)
+	}
 }

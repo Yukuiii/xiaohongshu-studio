@@ -17,7 +17,7 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 // Open 创建目录、打开 SQLite 并应用 schema；同一数据库只保留一个连接。
 func Open(path string) (*sql.DB, error) {
@@ -70,13 +70,21 @@ func applySchema(database *sql.DB) error {
 	if version == schemaVersion {
 		return nil
 	}
+	tx, err := database.Begin()
+	if err != nil {
+		return fmt.Errorf("开始数据库迁移: %w", err)
+	}
+	defer tx.Rollback()
 	for _, statement := range schemaStatements() {
-		if _, err := database.Exec(statement); err != nil {
+		if _, err := tx.Exec(statement); err != nil {
 			return fmt.Errorf("执行建表语句: %w", err)
 		}
 	}
-	if _, err := database.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
+	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
 		return fmt.Errorf("记录数据库版本: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交数据库迁移: %w", err)
 	}
 	return nil
 }

@@ -1,40 +1,29 @@
-const DRAFT_KEY = "hongshu-workbench.draft.v1";
+function sortedJSON(value) {
+  if (Array.isArray(value)) return value.map(sortedJSON);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, sortedJSON(value[key])]),
+    );
+  return value;
+}
+
+export function samePublishedContent(body, fingerprint) {
+  if (!fingerprint) return false;
+  try {
+    const normalize = (value) => ({
+      ...value,
+      tags: value.tags?.length ? value.tags : [],
+      visibility: value.visibility || "公开可见",
+    });
+    return JSON.stringify(sortedJSON(normalize(body))) ===
+      JSON.stringify(sortedJSON(normalize(JSON.parse(fingerprint))));
+  } catch {
+    return false;
+  }
+}
 
 export const protectionKey = (accountId) =>
   `hongshu-workbench.publish.v1:${accountId}`;
-
-export function readProtection(accountId, fallback = {}) {
-  const record = localStorage.getItem(protectionKey(accountId));
-  if (record) {
-    const value = JSON.parse(record);
-    if (
-      typeof value.uncertain !== "boolean" ||
-      typeof value.lastPublished !== "string" ||
-      !Number.isSafeInteger(value.revision) ||
-      value.revision < 0
-    )
-      throw new Error("发布保护记录无法读取，请先核对账号中的发布结果。");
-    return value;
-  }
-  const draft = localStorage.getItem(`${DRAFT_KEY}:${accountId}`);
-  const value = draft ? JSON.parse(draft) : fallback;
-  return {
-    uncertain: value?.uncertain === true,
-    lastPublished:
-      typeof value?.lastPublished === "string" ? value.lastPublished : "",
-    revision: 0,
-  };
-}
-
-export function writeProtection(accountId, previous, changes) {
-  const value = { ...previous, ...changes, revision: previous.revision + 1 };
-  try {
-    localStorage.setItem(protectionKey(accountId), JSON.stringify(value));
-  } catch {
-    throw new Error("发布保护未能保存，请恢复本地存储后重试。");
-  }
-  return value;
-}
 
 export async function withPublishLock(accountId, action) {
   if (!navigator.locks?.request)

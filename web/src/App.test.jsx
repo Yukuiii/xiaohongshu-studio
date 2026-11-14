@@ -42,6 +42,7 @@ function service(accounts = [A, B], mode = "native") {
   };
   const drafts = new Map();
   const protections = new Map();
+  const tasks = new Map();
   const fetch = vi.fn(async (url, options) => {
     if (url === "/api/v1/draft") {
       const accountId = options.headers["X-XHS-Account-ID"];
@@ -104,10 +105,26 @@ function service(accounts = [A, B], mode = "native") {
               revision: record.revision,
               uncertain: record.uncertain,
               last_published: record.last_published,
+              active_task_id: record.active_task_id || "",
             }
           : { revision: 0, uncertain: false, last_published: "" },
       );
     }
+    if (url === "/api/v1/publish") {
+      const accountId = options.headers["X-XHS-Account-ID"];
+      const task = {
+        id: "a".repeat(32), account_id: accountId, account_name: "账号A",
+        title: JSON.parse(options.body).title, kind: "publish", status: "queued",
+        message: "等待执行", created_at: "2026-11-14T08:00:00Z", updated_at: "2026-11-14T08:00:00Z",
+      };
+      tasks.set(task.id, task);
+      protections.set(accountId, { revision: 1, uncertain: true, last_published: "", active_task_id: task.id });
+      return { ...ok({ task }), status: 202 };
+    }
+    if (url.startsWith("/api/v1/tasks?"))
+      return ok({ tasks: [...tasks.values()], total: tasks.size, page: 1, page_size: 20 });
+    if (url.startsWith("/api/v1/tasks/"))
+      return ok({ task: tasks.get(url.split("/").at(-1)) });
     if (url === "/api/v1/settings") {
       if (options.method === "PUT") {
         const body = JSON.parse(options.body);
@@ -235,8 +252,6 @@ describe("分步创作工作台", () => {
             status: "logged_in",
           }),
         );
-      if (path === "/api/v1/publish")
-        return Promise.resolve(ok({ status: "发布完成" }));
       return original(path, options);
     });
     return fetch;
@@ -397,7 +412,16 @@ describe("分步创作工作台", () => {
       ([path]) => path === "/api/v1/publish",
     );
     expect(request[1].headers["X-XHS-Account-ID"]).toBe("A");
-    await screen.findByText(/笔记发布完成！/);
+    await screen.findByText(/发布任务已接收/);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "准备好分享了吗？" })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /检查并发布/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("tab", { name: "撰写文案" }));
+    fireEvent.change(screen.getByLabelText("笔记标题"), { target: { value: "下一份草稿" } });
+    expect(screen.getByLabelText("笔记标题")).toHaveValue("下一份草稿");
+    await navigatePage("tasks");
+    expect(await screen.findByRole("article", { name: "发布任务：待发布笔记" })).toHaveTextContent("排队中");
+    expect(screen.getByRole("button", { name: "任务", exact: true })).toHaveAttribute("aria-current", "page");
+    expect(fetch.mock.calls.filter(([path, options]) => path === "/api/v1/publish-protection" && options.method === "PUT")).toHaveLength(0);
   });
 });
 
@@ -638,7 +662,6 @@ describe("账号选择界面", () => {
     expect(listCalls(fetch)).toHaveLength(2);
     await act(async () => vi.advanceTimersByTime(1));
     expect(listCalls(fetch)).toHaveLength(3);
-    expect(screen.queryByText("正在读取账号列表…")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "账号 账号A" })).toBeVisible();
     await act(async () =>
       late.resolve(ok({ accounts: [A], legacy_account_id: "A" })),
@@ -709,7 +732,6 @@ describe("账号选择界面", () => {
       late.resolve(ok({ accounts: [A], legacy_account_id: "A" })),
     );
     expect(screen.getByLabelText("当前账号")).toHaveTextContent("账号A");
-    expect(screen.queryByText("正在读取账号列表…")).not.toBeInTheDocument();
     expect(
       fetch.mock.calls.filter(([url]) => url.endsWith("/account/verify")),
     ).toHaveLength(0);
@@ -886,7 +908,9 @@ describe("账号选择界面", () => {
       screen.getByRole("button", { name: "工作台", exact: true }),
     );
     await screen.findByRole("heading", { name: "今天，想分享什么？" });
-    fireEvent.click(screen.getByRole("tab", { name: "撰写文案" }));
+    const writingTab = screen.getByRole("tab", { name: "撰写文案" });
+    await waitFor(() => expect(writingTab).toBeEnabled());
+    fireEvent.click(writingTab);
     expect(screen.getByLabelText(/笔记标题/)).toHaveValue("B标题");
     expect(document.querySelector("#preview-author")).toHaveTextContent(
       "账号B",
@@ -896,13 +920,17 @@ describe("账号选择界面", () => {
     ).toHaveLength(0);
   });
 
-  it("添加账号先取得服务端 ID，再选中并直接打开该账号的扫码窗口", async () => {
-    accountsPage();
+  it("无账号时从工作台进入账号页，添加后选中并打开扫码窗口", async () => {
     const fetch = service([]);
     render(<App />);
-    await waitFor(() =>
-      expect(screen.queryByText("正在读取账号列表…")).not.toBeInTheDocument(),
+    await screen.findByRole("heading", { name: "请先添加账号" });
+    expect(
+      screen.queryByRole("button", { name: "打开设置" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "添加账号", exact: true }),
     );
+    await screen.findByRole("heading", { name: "账号", level: 1 });
     fireEvent.click(
       screen.getByRole("button", { name: "添加账号", exact: true }),
     );
@@ -955,7 +983,7 @@ describe("账号选择界面", () => {
       expect(dialog).toHaveAttribute("open");
       expect(frame.closest("dialog")).toBe(dialog);
       expect(
-        within(dialog).getByText("请在登录网页中使用小红书 App 扫码登录。"),
+        await within(dialog).findByText("请在登录网页中使用小红书 App 扫码登录。"),
       ).toBeVisible();
       const address = frame.getAttribute("src");
       if (dismiss === "Esc") {
@@ -1089,13 +1117,17 @@ describe("账号选择界面", () => {
         screen.queryByRole("dialog", { name: "扫码登录 · 账号A" }),
       ).not.toBeInTheDocument(),
     );
-    expect(screen.getByText(/小红书登录成功，登录信息已保存/)).toBeVisible();
+    expect(await screen.findByText(/小红书登录成功，登录信息已保存/)).toBeVisible();
     fireEvent.click(within(row).getByRole("button", { name: "刷新状态" }));
     await waitFor(() =>
       expect(
-        screen.queryByText(/小红书登录成功，登录信息已保存/),
-      ).not.toBeInTheDocument(),
+        within(row).getByRole("button", { name: "刷新状态" }),
+      ).toBeEnabled(),
     );
+    expect(within(row).getByText(/已登录/)).toBeVisible();
+    expect(
+      screen.queryByRole("dialog", { name: "扫码登录 · 账号A" }),
+    ).not.toBeInTheDocument();
   });
 
   it("令牌变化重新加载账号，旧列表响应不能替换新令牌下的选择", async () => {

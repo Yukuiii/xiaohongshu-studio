@@ -16,6 +16,7 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
@@ -447,24 +448,32 @@ func submitPublish(ctx context.Context, page *rod.Page, title, content string, t
 		return err
 	}
 
-	// 校验发布真的成功：成功后创作平台会跳转离开发布页；未跳转则判定失败，
-	// 消除"点了发布按钮就算成功"的假阳性。
+	// 点击后仍需确认跳转，未确认的结果不能自动重发。
 	return waitPublishSuccess(page, 15*time.Second)
 }
 
-// waitPublishSuccess 轮询等待发布成功的信号：小红书发布成功后会跳转离开发布表单页
-// （URL 不再含 /publish/publish）。超时仍未跳转 → 判定发布失败。
+// waitPublishSuccess 等待离开发布页，超时或中断时保留结果未知。
 func waitPublishSuccess(page *rod.Page, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	ctx := page.GetContext()
 	for {
+		if err := ctx.Err(); err != nil {
+			return errors.Wrapf(xhsErrors.ErrPublishUncertain, "等待发布结果被中断: %v", err)
+		}
 		if info, err := page.Info(); err == nil && !strings.Contains(info.URL, "/publish/publish") {
 			slog.Info("发布成功，已跳转离开发布页", "url", info.URL)
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return errors.New("发布未确认成功：点击发布后未跳转离开发布页（可能校验未过或被拦截）")
+			return errors.Wrap(xhsErrors.ErrPublishUncertain, "点击发布后未跳转离开发布页，请到小红书核对结果")
 		}
-		time.Sleep(500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return errors.Wrapf(xhsErrors.ErrPublishUncertain, "等待发布结果被中断: %v", ctx.Err())
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -480,11 +489,14 @@ func clickPublishButton(page *rod.Page) error {
 	}
 
 	if btn.isWidget {
-		return clickPublishWidget(page, btn.elem)
+		if err := clickPublishWidget(page, btn.elem); err != nil {
+			return errors.Wrapf(xhsErrors.ErrPublishUncertain, "点击发布按钮失败: %v", err)
+		}
+		return nil
 	}
 
 	if err := humanize.Click(btn.elem); err != nil {
-		return errors.Wrap(err, "点击发布按钮失败")
+		return errors.Wrapf(xhsErrors.ErrPublishUncertain, "点击发布按钮失败: %v", err)
 	}
 	return nil
 }

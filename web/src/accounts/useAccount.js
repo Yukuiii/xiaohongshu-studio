@@ -179,7 +179,9 @@ export function useAccount({
         ["expired", "failed", "not_logged_in"].includes(data?.status);
       const successMessage = stateRef.current.browserSession
         ? "小红书登录成功，登录信息已保存，登录网页已自动收起。"
-        : "";
+        : manual && stateRef.current.operation === "status"
+          ? "登录状态检查完成，账号已登录。"
+          : "";
       const patch = {
         status: data,
         sessionId: data.session_id || "",
@@ -193,6 +195,12 @@ export function useAccount({
           type: loggedIn ? "" : data?.status === "failed" ? "error" : "warning",
         },
       };
+      const previousNotice = stateRef.current.notice;
+      if (
+        patch.notice.message === previousNotice.message &&
+        patch.notice.type === previousNotice.type
+      )
+        patch.notice = previousNotice;
       if (pending) patch.browserSession = true;
       if (ended) {
         if (stateRef.current.sessionId)
@@ -244,7 +252,10 @@ export function useAccount({
       inputs.current.context === current.scope &&
       !current.controller.signal.aborted &&
       current.version >= appliedSequence.current &&
-      accountVisible(),
+      mounted.current &&
+      inputs.current.active &&
+      (["open", "close"].includes(stateRef.current.operation) ||
+        accountVisible()),
     [accountVisible],
   );
 
@@ -544,7 +555,9 @@ export function useAccount({
     const suspend = () => {
       visible.current = false;
       setPageVisible(false);
-      pause();
+      // 切后台只暂停轮询，不能中断正在打开或结束的登录窗口。
+      if (["open", "close"].includes(stateRef.current.operation)) clearTimer();
+      else pause();
     };
     const resume = () => {
       visible.current = !document.hidden;
@@ -563,7 +576,7 @@ export function useAccount({
       requiredRequests.current.forEach((controller) => controller.abort());
       requiredRequests.current.clear();
     };
-  }, [cancelRequest, pause]);
+  }, [cancelRequest, clearTimer, pause]);
 
   useEffect(() => {
     if (!active) pause();

@@ -226,6 +226,10 @@ func (s *Store) Delete(id string) error {
 		if err != nil {
 			return err
 		}
+		defer tx.Rollback()
+		if err := checkNoActivePublishTask(tx, id); err != nil {
+			return err
+		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		_, err = tx.Exec(
 			`UPDATE accounts SET name = '', user_id = '', nickname = '', avatar = '',

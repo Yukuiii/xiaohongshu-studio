@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Notice, Dialog } from "./components.jsx";
+import { Dialog } from "./components.jsx";
 import { parseTags, sourceURL, titleLength } from "./useWorkbench.js";
+import { ToastNotice } from "./notifications.jsx";
 
 const steps = [
   { id: "inspiration", label: "寻找灵感" },
@@ -9,13 +10,19 @@ const steps = [
   { id: "publish", label: "确认发布" },
 ];
 
+const publishWarning = {
+  message: "上次发布的结果尚未确认，请先核对，避免重复发布。",
+  type: "warning",
+};
+
 export default function Workspace({
   workbench: wb,
   account,
   selectedAccount,
   openSettings,
 }) {
-  const { draft, busy, images, sources } = wb;
+  const { draft, images, sources } = wb;
+  const busy = wb.busy || wb.draftLoading;
   const [step, setStep] = useState(0);
   const tabs = useRef([]);
   const panels = useRef([]);
@@ -133,9 +140,11 @@ export default function Workspace({
               </button>
             ))}
           </div>
+          <ToastNotice notice={wb.publishStatus} />
+          <ToastNotice active={!wb.activeTaskId && (wb.uncertain || wb.submissionUnknown)} notice={publishWarning} />
           {(wb.status.message || wb.researching) && (
             <div className="workspace-status">
-              <Notice id="status" notice={wb.status} />
+              <ToastNotice notice={wb.status} />
               {wb.researching && (
                 <button
                   type="button"
@@ -148,9 +157,11 @@ export default function Workspace({
               )}
             </div>
           )}
-          {wb.uncertain && step !== 3 && (
-            <div className="notice warning publish-reminder">
-              <span>上次发布的结果尚未确认，请先核对，避免重复发布。</span>
+          {wb.activeTaskId && step !== 3 && (
+            <div className="publish-reminder"><span>发布任务正在后台执行。</span> <a className="button small" href="#tasks">查看任务</a></div>
+          )}
+          {!wb.activeTaskId && (wb.uncertain || wb.submissionUnknown) && step !== 3 && (
+            <div className="publish-reminder">
               <button
                 type="button"
                 className="button small"
@@ -543,9 +554,16 @@ export default function Workspace({
               <dt>配图</dt>
               <dd>{images.length} / 9 张</dd>
             </dl>
-            {wb.uncertain && (
-              <div id="publish-uncertain" className="notice warning">
-                <strong>上次发布的结果尚未确认</strong>
+            {wb.activeTaskId && (
+              <div className="publish-protection" role="status">
+                <strong>此账号正在执行发布任务</strong>
+                <p>你可以继续编辑或切换账号。任务结束前不能重复发布或解除锁定。</p>
+                <a className="button small" href="#tasks">查看发布任务</a>
+              </div>
+            )}
+            {!wb.activeTaskId && (wb.uncertain || wb.submissionUnknown) && (
+              <div id="publish-uncertain" className="publish-protection">
+                <strong>核对上次发布结果</strong>
                 <p>
                   请求可能已经发送成功。请先打开小红书账号核对笔记，避免重复发布。核对后可解除锁定。
                 </p>
@@ -588,7 +606,7 @@ export default function Workspace({
                 type="button"
                 id="publish-open"
                 className="button primary publish-button"
-                disabled={busy}
+                disabled={busy || Boolean(wb.activeTaskId) || wb.uncertain || wb.submissionUnknown || !wb.protectionReady}
                 onClick={() =>
                   wb.preparePublish(account.requireLogin, selectedAccount)
                 }
@@ -601,16 +619,7 @@ export default function Workspace({
                   </>
                 )}
               </button>
-              <p>核对完成后，在确认窗口中提交。</p>
-              {wb.publishValidation && (
-                <div
-                  id="publish-validation"
-                  className="inline-error"
-                  role="status"
-                >
-                  {wb.publishValidation}
-                </div>
-              )}
+              <p>核对完成后，在确认窗口中提交。<a href="#tasks">查看任务记录</a></p>
             </section>
           </section>
           <div className="step-navigation" aria-label="步骤操作">
@@ -766,7 +775,7 @@ export default function Workspace({
         title="准备好分享了吗？"
       >
         <p className="muted">
-          点击「确认发布」会将这篇笔记真实发布到当前小红书账号。请最后核对内容与可见范围。
+          点击「确认发布」会创建后台任务，将这篇笔记真实发布到当前小红书账号。请最后核对内容与可见范围。
         </p>
         <dl className="publish-summary">
           <dt>发布账号</dt>
@@ -791,7 +800,6 @@ export default function Workspace({
           />
           我已核对正文、配图及事实，确认发布这篇笔记
         </label>
-        <Notice id="publish-status" notice={wb.publishStatus} />
         <div className="dialog-actions">
           <button
             type="button"
@@ -809,8 +817,8 @@ export default function Workspace({
             onClick={() => wb.confirmPublish(account.requireLogin)}
           >
             {wb.operation === "publish-confirm"
-              ? "正在发布，请勿关闭…"
-              : "确认发布"}
+              ? "正在提交任务…"
+              : wb.confirmation?.attempted ? "重试同一次确认" : "确认发布"}
           </button>
         </div>
       </Dialog>

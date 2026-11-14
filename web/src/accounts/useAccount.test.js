@@ -185,7 +185,8 @@ describe("登录请求隔离", () => {
       if (active) {
         await act(async () => result.current.checkStatus());
         expect(api).toHaveBeenCalledTimes(1);
-        expect(result.current.notice.message).toBe("");
+        expect(result.current.notice.message).toContain("检查完成");
+        expect(result.current.notice.type).toBe("");
       }
     },
   );
@@ -489,6 +490,53 @@ describe("登录请求隔离", () => {
     await act(async () => result.current.openLogin());
     expect(result.current.desktopURL).toContain("/desktop/session-A/");
   });
+
+  it.each(["open", "close"])(
+    "登录窗口 %s 请求在客户端切后台后仍能完成",
+    async (operation) => {
+      vi.useFakeTimers();
+      const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+      try {
+        const nativeLogin = { ...login(), mode: "native", desktop_url: "" };
+        const api = vi.fn().mockResolvedValue(nativeLogin);
+        const { result } = renderHook(() =>
+          useAccount({ api, active: true, busy: false, context: fixed }),
+        );
+        if (operation === "close")
+          await act(async () => result.current.openLogin());
+
+        const late = deferred();
+        api.mockReturnValueOnce(late.promise);
+        let pending;
+        act(() => {
+          pending =
+            operation === "open"
+              ? result.current.openLogin()
+              : result.current.closeLogin();
+        });
+        const signal = api.mock.calls.at(-1)[1].signal;
+        act(() => {
+          hidden.mockReturnValue(true);
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+        await act(async () => {
+          late.resolve(nativeLogin);
+          await pending;
+        });
+
+        expect(signal.aborted).toBe(false);
+        expect(result.current.browserSession).toBe(operation === "open");
+        expect(result.current.browserConnected).toBe(operation === "open");
+        expect(result.current.sessionId).toBe(
+          operation === "open" ? "session-A" : "",
+        );
+        expect(result.current.mode).toBe(operation === "open" ? "native" : "");
+        expect(result.current.operation).toBe("");
+      } finally {
+        hidden.mockRestore();
+      }
+    },
+  );
 
   it("扫码每两秒轮询，只在弹窗可见且空闲时进行，完成只通知刷新一次", async () => {
     vi.useFakeTimers();

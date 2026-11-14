@@ -66,3 +66,38 @@ CREATE TABLE IF NOT EXISTS publish_protection (
   reviewed_revision INTEGER,                 -- 用户核对发布结果时的记录版本
   updated_at INTEGER NOT NULL                -- 最后更新时间，Unix 毫秒
 );
+
+-- 后台发布任务保留提交快照，账号墓碑不会删除历史。
+CREATE TABLE IF NOT EXISTS publish_tasks (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  account_name TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('publish', 'publish_video')),
+  title TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  protection_revision INTEGER NOT NULL CHECK (protection_revision > 0),
+  status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'uncertain')),
+  message TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  result TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  started_at INTEGER,
+  finished_at INTEGER
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS publish_tasks_request_unique
+  ON publish_tasks(account_id, request_id);
+
+-- 同账号只允许一个尚未结束的任务，保护并发入队。
+CREATE UNIQUE INDEX IF NOT EXISTS publish_tasks_active_unique
+  ON publish_tasks(account_id) WHERE status IN ('queued', 'running');
+
+CREATE INDEX IF NOT EXISTS publish_tasks_newest
+  ON publish_tasks(created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS publish_tasks_queued
+  ON publish_tasks(created_at, id) WHERE status = 'queued';

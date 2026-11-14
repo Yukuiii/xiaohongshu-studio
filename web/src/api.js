@@ -34,15 +34,18 @@ export function createAPI(getSettings, getFormSettings = getSettings) {
       blob = false,
       accountId,
       keepalive = false,
+      idempotencyKey,
     } = {},
   ) {
     const headers = {};
     if (token) headers.Authorization = `Bearer ${token}`;
     const shared =
       /^\/accounts(?:\/|$)/.test(path) ||
+      /^\/tasks(?:[/?]|$)/.test(path) ||
       path === "/ai/models" ||
       path === "/settings";
     if (!shared && accountId) headers["X-XHS-Account-ID"] = accountId;
+    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
     if (body && !(body instanceof FormData))
       headers["Content-Type"] = "application/json";
     let response;

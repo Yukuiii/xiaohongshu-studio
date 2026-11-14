@@ -2,6 +2,8 @@
 
 基于 Tauri v2 的桌面客户端，支持 **macOS (Apple Silicon / ARM64)** 与 **Windows (x64)**。安装包内预打包 Go 后端服务（内嵌 `web/dist` 前端）与 `fingerprint-chromium` 指纹浏览器，开箱即用，无需在运行期额外下载浏览器或配置运行环境。
 
+桌面端扫码登录会打开本机内置 Chromium 窗口，noVNC 由 Docker 后端提供。切到登录浏览器或最小化客户端时，正在打开或结束的登录窗口会继续完成；后台暂停进度轮询，返回客户端后恢复。
+
 ## 目录结构
 
 - `package.json`：桌面端构建与开发脚本（`@tauri-apps/cli`）
@@ -48,7 +50,7 @@ VERSION=v1.2.3 npm --prefix desktop run build
 目录内主要包含：
 
 - `accounts/`：各账号独立浏览器 Profile
-- `studio.db`：SQLite 数据库
+- `studio.db`：账号、草稿、模型配置、发布保护及后台任务记录
 - `uploads/`：本地上传与生成图片
 - `studio.log`：后端标准错误日志
 - `browser/current/`（仅 macOS，首次启动从内置 `chromium.tar.gz` 原地解压一次）

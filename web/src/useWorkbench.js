@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createAPI, redact } from "./api.js";
 import {
   protectionKey,
-  readProtection,
+  samePublishedContent,
   withPublishLock,
 } from "./publishProtection.js";
 
@@ -10,9 +10,12 @@ function protectionPatch(protection, value) {
   const changed =
     protection.revision !== value.publishRevision ||
     protection.uncertain !== value.uncertain ||
-    protection.lastPublished !== value.lastPublished;
+    protection.lastPublished !== value.lastPublished ||
+    (protection.activeTaskId || "") !== value.activeTaskId;
   return {
     uncertain: protection.uncertain,
+    activeTaskId: protection.activeTaskId || "",
+    protectionReady: true,
     lastPublished: protection.lastPublished,
     publishRevision: protection.revision,
     ...(changed ? { reviewedPublish: false, reviewedRevision: null } : {}),
@@ -202,6 +205,9 @@ function initialState(saved = null) {
           }))
       : [],
     uncertain: saved?.uncertain === true,
+    activeTaskId: "",
+    submissionUnknown: false,
+    protectionReady: false,
     lastPublished:
       typeof saved?.lastPublished === "string" ? saved.lastPublished : "",
     previewIndex: 0,
@@ -216,7 +222,6 @@ function initialState(saved = null) {
     draftConflict: false,
     draftLoading: false,
     models: { text: [], image: [] },
-    publishValidation: "",
     confirmation: null,
     publishAgreed: false,
     reviewedPublish: false,
@@ -270,7 +275,7 @@ export function useWorkbench() {
   const draftRevision = useRef(0);
   const draftRevisions = useRef(new Map());
   const draftPending = useRef(Promise.resolve(true));
-  const protectionRevision = useRef(0);
+  const protectionRequest = useRef(0);
   const context = useRef({
     accountId: null,
     generation: 0,
@@ -390,17 +395,6 @@ export function useWorkbench() {
     [api, update],
   );
 
-  const syncProtection = useCallback(
-    (scope = context.current) => {
-      if (scope !== context.current || !scope.accountId)
-        throw new DOMException("账号上下文已变更", "AbortError");
-      const protection = readProtection(scope.accountId, current.current);
-      update(protectionPatch(protection, current.current));
-      return protection;
-    },
-    [update],
-  );
-
   const activateAccount = useCallback(
     (accountId, legacyAccountId, { force = false, discard = false } = {}) => {
       if (!force && (current.current.busy || (!discard && !saveDraft())))
@@ -420,7 +414,6 @@ export function useWorkbench() {
       const restored = initialState(null);
       firstSave.current = true;
       draftRevision.current = 0;
-      protectionRevision.current = 0;
       update({
         ...restored,
         settings: current.current.settings,
@@ -450,6 +443,7 @@ export function useWorkbench() {
   );
 
   async function loadWorkspace(scope) {
+    const request = ++protectionRequest.current;
     try {
       const [draftData, protectionData] = await Promise.all([
         api("/draft", { accountId: scope.accountId, token: scope.token }),
@@ -478,15 +472,13 @@ export function useWorkbench() {
           saveStatus: "已恢复服务端草稿",
         });
         if (saved.images.length) {
-          run("restore", "正在恢复草稿配图…", async (currentScope, signal) => {
-            const loaded = await loadImages(
+          run("restore", "", async (currentScope, signal) => {
+            await loadImages(
               current.current.images,
               currentScope,
               signal,
             );
             ensureCurrent(currentScope);
-            if (loaded.every((image) => !image.error))
-              notice("已恢复服务端草稿与配图，可以继续创作。");
           });
         }
       } else {
@@ -499,17 +491,18 @@ export function useWorkbench() {
           saveStatus: "草稿保存在服务端",
         });
       }
+      if (request !== protectionRequest.current) return;
       const protection = {
         revision: Number.isSafeInteger(protectionData?.revision)
           ? protectionData.revision
           : 0,
         uncertain: protectionData?.uncertain === true,
+        activeTaskId: protectionData?.active_task_id || "",
         lastPublished:
           typeof protectionData?.last_published === "string"
             ? protectionData.last_published
             : "",
       };
-      protectionRevision.current = protection.revision;
       try {
         localStorage.setItem(
           protectionKey(scope.accountId),
@@ -665,20 +658,67 @@ export function useWorkbench() {
           event.key !== `${DRAFT_KEY}:${id}`)
       )
         return;
-      try {
-        syncProtection();
-      } catch {
-        storageFailure();
-        update({
-          uncertain: true,
-          reviewedPublish: false,
-          reviewedRevision: null,
-        });
-      }
+      window.dispatchEvent(new Event("publish-tasks-changed"));
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [syncProtection, storageFailure, update]);
+  }, []);
+
+  useEffect(() => {
+    const scope = context.current;
+    if (!scope.accountId || state.draftLoading || !state.protectionReady) return;
+    let controller;
+    let timer;
+    let disposed = false;
+    const suspend = () => {
+      clearTimeout(timer);
+      controller?.abort();
+    };
+    const refresh = async () => {
+      suspend();
+      if (scope !== context.current) return;
+      if (disposed || document.hidden || current.current.busy) {
+        if (!disposed && !document.hidden) timer = setTimeout(refresh, 3000);
+        return;
+      }
+      controller = new AbortController();
+      const signal = controller.signal;
+      try {
+        const activeId = current.current.activeTaskId;
+        if (activeId) {
+          const data = await api(`/tasks/${encodeURIComponent(activeId)}`, {
+            token: scope.token, signal,
+          });
+          ensureCurrent(scope);
+          signal.throwIfAborted();
+          if (!data?.task || data.task.account_id !== scope.accountId)
+            throw new Error("发布任务响应无效，请到「任务」页核对。");
+        }
+        const protection = await loadServerProtection(scope, signal);
+        if (protection.activeTaskId) update({ submissionUnknown: false });
+      } catch (error) {
+        if (!disposed && !signal.aborted && isCurrent(scope))
+          notice(`发布状态同步失败：${errorMessage(error)} 请到「任务」页刷新核对。`, "warning");
+      } finally {
+        if (!disposed && !signal.aborted && !document.hidden)
+          timer = setTimeout(refresh, 3000);
+      }
+    };
+    const visibility = () => document.hidden ? suspend() : refresh();
+    refresh();
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("publish-tasks-changed", refresh);
+    window.addEventListener("pagehide", suspend);
+    window.addEventListener("pageshow", refresh);
+    return () => {
+      disposed = true;
+      suspend();
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("publish-tasks-changed", refresh);
+      window.removeEventListener("pagehide", suspend);
+      window.removeEventListener("pageshow", refresh);
+    };
+  }, [api, state.context, state.draftLoading, state.protectionReady, state.activeTaskId]);
 
   useEffect(() => {
     function beforeUnload(event) {
@@ -743,7 +783,6 @@ export function useWorkbench() {
     if (current.current.busy || !context.current.accountId) return;
     update(({ draft }) => ({
       draft: { ...draft, [key]: value },
-      publishValidation: "",
     }));
   }
 
@@ -930,7 +969,6 @@ export function useWorkbench() {
         ...source,
         used: complete.includes(source),
       })),
-      publishValidation: "",
     }));
     saveDraft(scope);
     const over =
@@ -1122,7 +1160,6 @@ export function useWorkbench() {
     update(({ images, previewIndex }) => ({
       images: images.filter((image) => image.id !== id),
       previewIndex: Math.max(0, Math.min(previewIndex, images.length - 2)),
-      publishValidation: "",
     }));
   }
 
@@ -1266,7 +1303,7 @@ export function useWorkbench() {
   async function readModels(kind) {
     await run(
       `${kind}-models`,
-      "正在读取模型列表…",
+      "",
       async (scope, signal) => {
         const config = trimmedConfig(current.current.settingsForm[kind]);
         validateConfig(
@@ -1309,11 +1346,13 @@ export function useWorkbench() {
     };
   }
 
-  function validatePublish() {
-    syncProtection();
+  function validatePublish({ retry = false } = {}) {
     const value = current.current;
     const body = publishBody();
-    if (value.uncertain)
+    if (!value.protectionReady) throw new Error("发布保护尚未读取，请刷新页面后重试。");
+    if (!retry && value.activeTaskId)
+      throw new Error("此账号有发布任务正在执行，请到「任务」页查看。");
+    if (!retry && (value.uncertain || value.submissionUnknown))
       throw new Error(
         "上次发布结果尚未确认。请先核对小红书账号并解除页面顶部的发布锁定。",
       );
@@ -1326,23 +1365,30 @@ export function useWorkbench() {
       throw new Error("请添加 1–9 张图片。");
     if (value.images.some((image) => !image.blobURL || image.error))
       throw new Error("存在未成功读取的配图，请修复或移除后再发布。");
-    if (JSON.stringify(body) === value.lastPublished)
+    if (!retry && samePublishedContent(body, value.lastPublished))
       throw new Error("这份内容已经发布成功，无需重复发布。");
     return body;
   }
 
-  async function loadServerProtection(scope) {
+  async function loadServerProtection(scope, signal) {
+    ensureCurrent(scope);
+    const request = ++protectionRequest.current;
     const data = await api("/publish-protection", {
       accountId: scope.accountId,
       token: scope.token,
+      signal,
     });
+    ensureCurrent(scope);
+    signal?.throwIfAborted();
+    if (request !== protectionRequest.current)
+      throw new DOMException("发布保护已更新", "AbortError");
     const protection = {
       revision: Number.isSafeInteger(data?.revision) ? data.revision : 0,
       uncertain: data?.uncertain === true,
+      activeTaskId: data?.active_task_id || "",
       lastPublished:
         typeof data?.last_published === "string" ? data.last_published : "",
     };
-    protectionRevision.current = protection.revision;
     try {
       localStorage.setItem(
         protectionKey(scope.accountId),
@@ -1369,15 +1415,16 @@ export function useWorkbench() {
             : "",
       },
     });
+    ensureCurrent(scope);
     const protection = {
       revision: Number.isSafeInteger(data?.revision)
         ? data.revision
         : baseRevision + 1,
       uncertain: changes.uncertain === true,
+      activeTaskId: "",
       lastPublished:
         typeof changes.lastPublished === "string" ? changes.lastPublished : "",
     };
-    protectionRevision.current = protection.revision;
     try {
       localStorage.setItem(
         protectionKey(scope.accountId),
@@ -1396,7 +1443,7 @@ export function useWorkbench() {
       if (!context.current.accountId) throw new Error("请先选择创作账号。");
       validatePublish();
     } catch (error) {
-      update({ publishValidation: error.message });
+      notice(error.message, "error");
       return;
     }
     await run("publish-check", "正在检查账号…", async (scope, signal) => {
@@ -1406,6 +1453,8 @@ export function useWorkbench() {
         throw new Error("未能确认当前账号身份，请前往账号页重新验证登录。");
       const protection = await loadServerProtection(scope);
       ensureCurrent(scope);
+      if (protection.activeTaskId)
+        throw new Error("此账号有发布任务正在执行，请到「任务」页查看。");
       if (protection.uncertain)
         throw new Error(
           "上次发布的结果尚未确认，请先在「确认发布」步骤核对并解除锁定。",
@@ -1421,6 +1470,8 @@ export function useWorkbench() {
             account.username || selectedAccount?.nickname || "已登录账号",
           userId: account.user_id,
           fingerprint: JSON.stringify(body),
+          requestId: crypto.randomUUID(),
+          attempted: false,
         },
         publishAgreed: false,
         publishStatus: emptyNotice(),
@@ -1433,71 +1484,64 @@ export function useWorkbench() {
     const confirmation = current.current.confirmation;
     await run(
       "publish-confirm",
-      "正在发布，请勿关闭…",
+      "正在提交发布任务…",
       (scope, signal) =>
         withPublishLock(scope.accountId, async () => {
           ensureCurrent(scope);
           if (!current.current.publishAgreed || !confirmation)
             throw new Error("请先勾选发布确认。");
-          if (
-            confirmation.accountId !== scope.accountId ||
-            confirmation.generation !== scope.generation
-          )
+          if (confirmation.accountId !== scope.accountId ||
+              confirmation.generation !== scope.generation)
             throw new Error("账号已切换，请重新检查并确认发布。");
-          const account = await requireLogin(signal, scope);
-          ensureCurrent(scope);
-          if (
-            account.account_id !== confirmation.accountId ||
-            account.user_id !== confirmation.userId
-          )
-            throw new Error("登录身份已变化，请重新检查并确认发布。");
-          // 持有跨标签页锁后重新读取保护，不能相信确认窗口的旧内存。
-          const body = validatePublish();
+          if (!confirmation.attempted) {
+            const account = await requireLogin(signal, scope);
+            ensureCurrent(scope);
+            if (account.account_id !== confirmation.accountId ||
+                account.user_id !== confirmation.userId)
+              throw new Error("登录身份已变化，请重新检查并确认发布。");
+          }
+          await loadServerProtection(scope, signal);
+          const body = validatePublish({ retry: confirmation.attempted });
           if (JSON.stringify(body) !== confirmation.fingerprint)
             throw new Error("草稿已变化，请返回编辑并重新确认发布。");
-          const protection = await loadServerProtection(scope);
-          ensureCurrent(scope);
-          if (protection.uncertain)
-            throw new Error("上次发布的结果尚未确认，请先核对并解除发布锁定。");
-          const pending = await saveServerProtection(
-            scope,
-            protection.revision,
-            {
-              uncertain: true,
-              lastPublished: protection.lastPublished,
-            },
-          );
-          ensureCurrent(scope);
           const queued = saveDraft(scope);
           if (!queued || !(await draftPending.current))
             throw new Error("草稿未能保存到服务端，请重试后再发布。");
+          ensureCurrent(scope);
+          confirmation.attempted = true;
           try {
             const data = await accountAPI(scope, "/publish", {
               method: "POST",
               body,
               signal,
+              idempotencyKey: confirmation.requestId,
             });
-            ensureCurrent(scope);
-            if (data?.status !== "发布完成")
-              throw new Error("服务未返回明确的发布完成状态。");
-            await saveServerProtection(scope, pending.revision, {
-              uncertain: false,
-              lastPublished: JSON.stringify(body),
+            const task = data?.task;
+            if (!task?.id || task.account_id !== scope.accountId ||
+                !["queued", "running", "succeeded", "failed", "uncertain"].includes(task.status))
+              throw new Error("服务未返回有效的发布任务，请到「任务」页核对。");
+            const active = task.status === "queued" || task.status === "running";
+            update({
+              confirmation: null,
+              publishAgreed: false,
+              publishStatus: emptyNotice(),
+              submissionUnknown: false,
+              activeTaskId: active ? task.id : "",
+              uncertain: active || task.status === "uncertain",
             });
-            ensureCurrent(scope);
-            update({ confirmation: null });
-            saveDraft(scope);
-            notice(
-              "笔记发布完成！草稿与发布记录已保存到服务端，你可以到小红书账号查看。不会再次自动发布。",
-            );
+            // 接收任务后立即释放页面，后台结果由保护轮询同步。
+            notice("发布任务已接收，可到「任务」页查看进展，也可继续编辑或切换账号。");
+            window.dispatchEvent(new Event("publish-tasks-changed"));
           } catch (error) {
             ensureCurrent(scope);
-            syncProtection(scope);
-            saveDraft(scope);
-            update({ confirmation: null });
+            const rejected = error.status >= 400 && error.status < 500;
+            update({ submissionUnknown: !rejected });
             notice(
-              `发布未能得到完成确认：${errorMessage(error)} 请求可能已生效，请先在小红书账号核对结果，避免重复发布。已锁定再次发布。`,
+              rejected
+                ? `发布任务未创建：${errorMessage(error)} 请检查后重试，或到「任务」页核对进行中的任务。`
+                : `任务接收尚未确认：${errorMessage(error)} 可在此窗口重试同一次确认，或到「任务」页核对。请勿重新创建发布。`,
               "error",
+              "publishStatus",
             );
           }
         }),
@@ -1506,13 +1550,15 @@ export function useWorkbench() {
   }
 
   async function unlockPublish() {
-    if (current.current.busy || !current.current.reviewedPublish) return;
+    if (current.current.busy || current.current.activeTaskId || !current.current.reviewedPublish) return;
     const reviewedRevision = current.current.reviewedRevision;
     await run("unlock-publish", "正在核对发布保护…", (scope) =>
       withPublishLock(scope.accountId, async () => {
         ensureCurrent(scope);
         const latest = await loadServerProtection(scope);
         ensureCurrent(scope);
+        if (latest.activeTaskId)
+          throw new Error("发布任务仍在执行，不能解除锁定，请到「任务」页查看。");
         if (latest.revision !== reviewedRevision)
           throw new Error(
             "其他标签页已更新发布记录，请重新核对结果并勾选确认后再解除锁定。",
@@ -1522,7 +1568,7 @@ export function useWorkbench() {
           lastPublished: latest.lastPublished,
         });
         ensureCurrent(scope);
-        update({ reviewedPublish: false, reviewedRevision: null });
+        update({ reviewedPublish: false, reviewedRevision: null, submissionUnknown: false });
         saveDraft(scope);
         notice(
           "已解除发布锁定。如果刚才的笔记已发布成功，请勿再次发布相同内容。",
@@ -1543,7 +1589,6 @@ export function useWorkbench() {
       images: [],
       previewIndex: 0,
       clearDialog: false,
-      publishValidation: "",
     });
     const scope = context.current;
     draftRevision.current = 0;
@@ -1568,7 +1613,7 @@ export function useWorkbench() {
     flushDraft: saveDraft,
     reloadDraft: () => {
       if (current.current.busy || !context.current.accountId) return;
-      update({ draftConflict: false, saveStatus: "正在重新加载草稿…" });
+      update({ draftConflict: false, draftLoading: true, saveStatus: "正在重新加载草稿…" });
       loadWorkspace(context.current);
     },
     changeDraft,

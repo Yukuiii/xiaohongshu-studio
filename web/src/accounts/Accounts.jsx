@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { Dialog, Notice } from "../components.jsx";
+import { useEffect, useMemo, useState } from "react";
+import { Dialog } from "../components.jsx";
 import { canStartLogin } from "./useAccount.js";
+import { ToastNotice } from "../notifications.jsx";
 import "./accounts.css";
 
 function AccountAvatar({ account }) {
@@ -34,6 +35,17 @@ const statusLabels = {
   expired: "登录会话已过期",
   failed: "登录失败",
   not_logged_in: "未登录",
+};
+
+const accountNotices = {
+  conflict: {
+    message: "另一个账号保留了扫码窗口。请切换到该账号并结束登录窗口后，再打开新的扫码窗口。",
+    type: "warning",
+  },
+  browserBusy: {
+    message: "正在执行工作台任务，请稍候再操作登录网页。",
+    type: "busy",
+  },
 };
 
 export default function Accounts({ account, manager, busy }) {
@@ -77,6 +89,27 @@ export default function Accounts({ account, manager, busy }) {
   }
   const progress =
     account.browserSession && statusLabels[account.status?.status];
+  const opening = account.operation === "open";
+  const connectionNotice = useMemo(() => {
+    if (!account.loginVisible || opening) return null;
+    if (native)
+      return {
+        message: "登录浏览器已在运行本服务的电脑上打开，请切换到该窗口完成登录和账号验证。",
+        type: "info",
+      };
+    if (account.browserSession && !account.browserConnected)
+      return {
+        message: "后台登录浏览器会保留，点击「继续登录」可重新连接真实网页。",
+        type: "info",
+      };
+    return null;
+  }, [
+    account.loginVisible,
+    account.browserSession,
+    account.browserConnected,
+    native,
+    opening,
+  ]);
 
   return (
     <>
@@ -107,15 +140,17 @@ export default function Accounts({ account, manager, busy }) {
           </button>
         </div>
       </header>
-      <Notice notice={manager.notice} />
-      {!account.loginVisible && <Notice notice={account.notice} />}
-      {manager.activeLogin &&
-        manager.activeLogin.account_id !== manager.selectedId && (
-          <p className="notice warning">
-            另一个账号保留了扫码窗口。请切换到该账号并结束登录窗口后，再打开新的扫码窗口。
-          </p>
+      <ToastNotice notice={manager.notice} />
+      <ToastNotice notice={account.notice} />
+      <ToastNotice notice={connectionNotice} />
+      <ToastNotice
+        active={Boolean(
+          manager.activeLogin &&
+          manager.activeLogin.account_id !== manager.selectedId,
         )}
-      {manager.loading && <p role="status">正在读取账号列表…</p>}
+        notice={accountNotices.conflict}
+      />
+      <ToastNotice active={busy && embedded} notice={accountNotices.browserBusy} />
       {!manager.loading && !manager.accounts.length && (
         <p className="muted">还没有账号，点击「添加账号」开始扫码。</p>
       )}
@@ -271,9 +306,6 @@ export default function Accounts({ account, manager, busy }) {
                   : ""}
             </p>
           )}
-          <Notice
-            notice={manager.notice.type === "error" ? manager.notice : null}
-          />
           <div className="dialog-actions">
             <button
               type="button"
@@ -310,7 +342,7 @@ export default function Accounts({ account, manager, busy }) {
           busy={locked}
           id="account-login-dialog"
           title={`扫码登录 · ${manager.selectedAccount?.name || ""}`}
-          className="accounts-login-dialog"
+          className={`accounts-login-dialog${embedded ? "" : " accounts-login-compact"}`}
           closeLabel="收起登录网页，保留后台登录浏览器"
         >
           <div
@@ -319,8 +351,7 @@ export default function Accounts({ account, manager, busy }) {
               account.operation === "open" || account.operation === "close"
             }
           >
-            <Notice notice={account.notice} />
-            {embedded ? (
+            {embedded && (
               <div
                 className={`accounts-browser${busy ? " accounts-browser-busy" : ""}`}
               >
@@ -334,20 +365,8 @@ export default function Accounts({ account, manager, busy }) {
                   tabIndex={busy ? -1 : 0}
                 />
                 {busy && (
-                  <div className="accounts-browser-cover" role="status">
-                    正在执行工作台任务，请稍候再操作登录网页。
-                  </div>
+                  <div className="accounts-browser-cover" aria-hidden="true" />
                 )}
-              </div>
-            ) : (
-              <div className="accounts-browser-placeholder" role="status">
-                {account.operation === "open"
-                  ? "正在打开真实登录网页，请稍候…"
-                  : native
-                    ? "登录浏览器已在运行本服务的电脑上打开，请切换到该窗口完成登录和账号验证。"
-                    : account.browserSession
-                      ? "后台登录浏览器会保留，点击「继续登录」可重新连接真实网页。"
-                      : "点击「打开登录网页」，查看并操作完整的小红书登录页面。"}
               </div>
             )}
             <p className="helper accounts-browser-help">

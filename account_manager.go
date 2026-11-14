@@ -44,6 +44,20 @@ func accountFailure(err error) *accountError {
 		return failure
 	}
 	switch {
+	case errors.Is(err, accounts.ErrTaskNotFound):
+		return &accountError{http.StatusNotFound, "TASK_NOT_FOUND", "任务不存在"}
+	case errors.Is(err, accounts.ErrTaskActive):
+		return &accountError{http.StatusConflict, "PUBLISH_TASK_ACTIVE", "该账号有未完成的发布任务，请前往任务页查看"}
+	case errors.Is(err, accounts.ErrTaskUncertain):
+		return &accountError{http.StatusConflict, "PUBLISH_UNCERTAIN", "上次发布结果尚未确认，请先核对并解除发布保护"}
+	case errors.Is(err, accounts.ErrTaskLoginRequired):
+		return &accountError{http.StatusConflict, "XHS_LOGIN_REQUIRED", "请先登录并验证该账号后再提交发布任务"}
+	case errors.Is(err, accounts.ErrTaskProtectionConflict):
+		return &accountError{http.StatusConflict, "PROTECTION_REVISION_CONFLICT", "发布记录已变化，请重新检查并确认发布"}
+	case errors.Is(err, accounts.ErrTaskStateConflict):
+		return &accountError{http.StatusConflict, "TASK_STATE_CONFLICT", "任务状态已变化，请刷新任务列表"}
+	case errors.Is(err, accounts.ErrTaskDuplicateRequest):
+		return &accountError{http.StatusConflict, "IDEMPOTENCY_KEY_REUSED", "发布请求标识已使用，请重新确认发布内容"}
 	case errors.Is(err, accounts.ErrNotFound):
 		return &accountError{http.StatusNotFound, "ACCOUNT_NOT_FOUND", "账号不存在或已移除，请重新选择"}
 	case errors.Is(err, accounts.ErrInvalid):
@@ -93,22 +107,23 @@ type AccountManager struct {
 }
 
 type accountRuntime struct {
-	orphan      accountBrowser
-	manager     *AccountManager
-	id          string
-	service     *XiaohongshuService
-	mu          sync.Mutex
-	browser     accountBrowser
-	browserBusy bool
-	idle        *time.Timer
-	readers     int
-	writers     int
-	removing    bool
-	deleted     bool
-	loginID     string
-	loginDone   chan struct{}
-	loginError  string
-	loginCode   string
+	orphan           accountBrowser
+	manager          *AccountManager
+	id               string
+	service          *XiaohongshuService
+	mu               sync.Mutex
+	browser          accountBrowser
+	browserBusy      bool
+	browserAvailable chan struct{}
+	idle             *time.Timer
+	readers          int
+	writers          int
+	removing         bool
+	deleted          bool
+	loginID          string
+	loginDone        chan struct{}
+	loginError       string
+	loginCode        string
 }
 
 func NewAccountManager(store *accounts.Store) *AccountManager {
@@ -232,6 +247,7 @@ func (r *accountRuntime) scheduleIdleLocked(b accountBrowser) {
 			r.browser = nil
 		}
 		r.browserBusy = false
+		r.signalBrowserAvailableLocked()
 		r.mu.Unlock()
 		if err != nil {
 			logrus.Warnf("账号 %s 浏览器回收失败: %v", r.id, err)
@@ -297,6 +313,55 @@ func (r *accountRuntime) borrowBrowser(ctx context.Context, verify bool) (*brows
 	return r.borrowBrowserFor(ctx, verify, false)
 }
 
+// signalBrowserAvailableLocked 只通知等待发布的任务，不为普通浏览器请求排队。
+func (r *accountRuntime) signalBrowserAvailableLocked() {
+	if r.browserAvailable != nil {
+		select {
+		case r.browserAvailable <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (r *accountRuntime) waitBrowserIdle(ctx context.Context) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		r.mu.Lock()
+		if r.manager.closing.Load() || r.removing || r.deleted {
+			r.mu.Unlock()
+			return &accountError{http.StatusConflict, "ACCOUNT_UNAVAILABLE", "账号正在关闭或已移除"}
+		}
+		if !r.browserBusy && r.loginID == "" {
+			r.mu.Unlock()
+			return nil
+		}
+		if r.browserAvailable == nil {
+			r.browserAvailable = make(chan struct{}, 1)
+		}
+		available := r.browserAvailable
+		r.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-available:
+		}
+	}
+}
+
+func (r *accountRuntime) borrowBrowserWhenReady(ctx context.Context, verify bool) (*browserLease, error) {
+	for {
+		if err := r.waitBrowserIdle(ctx); err != nil {
+			return nil, err
+		}
+		lease, err := r.borrowBrowser(ctx, verify)
+		if failure := accountFailure(err); failure == nil || failure.Code != "ACCOUNT_BUSY" {
+			return lease, err
+		}
+	}
+}
+
 // borrowBrowserFor 巡检借用结束后关闭实例，业务任务继续按空闲时间复用。
 func (r *accountRuntime) borrowBrowserFor(ctx context.Context, verify, background bool) (*browserLease, error) {
 	r.mu.Lock()
@@ -323,6 +388,7 @@ func (r *accountRuntime) borrowBrowserFor(ctx context.Context, verify, backgroun
 			r.browser = nil
 		}
 		r.browserBusy = false
+		r.signalBrowserAvailableLocked()
 		if !background || (b != nil && b.Alive()) {
 			r.scheduleIdleLocked(r.browser)
 		}
@@ -734,6 +800,7 @@ func (r *accountRuntime) finishVisual(b accountBrowser, session string) {
 		r.orphan = nil
 		r.loginID = ""
 		r.browserBusy = false
+		r.signalBrowserAvailableLocked()
 	}
 	r.mu.Unlock()
 	if !alive {
@@ -866,8 +933,16 @@ func (m *AccountManager) shutdownBrowsers(list []*accountRuntime) error {
 }
 
 func (m *AccountManager) Close() error {
+	return m.closeWithTasks(nil)
+}
+
+// closeWithTasks 在关闭浏览器后排空发布任务，再释放数据根锁。
+func (m *AccountManager) closeWithTasks(tasks *PublishTaskManager) error {
 	m.closeMu.Lock()
 	defer m.closeMu.Unlock()
+	if tasks != nil {
+		tasks.stopAccepting()
+	}
 	m.closing.Store(true)
 	m.mu.Lock()
 	statusCancel, statusDone := m.statusCancel, m.statusDone
@@ -897,6 +972,9 @@ func (m *AccountManager) Close() error {
 	}
 	if err := m.shutdownBrowsers(list); err != nil {
 		return err
+	}
+	if tasks != nil {
+		tasks.Stop()
 	}
 	return m.store.Close()
 }

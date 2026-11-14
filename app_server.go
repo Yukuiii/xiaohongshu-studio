@@ -23,6 +23,7 @@ type AppServer struct {
 	authToken          string
 	settings           *settingsStore
 	desktop            *desktopGateway
+	tasks              *PublishTaskManager
 }
 
 // NewAppServer 创建新的应用服务器实例
@@ -38,6 +39,7 @@ func NewAppServer(xiaohongshuService *XiaohongshuService, authToken string) *App
 func NewAccountAppServer(manager *AccountManager, token string) *AppServer {
 	s := NewAppServer(nil, token)
 	s.accounts = manager
+	s.tasks = NewPublishTaskManager(manager)
 	s.desktop.sessionActive = manager.visualActive
 	manager.onLoginEnd = s.desktop.revoke
 	return s
@@ -52,7 +54,7 @@ func (s *AppServer) Start(port string) error {
 func (s *AppServer) StartContext(ctx context.Context, port string, onListen func(net.Addr)) error {
 	defer func() {
 		if s.accounts != nil {
-			if err := s.accounts.Close(); err != nil {
+			if err := s.accounts.closeWithTasks(s.tasks); err != nil {
 				logrus.Errorf("账号浏览器退出未完成: %v", err)
 			}
 		} else if s.xiaohongshuService != nil {
@@ -71,6 +73,11 @@ func (s *AppServer) StartContext(ctx context.Context, port string, onListen func
 		return fmt.Errorf("启动 HTTP 服务失败: %w", err)
 	}
 	defer listener.Close()
+	if s.tasks != nil {
+		if err := s.tasks.Start(ctx); err != nil {
+			return fmt.Errorf("启动发布任务管理器失败: %w", err)
+		}
+	}
 	if s.accounts != nil {
 		s.accounts.startStatusMonitor(accountStatusInterval)
 	}

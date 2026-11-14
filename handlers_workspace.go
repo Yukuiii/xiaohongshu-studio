@@ -101,6 +101,7 @@ func (s *AppServer) getPublishProtectionHandler(c *gin.Context) {
 		"revision":       protection.Revision,
 		"uncertain":      protection.Uncertain,
 		"last_published": protection.LastPublished,
+		"active_task_id": protection.ActiveTaskID,
 	}, "发布保护已读取")
 }
 

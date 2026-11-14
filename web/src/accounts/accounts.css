@@ -108,6 +108,11 @@
   overflow: hidden;
 }
 
+.dialog.accounts-login-dialog.accounts-login-compact {
+  width: min(560px, calc(100% - 32px));
+  height: auto;
+}
+
 .accounts-login-dialog[open] {
   display: flex;
   flex-direction: column;
@@ -137,15 +142,9 @@
   overflow: auto;
 }
 
-.accounts-login-dialog .accounts-login-body > p,
-.accounts-login-dialog .accounts-login-body > .notice {
+.accounts-login-dialog .accounts-login-body > p {
   flex-shrink: 0;
   margin: 0;
-}
-
-.accounts-login-dialog .accounts-login-body > .notice {
-  padding: 8px 12px;
-  line-height: 1.5;
 }
 
 .accounts-browser {
@@ -179,20 +178,6 @@
   padding: 24px;
   text-align: center;
   background: rgb(250 249 247 / 85%);
-}
-
-.accounts-browser-placeholder {
-  display: grid;
-  flex: 1 0 220px;
-  min-height: 220px;
-  place-items: center;
-  padding: 32px;
-  border: 1px dashed #d8d2ca;
-  border-radius: 12px;
-  background: #f8f6f3;
-  color: #77716a;
-  text-align: center;
-  line-height: 1.7;
 }
 
 .accounts-browser-help {

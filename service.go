@@ -23,9 +23,10 @@ import (
 
 // XiaohongshuService 小红书业务服务
 type XiaohongshuService struct {
-	account *accountRuntime
-	loginMu sync.Mutex
-	logins  loginSessions
+	account        *accountRuntime
+	waitForBrowser bool
+	loginMu        sync.Mutex
+	logins         loginSessions
 }
 
 // NewXiaohongshuService 创建小红书服务实例
@@ -882,6 +883,9 @@ func (s *XiaohongshuService) ReplyNotification(ctx context.Context, commentID, c
 
 func (s *XiaohongshuService) newBrowser(ctx context.Context) (*browserLease, error) {
 	if s.account != nil {
+		if s.waitForBrowser {
+			return s.account.borrowBrowserWhenReady(ctx, true)
+		}
 		return s.account.borrowBrowser(ctx, true)
 	}
 	b := browser.NewBrowser(configs.IsHeadless(),

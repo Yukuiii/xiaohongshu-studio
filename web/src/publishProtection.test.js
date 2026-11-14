@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkbench } from "./useWorkbench.js";
+import { samePublishedContent } from "./publishProtection.js";
 
 const identity = {
   account_id: "A",
@@ -26,6 +27,11 @@ const conflict = (code) => ({
 
 let drafts;
 let protections;
+let tasks;
+const task = {
+  id: "a".repeat(32), account_id: "A", account_name: "账号A", title: draft.title,
+  kind: "publish", status: "queued", message: "等待执行",
+};
 
 function server() {
   return vi.fn(async (path, options = {}) => {
@@ -73,11 +79,17 @@ function server() {
               revision: record.revision,
               uncertain: record.uncertain,
               last_published: record.last_published,
+              active_task_id: record.active_task_id || "",
             }
           : { revision: 0, uncertain: false, last_published: "" },
       );
     }
-    if (path === "/api/v1/publish") return ok({ status: "发布完成" });
+    if (path.startsWith("/api/v1/tasks/")) return ok({ task: tasks.get(task.id) });
+    if (path === "/api/v1/publish") {
+      tasks.set(task.id, task);
+      protections.set(accountId, { revision: 1, uncertain: true, last_published: "", active_task_id: task.id });
+      return { ...ok({ task }), status: 202 };
+    }
     if (path.includes("/images/"))
       return {
         ok: true,
@@ -90,6 +102,7 @@ function server() {
 beforeEach(() => {
   drafts = new Map([["A", { payload: draft, revision: 1 }]]);
   protections = new Map();
+  tasks = new Map();
   vi.stubGlobal("fetch", server());
 });
 
@@ -121,11 +134,15 @@ describe("服务端发布保护", () => {
     const [first, second] = await pair();
     await prepare(first);
     const original = fetch.getMockImplementation();
-    fetch.mockImplementation((path, options) =>
-      path === "/api/v1/publish"
-        ? Promise.reject(new Error("offline"))
-        : original(path, options),
-    );
+    fetch.mockImplementation(async (path, options) => {
+      const response = await original(path, options);
+      if (path === "/api/v1/publish") {
+        tasks.set(task.id, { ...task, status: "uncertain" });
+        protections.set("A", { revision: 2, uncertain: true, last_published: "", active_task_id: "" });
+        throw new Error("offline");
+      }
+      return response;
+    });
     await act(async () => {
       await first.current.confirmPublish(async () => identity);
     });
@@ -133,12 +150,10 @@ describe("服务端发布保护", () => {
       uncertain: true,
       last_published: "",
     });
-    expect(first.current.uncertain).toBe(true);
+    expect(first.current.submissionUnknown).toBe(true);
 
     await prepare(second);
-    expect(
-      `${second.current.publishValidation} ${second.current.status.message}`,
-    ).toContain("尚未确认");
+    expect(second.current.status.message).toContain("尚未确认");
     expect(
       fetch.mock.calls.filter(([path]) => path === "/api/v1/publish"),
     ).toHaveLength(1);
@@ -150,6 +165,13 @@ describe("服务端发布保护", () => {
     await act(async () => {
       await first.current.confirmPublish(async () => identity);
     });
+    tasks.set(task.id, { ...task, status: "succeeded" });
+    protections.set("A", {
+      revision: 2, uncertain: false, active_task_id: "",
+      last_published: JSON.stringify({ title: draft.title, content: draft.content, images: [draft.images[0].path], tags: [], visibility: "公开可见" }),
+    });
+    await act(async () => window.dispatchEvent(new Event("publish-tasks-changed")));
+    await waitFor(() => expect(first.current.lastPublished).toContain(draft.title));
     const stored = protections.get("A");
     expect(stored.uncertain).toBe(false);
     expect(stored.last_published).toContain(draft.title);
@@ -158,7 +180,7 @@ describe("服务端发布保护", () => {
     await act(async () => {
       await second.current.preparePublish(async () => identity);
     });
-    expect(second.current.publishValidation).toContain("已经发布成功");
+    expect(second.current.status.message).toContain("已经发布成功");
     expect(
       fetch.mock.calls.filter(([path]) => path === "/api/v1/publish"),
     ).toHaveLength(1);
@@ -180,7 +202,7 @@ describe("服务端发布保护", () => {
     act(() => {
       pending = first.current.confirmPublish(async () => identity);
     });
-    await waitFor(() => expect(first.current.uncertain).toBe(true));
+    await waitFor(() => expect(fetch.mock.calls.some(([path]) => path === "/api/v1/publish")).toBe(true));
     await act(async () => {
       await second.current.confirmPublish(async () => identity);
     });
@@ -188,7 +210,9 @@ describe("服务端发布保护", () => {
       "另一个标签页正在处理此账号的发布",
     );
     await act(async () => {
-      resolvePublish(ok({ status: "发布完成" }));
+      tasks.set(task.id, task);
+      protections.set("A", { revision: 1, uncertain: true, last_published: "", active_task_id: task.id });
+      resolvePublish({ ...ok({ task }), status: 202 });
       await pending;
     });
   });
@@ -232,5 +256,16 @@ describe("服务端发布保护", () => {
     expect(fetch.mock.calls.some(([path]) => path === "/api/v1/publish")).toBe(
       false,
     );
+  });
+});
+
+describe("历史发布内容比较", () => {
+  const body = { title: "分享 <生活>", content: "正文", images: ["one.png", "two.png"], tags: [], visibility: "公开可见" };
+  it("忽略对象键顺序和 JSON 转义，并兼容旧的空默认值", () => {
+    expect(samePublishedContent(body, '{"images":["one.png","two.png"],"content":"正文","title":"分享 \\u003c生活\\u003e","tags":null,"visibility":""}')).toBe(true);
+  });
+  it("图片和话题数组顺序变化仍是不同的发布内容", () => {
+    expect(samePublishedContent(body, JSON.stringify({ ...body, images: ["two.png", "one.png"] }))).toBe(false);
+    expect(samePublishedContent({ ...body, tags: ["早晨", "生活"] }, JSON.stringify({ ...body, tags: ["生活", "早晨"] }))).toBe(false);
   });
 });

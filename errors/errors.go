@@ -5,6 +5,9 @@ import "errors"
 var ErrNoFeeds = errors.New("没有捕获到 feeds 数据")
 var ErrNoFeedDetail = errors.New("没有捕获到 feed 详情数据")
 
+// ErrPublishUncertain 表示已尝试提交，但无法确认平台是否完成发布。
+var ErrPublishUncertain = errors.New("发布结果尚未确认")
+
 // ErrVerificationRequired 会话被风控判定可疑，请求被重定向到安全验证页。
 //
 // 这类页面上不会出现 __INITIAL_STATE__，若只是等超时，调用方只能看到

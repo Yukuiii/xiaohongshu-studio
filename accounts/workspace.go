@@ -23,6 +23,7 @@ type PublishProtection struct {
 	LastPublished    string
 	ReviewedRevision sql.NullInt64
 	UpdatedAt        time.Time
+	ActiveTaskID     string
 }
 
 // LoadDraft 返回草稿；不存在时 found 为 false。
@@ -120,34 +121,39 @@ func (s *Store) DeleteDraft(accountID string) error {
 
 // LoadProtection 返回发布防重记录；不存在时返回 revision 0。
 func (s *Store) LoadProtection(accountID string) (PublishProtection, error) {
-	if _, err := s.Get(accountID); err != nil {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, err := s.get(accountID); err != nil {
 		return PublishProtection{}, err
 	}
-	var (
-		protection       PublishProtection
-		uncertain        int
-		updatedAt        int64
-		reviewedRevision sql.NullInt64
-	)
+	var protection PublishProtection
+	var uncertain int
+	var updatedAt sql.NullInt64
 	err := s.db.QueryRow(
-		`SELECT revision, uncertain, last_published, reviewed_revision, updated_at
-		 FROM publish_protection WHERE account_id = ?`, accountID,
-	).Scan(&protection.Revision, &uncertain, &protection.LastPublished, &reviewedRevision, &updatedAt)
+		`SELECT COALESCE(p.revision, 0), COALESCE(p.uncertain, 0), COALESCE(p.last_published, ''),
+		 p.reviewed_revision, p.updated_at,
+		 COALESCE((SELECT id FROM publish_tasks WHERE account_id = a.id AND status IN ('queued', 'running')), '')
+		 FROM accounts a LEFT JOIN publish_protection p ON p.account_id = a.id
+		 WHERE a.id = ? AND a.deleted = 0`, accountID,
+	).Scan(&protection.Revision, &uncertain, &protection.LastPublished, &protection.ReviewedRevision, &updatedAt, &protection.ActiveTaskID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return PublishProtection{}, nil
+		return PublishProtection{}, ErrNotFound
 	}
 	if err != nil {
 		return PublishProtection{}, err
 	}
 	protection.Uncertain = uncertain != 0
-	protection.ReviewedRevision = reviewedRevision
-	protection.UpdatedAt = time.UnixMilli(updatedAt).UTC()
+	if updatedAt.Valid {
+		protection.UpdatedAt = time.UnixMilli(updatedAt.Int64).UTC()
+	}
 	return protection, nil
 }
 
 // SaveProtection 以 baseRevision 条件更新发布防重记录。
 func (s *Store) SaveProtection(accountID string, baseRevision int64, uncertain bool, lastPublished string, reviewedRevision *int64) (PublishProtection, error) {
-	if _, err := s.Get(accountID); err != nil {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, err := s.get(accountID); err != nil {
 		return PublishProtection{}, err
 	}
 	tx, err := s.db.Begin()
@@ -155,6 +161,17 @@ func (s *Store) SaveProtection(accountID string, baseRevision int64, uncertain b
 		return PublishProtection{}, err
 	}
 	defer tx.Rollback()
+	var alive int
+	err = tx.QueryRow(`SELECT 1 FROM accounts WHERE id = ? AND deleted = 0`, accountID).Scan(&alive)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PublishProtection{}, ErrNotFound
+	}
+	if err != nil {
+		return PublishProtection{}, err
+	}
+	if err := checkNoActivePublishTask(tx, accountID); err != nil {
+		return PublishProtection{}, err
+	}
 	var current int64
 	err = tx.QueryRow(`SELECT revision FROM publish_protection WHERE account_id = ?`, accountID).Scan(&current)
 	now := time.Now().UTC().Truncate(time.Millisecond)

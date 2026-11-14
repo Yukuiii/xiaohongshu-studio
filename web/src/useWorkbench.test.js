@@ -25,6 +25,13 @@ const deferred = () => {
 };
 let serverDrafts;
 let serverProtections;
+let serverTasks;
+let requestTasks;
+const queuedTask = (accountId = "A", title = "账号A") => ({
+  id: "a".repeat(32), account_id: accountId, account_name: `账号${accountId}`,
+  title, kind: "publish", status: "queued", message: "等待执行",
+  created_at: "2026-11-14T08:00:00Z", updated_at: "2026-11-14T08:00:00Z",
+});
 const conflict = (code) => ({
   ok: false,
   status: 409,
@@ -137,19 +144,35 @@ function modelStore(initial = {}) {
               revision: record.revision,
               uncertain: record.uncertain,
               last_published: record.last_published,
+              active_task_id: record.active_task_id || "",
             }
           : { revision: 0, uncertain: false, last_published: "" },
       );
     }
+    if (path.startsWith("/api/v1/tasks/"))
+      return ok({ task: serverTasks.get(path.split("/").at(-1)) });
+    if (path === "/api/v1/publish") {
+      const key = `${accountId}:${options.headers["Idempotency-Key"]}`;
+      const previous = requestTasks.get(key);
+      if (previous) return { ...ok({ task: previous }), status: 202 };
+      const body = JSON.parse(options.body);
+      const task = queuedTask(accountId, body.title);
+      serverTasks.set(task.id, task);
+      requestTasks.set(key, task);
+      seedProtection(accountId, { revision: 2, uncertain: true, active_task_id: task.id });
+      return { ...ok({ task }), status: 202 };
+    }
     return path.includes("/images/")
       ? { ok: true, blob: async () => new Blob(["pic"], { type: "image/png" }) }
-      : ok({ status: "发布完成" });
+      : ok({});
   });
 }
 
 beforeEach(() => {
   serverDrafts = new Map();
   serverProtections = new Map();
+  serverTasks = new Map();
+  requestTasks = new Map();
   vi.stubGlobal("fetch", modelStore());
 });
 
@@ -970,34 +993,43 @@ describe("发布账号保护", () => {
     );
   });
 
-  it("先保存 A 的未知结果保护再发送，失败只锁定 A，B 不受影响", async () => {
+  it("接收任务响应丢失且浏览器繁忙时，同一确认仍能恢复原任务", async () => {
     const { result } = await ready();
     const login = vi.fn().mockResolvedValue(identity);
-    await act(async () => {
-      await result.current.preparePublish(login);
-    });
-    act(() => {
-      result.current.setPublishAgreed(true);
-    });
+    await act(async () => result.current.preparePublish(login));
+    act(() => result.current.setPublishAgreed(true));
     const original = fetch.getMockImplementation();
+    let lost = true;
     fetch.mockImplementation(async (path, options) => {
-      if (path !== "/api/v1/publish") return original(path, options);
-      expect(options.headers["X-XHS-Account-ID"]).toBe("A");
-      expect(serverProtections.get("A")?.uncertain).toBe(true);
-      throw new Error("network");
+      const response = await original(path, options);
+      if (path === "/api/v1/publish" && lost) {
+        lost = false;
+        throw new Error("network");
+      }
+      return response;
     });
-    await act(async () => {
-      await result.current.confirmPublish(login);
-    });
-    expect(result.current.uncertain).toBe(true);
+    const requestId = result.current.confirmation.requestId;
+    await act(async () => result.current.confirmPublish(login));
+    expect(result.current.busy).toBe(false);
+    expect(result.current.submissionUnknown).toBe(true);
+    expect(result.current.confirmation.requestId).toBe(requestId);
+    login.mockRejectedValue(Object.assign(new Error("浏览器正在发布"), {
+      code: "ACCOUNT_BUSY", status: 409,
+    }));
+    await act(async () => result.current.confirmPublish(login));
+    expect(result.current.confirmation).toBeNull();
+    expect(result.current.activeTaskId).toBe(queuedTask().id);
+    expect(result.current.submissionUnknown).toBe(false);
+    expect(serverTasks.size).toBe(1);
+    const calls = fetch.mock.calls.filter(([path]) => path === "/api/v1/publish");
+    expect(calls).toHaveLength(2);
+    expect(calls.map(([, options]) => options.headers["Idempotency-Key"]))
+      .toEqual([requestId, requestId]);
     await open(result, "B");
+    expect(result.current.activeTaskId).toBe("");
     expect(result.current.uncertain).toBe(false);
     await open(result, "A");
-    expect(result.current.uncertain).toBe(true);
-    await act(async () => {
-      await result.current.preparePublish(login);
-    });
-    expect(result.current.publishValidation).toContain("上次发布结果尚未确认");
+    expect(result.current.activeTaskId).toBe(queuedTask().id);
   });
 
   it("A 的迟到发布响应在上下文失效后不能改写 B 的草稿或发布记录", async () => {
@@ -1018,12 +1050,13 @@ describe("发布账号保护", () => {
     act(() => {
       publishing = result.current.confirmPublish(login);
     });
-    await waitFor(() => expect(result.current.uncertain).toBe(true));
+    await waitFor(() => expect(fetch.mock.calls.some(([path]) => path === "/api/v1/publish")).toBe(true));
     act(() => {
       result.current.activateAccount("B", null, { force: true });
     });
     await act(async () => {
-      late.resolve(ok({ status: "发布完成" }));
+      seedProtection("A", { uncertain: true, active_task_id: queuedTask().id });
+      late.resolve({ ...ok({ task: queuedTask() }), status: 202 });
       await publishing;
     });
     expect(result.current.context.accountId).toBe("B");
@@ -1034,7 +1067,7 @@ describe("发布账号保护", () => {
     expect(serverProtections.get("B")?.uncertain ?? false).toBe(false);
   });
 
-  it("服务端发布保护保存失败时不发送发布请求", async () => {
+  it("服务端发布保护读取失败时不发送发布请求", async () => {
     const { result } = await ready();
     const login = vi.fn().mockResolvedValue(identity);
     await act(async () => {
@@ -1045,7 +1078,7 @@ describe("发布账号保护", () => {
     });
     const original = fetch.getMockImplementation();
     fetch.mockImplementation((path, options) =>
-      path === "/api/v1/publish-protection" && options.method === "PUT"
+      path === "/api/v1/publish-protection" && options.method === "GET"
         ? Promise.reject(new Error("network"))
         : original(path, options),
     );
@@ -1058,25 +1091,96 @@ describe("发布账号保护", () => {
     );
   });
 
-  it("成功发布只保存 A 的防重指纹，重新检查时阻止重复内容", async () => {
+  it("接收即释放页面，进行中禁止再发和解锁，完成后同步服务端指纹", async () => {
     const { result } = await ready();
     const login = vi.fn().mockResolvedValue(identity);
-    await act(async () => {
-      await result.current.preparePublish(login);
+    await act(async () => result.current.preparePublish(login));
+    act(() => result.current.setPublishAgreed(true));
+    await act(async () => result.current.confirmPublish(login));
+    expect(result.current.busy).toBe(false);
+    expect(result.current.confirmation).toBeNull();
+    expect(result.current.activeTaskId).toBe(queuedTask().id);
+    act(() => result.current.changeDraft("title", "继续创作"));
+    expect(result.current.draft.title).toBe("继续创作");
+    await act(async () => result.current.preparePublish(login));
+    expect(result.current.status.message).toContain("任务正在执行");
+    act(() => result.current.setReviewedPublish(true));
+    await act(async () => result.current.unlockPublish());
+    expect(fetch.mock.calls.some(([path, options]) =>
+      path === "/api/v1/publish-protection" && options.method === "PUT")).toBe(false);
+    const fingerprint = JSON.stringify({
+      visibility: "公开可见", tags: [], images: [image.path], content: "正文", title: "账号A",
     });
-    act(() => {
-      result.current.setPublishAgreed(true);
-    });
-    await act(async () => {
-      await result.current.confirmPublish(login);
-    });
-    expect(result.current.uncertain).toBe(false);
-    expect(result.current.lastPublished).toContain("账号A");
-    await act(async () => {
-      await result.current.preparePublish(login);
-    });
-    expect(result.current.publishValidation).toContain("已经发布成功");
+    serverTasks.set(queuedTask().id, { ...queuedTask(), status: "succeeded" });
+    seedProtection("A", { revision: 3, uncertain: false, last_published: fingerprint });
+    await act(async () => window.dispatchEvent(new Event("publish-tasks-changed")));
+    await waitFor(() => expect(result.current.activeTaskId).toBe(""));
+    expect(result.current.lastPublished).toBe(fingerprint);
+    act(() => result.current.changeDraft("title", "账号A"));
+    await act(async () => result.current.preparePublish(login));
+    expect(result.current.status.message).toContain("已经发布成功");
     await open(result, "B");
     expect(result.current.lastPublished).toBe("");
+  });
+
+  it("重载恢复进行中关联，终态未知后仍阻止发布，核对解锁才可继续", async () => {
+    serverTasks.set(queuedTask().id, queuedTask());
+    seedProtection("A", { revision: 2, uncertain: true, active_task_id: queuedTask().id });
+    const first = await ready();
+    expect(first.result.current.activeTaskId).toBe(queuedTask().id);
+    first.unmount();
+    const { result } = renderHook(useWorkbench);
+    await open(result, "A");
+    expect(result.current.activeTaskId).toBe(queuedTask().id);
+    serverTasks.set(queuedTask().id, { ...queuedTask(), status: "uncertain", error: "执行服务中断" });
+    seedProtection("A", { revision: 3, uncertain: true });
+    await act(async () => window.dispatchEvent(new Event("publish-tasks-changed")));
+    await waitFor(() => expect(result.current.activeTaskId).toBe(""));
+    expect(result.current.uncertain).toBe(true);
+    const login = vi.fn().mockResolvedValue(identity);
+    await act(async () => result.current.preparePublish(login));
+    expect(result.current.confirmation).toBeNull();
+    expect(fetch.mock.calls.some(([path]) => path === "/api/v1/publish")).toBe(false);
+    act(() => result.current.setReviewedPublish(true));
+    await act(async () => result.current.unlockPublish());
+    expect(result.current.uncertain).toBe(false);
+    await act(async () => result.current.preparePublish(login));
+    expect(result.current.confirmation?.title).toBe("账号A");
+  });
+
+  it("切换账号或服务令牌后忽略旧任务查询，不改写新账号的保护", async () => {
+    const late = deferred();
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) => path.startsWith("/api/v1/tasks/")
+      ? late.promise : original(path, options));
+    seedProtection("A", { revision: 2, uncertain: true, active_task_id: queuedTask().id });
+    const { result } = await ready();
+    await waitFor(() => expect(fetch.mock.calls.some(([path]) => path.startsWith("/api/v1/tasks/"))).toBe(true));
+    const request = fetch.mock.calls.find(([path]) => path.startsWith("/api/v1/tasks/"));
+    act(() => result.current.changeSetting("token", null, "replacement-token"));
+    await act(async () => result.current.saveSettings());
+    await open(result, "B");
+    expect(request[1].signal.aborted).toBe(true);
+    await act(async () => late.resolve(ok({ task: { ...queuedTask(), status: "uncertain" } })));
+    expect(result.current.context.accountId).toBe("B");
+    expect(result.current.context.token).toBe("replacement-token");
+    expect(result.current.activeTaskId).toBe("");
+    expect(result.current.uncertain).toBe(false);
+    expect(result.current.lastPublished).toBe("");
+  });
+
+  it("发布过的 JSON 指纹兼容键顺序、Go 转义和旧默认值，保留图片数组顺序", async () => {
+    const { result } = await ready();
+    act(() => {
+      result.current.changeDraft("title", "早餐 <分享>");
+      result.current.changeDraft("content", "图文 & 日常");
+    });
+    const fingerprint = '{"images":["/old/web/pic.png"],"content":"图文 \\u0026 日常","title":"早餐 \\u003c分享\\u003e","tags":null,"visibility":""}';
+    seedProtection("A", { revision: 2, last_published: fingerprint });
+    await act(async () => window.dispatchEvent(new Event("publish-tasks-changed")));
+    await waitFor(() => expect(result.current.lastPublished).toBe(fingerprint));
+    await act(async () => result.current.preparePublish(async () => identity));
+    expect(result.current.confirmation).toBeNull();
+    expect(result.current.status.message).toContain("已经发布成功");
   });
 });

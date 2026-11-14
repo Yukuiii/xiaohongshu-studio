@@ -358,11 +358,6 @@ h1 span {
   align-items: center;
   gap: 12px;
 }
-.workspace-status .notice {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-}
 .workspace-status > button {
   flex-shrink: 0;
 }
@@ -372,6 +367,17 @@ h1 span {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
+}
+.publish-protection {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white);
+}
+.publish-protection p {
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 .steps {
   display: grid;
@@ -1035,53 +1041,6 @@ textarea {
   font-size: 10px;
   color: #999487;
 }
-.notice {
-  font-size: 12px;
-  line-height: 1.8;
-  padding: 13px 16px;
-  margin: 0 0 18px;
-  border-radius: 9px;
-  background: #f0f3ed;
-  border: 1px solid #dce5d6;
-  color: #52624b;
-  overflow-wrap: anywhere;
-}
-.notice.error {
-  background: #fff0ed;
-  border-color: #edc9c0;
-  color: #a64535;
-}
-.notice.warning {
-  background: #fff8e9;
-  border-color: #ead9b6;
-  color: #8d6d32;
-}
-.notice p {
-  margin: 6px 0;
-}
-.notice.busy::before {
-  content: "";
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  margin-right: 9px;
-  vertical-align: -2px;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.inline-error {
-  font-size: 11px;
-  line-height: 1.8;
-  color: #ae4639;
-  margin-top: 12px;
-}
 .dialog {
   border: 1px solid #e6e1d8;
   border-radius: 20px;
@@ -1151,10 +1110,6 @@ fieldset label:first-of-type {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 24px;
-}
-.dialog .notice {
-  margin-top: 18px;
-  margin-bottom: 0;
 }
 .publish-summary {
   padding: 19px;
@@ -1271,15 +1226,15 @@ fieldset label:first-of-type {
     border-bottom: 1px solid var(--line);
   }
   .sidebar-nav {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     margin-top: 0;
     gap: 6px;
   }
   .nav-item {
     justify-content: center;
     min-height: 42px;
-    padding: 10px 8px;
-    gap: 8px;
+    padding: 10px 4px;
+    gap: 5px;
     font-size: 13px;
   }
   .nav-item .status-dot {
@@ -1422,8 +1377,14 @@ fieldset label:first-of-type {
 }
 @media (prefers-reduced-motion: reduce) {
   * {
-    animation: none !important;
     transition: none !important;
+  }
+  *:not(.Toastify__toast):not(.Toastify__progress-bar) {
+    animation: none !important;
+  }
+  .Toastify__toast {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
 @media (max-width: 420px) {

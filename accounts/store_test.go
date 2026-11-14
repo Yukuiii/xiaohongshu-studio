@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"os"
@@ -308,4 +309,89 @@ func TestSetAvatarPersistsAndValidates(t *testing.T) {
 	require.NoError(t, s.Close())
 	s = openStore(t, root)
 	require.Equal(t, avatar, s.List()[0].Avatar)
+}
+
+func TestDeleteRejectsActivePublishTaskAndPreservesHistory(t *testing.T) {
+	for _, running := range []bool{false, true} {
+		name := "queued"
+		if running {
+			name = "running"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, a := publishTaskStore(t)
+			ctx := context.Background()
+			_, err := s.SaveDraft(a.ID, []byte(`{"title":"保留草稿"}`), 0)
+			require.NoError(t, err)
+			task, err := s.EnqueuePublishTask(ctx, publishTaskInput(a.ID, "delete-guard"), 0)
+			require.NoError(t, err)
+			if running {
+				_, err = s.StartPublishTask(ctx, task.ID)
+				require.NoError(t, err)
+			}
+			require.ErrorIs(t, s.Delete(a.ID), ErrTaskActive)
+			alive, err := s.Get(a.ID)
+			require.NoError(t, err)
+			require.Equal(t, a.Name, alive.Name)
+			require.Equal(t, "test-user", alive.UserID)
+			require.DirExists(t, s.ProfilePath(alive))
+			_, found, err := s.LoadDraft(a.ID)
+			require.NoError(t, err)
+			require.True(t, found)
+			protection, err := s.LoadProtection(a.ID)
+			require.NoError(t, err)
+			require.Equal(t, task.ID, protection.ActiveTaskID)
+			require.True(t, protection.Uncertain)
+			finished, err := s.FinishPublishTask(ctx, task.ID, TaskOutcome{Status: TaskFailed, Message: "提交前失败"})
+			require.NoError(t, err)
+			require.NoError(t, s.Delete(a.ID))
+			require.NoError(t, s.Delete(a.ID))
+			_, err = s.Get(a.ID)
+			require.ErrorIs(t, err, ErrNotFound)
+			history, err := s.PublishTask(ctx, task.ID)
+			require.NoError(t, err)
+			require.Equal(t, finished, history)
+			require.Equal(t, a.Name, history.AccountName)
+			byRequest, err := s.PublishTaskByRequest(ctx, a.ID, "delete-guard")
+			require.NoError(t, err)
+			require.Equal(t, task.ID, byRequest.ID)
+			tasks, total, err := s.ListPublishTasks(ctx, 1, 20)
+			require.NoError(t, err)
+			require.Equal(t, 1, total)
+			require.Equal(t, []PublishTask{finished}, tasks)
+			require.NoError(t, s.Close())
+			reopened := openEmptyStore(t, s.root)
+			history, err = reopened.PublishTask(ctx, task.ID)
+			require.NoError(t, err)
+			require.Equal(t, finished, history)
+		})
+	}
+}
+
+func TestDeleteAndEnqueuePublishTaskAreAtomic(t *testing.T) {
+	s, a := publishTaskStore(t)
+	ctx := context.Background()
+	start := make(chan struct{})
+	enqueued := make(chan error, 1)
+	deleted := make(chan error, 1)
+	go func() {
+		<-start
+		_, err := s.EnqueuePublishTask(ctx, publishTaskInput(a.ID, "delete-race"), 0)
+		enqueued <- err
+	}()
+	go func() {
+		<-start
+		deleted <- s.Delete(a.ID)
+	}()
+	close(start)
+	enqueueErr, deleteErr := <-enqueued, <-deleted
+	if enqueueErr == nil {
+		require.ErrorIs(t, deleteErr, ErrTaskActive)
+		_, err := s.Get(a.ID)
+		require.NoError(t, err)
+	} else {
+		require.ErrorIs(t, enqueueErr, ErrNotFound)
+		require.NoError(t, deleteErr)
+		_, err := s.ActivePublishTask(ctx, a.ID)
+		require.ErrorIs(t, err, ErrTaskNotFound)
+	}
 }

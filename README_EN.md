@@ -14,7 +14,8 @@ A self-hosted workspace for creating Xiaohongshu image posts. Research topics, s
 - **Draft and edit**: Connect your own text model to generate titles, body text, tags, and image descriptions, then edit them with a live preview.
 - **Upload and generate images**: Upload local pictures or generate illustrations through a separately configured image model.
 - **Manage accounts**: Add, rename, and switch accounts. Each account has its own browser environment and persistent site data.
-- **Confirm publication**: Review the preview and confirm before submitting. Publication protection state is kept per account, with coordination across tabs using the same account.
+- **Confirm publication**: Review and confirm before creating a background publication task. Protection state is kept per account, with coordination across tabs using the same account.
+- **Task history**: Open Tasks (任务) in the sidebar to view queued, running, completed, failed, and uncertain publications across accounts, including after a page reload.
 - **HTTP API**: Access account management, search, image and video publication, comments, likes, favorites, user profiles, and other operations programmatically.
 
 ## Quick start
@@ -44,13 +45,17 @@ For running from source and development, see [CONTRIBUTING.md](./CONTRIBUTING.md
 ## First use
 
 1. **Configure a model**: Open Settings (设置) and enter the text provider's base URL, API key, and model name. OpenAI-compatible APIs are supported; fetch the model list or enter a name manually.
-2. **Connect an account**: Open Accounts (账号), add or select an account, and open its sign-in page. Scan with the Xiaohongshu app and complete phone confirmation and any security checks shown on the page.
+2. **Connect an account**: If no account exists, choose Add account (添加账号) in Workspace to open Accounts (账号), then add an account and open its sign-in page. Scan with the Xiaohongshu app and complete phone confirmation and any security checks shown on the page. Existing accounts can be selected directly.
 3. **Find inspiration**: Return to Workspace (工作台). In the first tab, enter a topic and keywords, search, and select reference posts. Choose Next (下一步) when ready to write.
 4. **Write**: Add writing instructions and generate from the selected references, or write manually. Edit the title, body, and tags while checking the live preview.
 5. **Add images**: Open the images tab to upload pictures or generate them with an image model. Check the cover and other images in the preview.
-6. **Confirm publication**: Open the final tab, verify the selected account, content, and visibility, then confirm in the publication dialog.
+6. **Confirm publication**: Open the final tab, verify the selected account, content, and visibility, then confirm to create a background task. Open Tasks (任务) in the sidebar for progress and results. You can continue editing or switch accounts after submission.
 
 Use the tabs to return to earlier steps without losing your work. The preview stays on the right on desktop and appears below the controls on narrow screens.
+
+Each account accepts one unfinished publication task at a time; different accounts run independently. Tasks retain the submitted content snapshot, so later draft edits do not change them. Records are saved in server-side SQLite. Queued tasks resume on restart; records still marked as running become uncertain and are never automatically resubmitted.
+
+Routine reads such as task lists, account lists, and model settings do not show loading toasts. Active operations use upper-right toasts for progress and results; result toasts dismiss after about two seconds and have no close button.
 
 The provider URL must include any required version path, such as `https://api.openai.com/v1`; the application does not append `/v1`. Text and image models can use different providers. Image generation requires an OpenAI-compatible `images/generations` endpoint; uploading images does not require an image model. Selected reference material is sent to your configured text provider.
 
@@ -69,6 +74,8 @@ While visible, the Accounts view refreshes the list silently every 60 seconds. C
 Signed-in accounts hide the sign-in-again action. A previously bound account offers it only after a check confirms that sign-in is no longer valid. New accounts retain their first sign-in action, and unfinished windows can reconnect to the existing session. Stale requests for an already signed-in account do not create another candidate profile.
 
 In Docker, signing in opens a nearly fullscreen dialog with the real Xiaohongshu page through noVNC. Use Original size (原始大小) to view a small QR code without scaling, then choose Fit to window (适应窗口) to restore the full desktop view. Dismissing the dialog keeps the session running; use Continue sign-in (继续登录) to reconnect. The browser runs fullscreen on the shared desktop, which serves one account at a time. The dialog closes automatically after sign-in is saved. Incomplete sessions remain available for up to 20 minutes, or you can use End sign-in window (结束登录窗口).
+
+The native desktop app opens its bundled Chromium in a local window. Opening or ending a sign-in window continues when the app goes into the background; progress polling pauses until the app becomes visible again.
 
 Signing in again uses a candidate browser profile. The application activates it after verifying that the real identity matches the account binding and saving the browser data. Cancelling, failing, or scanning with the wrong account preserves the previous profile. Site sessions can still expire and require another sign-in.
 
@@ -101,7 +108,7 @@ Then open **http://127.0.0.1:18060/**. When using a reverse proxy, keep the page
 | Data | Docker deployment | Running from source |
 | --- | --- | --- |
 | Accounts, complete browser profiles, and downloads | `xiaohongshu-studio-data/accounts/` | `data/accounts/` |
-| Account metadata, model settings, drafts, and publication protection | `xiaohongshu-studio-data/studio.db` (SQLite) | `data/studio.db` |
+| Account metadata, model settings, drafts, publication protection, and task history | `xiaohongshu-studio-data/studio.db` (SQLite) | `data/studio.db` |
 | Uploaded and generated images | `xiaohongshu-studio-data/uploads/`, separated by account | `data/uploads/`, separated by account |
 | Service access token | The visiting browser's localStorage | Same |
 
@@ -113,7 +120,7 @@ Legacy browser model settings migrate automatically only when the server has not
 
 Image references in drafts do not replace the image files; include `uploads/` in your backup. Restore browser profiles in the same runtime environment where possible; site sessions can still expire.
 
-Reset browser data (重置浏览器数据) clears an account's site data while retaining its identity binding, fingerprint, server-side drafts, and images. Remove account (移除) deletes its browser data, downloads, managed images, server-side drafts, and publication records.
+Reset browser data (重置浏览器数据) clears an account's site data while retaining its identity binding, fingerprint, server-side drafts, and images. Remove account (移除) deletes its browser data, downloads, managed images, drafts, and publication protection while retaining task history. Accounts with unfinished publication tasks cannot be reset or removed.
 
 Source runs do not automatically migrate the old `.xhs-accounts/`, root-level `studio.db`, or temporary images; existing files are retained. Docker and desktop data paths stay the same. A new database starts without a default account and does not import legacy JSON, Cookie files, or browser localStorage drafts. Add accounts, sign in, and configure models when starting with a new database.
 
@@ -123,7 +130,7 @@ Source runs do not automatically migrate the old `.xhs-accounts/`, root-level `s
 
 **Model requests fail:** Check the base URL, version path, API key, and model name. The image model must support the image endpoint.
 
-**Publication times out or has an unknown result:** Check Xiaohongshu to see whether the post was published before following the workspace's publication protection prompts. Avoid submitting it again immediately.
+**Publication times out or has an unknown result:** Check Tasks first. Do not resubmit queued or running tasks. For an uncertain result, check Xiaohongshu before following the workspace's publication protection prompts to avoid duplicates.
 
 **The first browser download fails:** Published images already include the browser. For source launches, configure `XHS_BROWSER_DOWNLOAD_BASE`; for local image builds, edit the download URL in the Compose configuration. See the [Docker guide](./docker/README.md).
 
