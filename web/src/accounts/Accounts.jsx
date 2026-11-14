@@ -152,7 +152,9 @@ export default function Accounts({ account, manager, busy }) {
       />
       <ToastNotice active={busy && embedded} notice={accountNotices.browserBusy} />
       {!manager.loading && !manager.accounts.length && (
-        <p className="muted">还没有账号，点击「添加账号」开始扫码。</p>
+        <div className="card empty-state accounts-empty">
+          <p>还没有账号，点击「添加账号」开始扫码。</p>
+        </div>
       )}
       <div aria-label="账号列表">
         {manager.accounts.map((item) => {
@@ -254,7 +256,7 @@ export default function Accounts({ account, manager, busy }) {
                   重置浏览器数据
                 </button>
                 <button
-                  className="button small"
+                  className="button small danger"
                   disabled={locked || item.busy}
                   onClick={() => openDialog("remove", item)}
                 >

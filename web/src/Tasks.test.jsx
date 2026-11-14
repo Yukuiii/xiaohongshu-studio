@@ -51,7 +51,12 @@ describe("全账号任务页", () => {
   it("轮询显示状态、账号、种类和结果，失败与未知结果有明确反馈", async () => {
     vi.useFakeTimers();
     const api = vi.fn().mockResolvedValueOnce(list([task()])).mockResolvedValue(list([
-      task({ status: "succeeded", message: "发布完成", finished_at: "2026-11-14T08:02:00Z", result: { status: "发布完成" } }),
+      task({
+        status: "succeeded",
+        message: "发布完成",
+        finished_at: "2026-11-14T08:02:00Z",
+        result: { status: "发布完成", title: "早餐记录", content: "第一段\n\n第二段", images: 2 },
+      }),
       task({ id: "b".repeat(32), account_id: "B", account_name: "视频账号", title: "短片", kind: "publish_video", status: "failed", error: "视频文件不存在" }),
       task({ id: "c".repeat(32), title: "待核对笔记", status: "uncertain", message: "服务中断" }),
     ]));
@@ -65,8 +70,13 @@ describe("全账号任务页", () => {
     expect(screen.getByText("失败原因：视频文件不存在")).toBeVisible();
     expect(screen.getByText("结果未知")).toBeVisible();
     expect(screen.getByText(/请先在小红书账号核对实际发布结果/)).toBeVisible();
-    fireEvent.click(screen.getByText("查看发布结果"));
-    expect(screen.getByText(/"status": "发布完成"/)).toBeVisible();
+    const summary = screen.getByText("查看发布结果");
+    fireEvent.click(summary);
+    const details = summary.closest("details");
+    expect(details).toHaveTextContent("发布状态");
+    expect(details).toHaveTextContent("2 张");
+    expect(details).toHaveTextContent("第一段 第二段");
+    expect(details).not.toHaveTextContent(/"status":/);
     expect(screen.queryByRole("link", { name: /小红书/ })).not.toBeInTheDocument();
   });
 
@@ -113,5 +123,41 @@ describe("全账号任务页", () => {
     await act(async () => late.resolve(list([task({ title: "取消请求的旧任务" })])));
     expect(screen.queryByText("取消请求的旧任务")).not.toBeInTheDocument();
     hidden.mockRestore();
+  });
+
+  it("展开图文发布结果时按账号读取配图并在收起时释放BlobURL", async () => {
+    const createURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:task-image");
+    const revokeURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    try {
+      const api = vi.fn(async (path) => {
+        if (path.startsWith("/images/")) return new Blob(["img"], { type: "image/png" });
+        return list([
+          task({
+            status: "succeeded",
+            account_id: "acc-img",
+            image_ids: ["0123456789abcdef0123456789abcdef.png"],
+            result: { status: "发布完成", title: "早餐记录", images: 1 },
+          }),
+        ]);
+      });
+      render(<Tasks api={api} token="secret-token" active />);
+      await screen.findByRole("heading", { name: "早餐记录" });
+      expect(api.mock.calls.some(([path]) => path.startsWith("/images/"))).toBe(false);
+
+      const summary = screen.getByText("查看发布结果");
+      fireEvent.click(summary);
+      const img = await screen.findByRole("img", { name: "任务配图 1" });
+      expect(img).toHaveAttribute("src", "blob:task-image");
+      expect(api.mock.calls.find(([path]) => path.startsWith("/images/"))).toEqual([
+        "/images/0123456789abcdef0123456789abcdef.png",
+        expect.objectContaining({ accountId: "acc-img", token: "secret-token", blob: true }),
+      ]);
+
+      fireEvent.click(summary);
+      await waitFor(() => expect(revokeURL).toHaveBeenCalledWith("blob:task-image"));
+    } finally {
+      createURL.mockRestore();
+      revokeURL.mockRestore();
+    }
   });
 });

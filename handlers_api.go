@@ -117,7 +117,7 @@ func (s *AppServer) publishHandler(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "TASK_SUBMIT_FAILED", "提交发布任务失败", err)
 		return
 	}
-	respondTaskAccepted(c, task)
+	s.respondTaskAccepted(c, task)
 }
 
 // publishVideoHandler 发布视频内容
@@ -138,7 +138,7 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "TASK_SUBMIT_FAILED", "提交视频任务失败", err)
 		return
 	}
-	respondTaskAccepted(c, task)
+	s.respondTaskAccepted(c, task)
 }
 
 // listFeedsHandler 获取Feeds列表

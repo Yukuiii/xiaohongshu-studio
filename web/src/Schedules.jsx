@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PublishResult, StoredImage } from "./components.jsx";
 import { ToastNotice } from "./notifications.jsx";
 import { useSchedules } from "./useSchedules.js";
 import Select from "./Select.jsx";
@@ -110,55 +111,19 @@ function ScheduleForm({ schedule, accounts, busy, onSave, onCancel }) {
 }
 
 function RunImage({ id, api, token, accountId, alt }) {
-  const [preview, setPreview] = useState({ url: "", error: "" });
-  const latest = useRef(null);
-  latest.current = { id, token, accountId };
-  useEffect(() => {
-    let disposed = false;
-    let controller;
-    let objectURL = "";
-    const suspend = () => {
-      controller?.abort();
-      if (objectURL) URL.revokeObjectURL(objectURL);
-      objectURL = "";
-    };
-    const load = async () => {
-      suspend();
-      if (disposed || document.hidden) return;
-      const request = new AbortController();
-      controller = request;
-      const valid = () => !disposed && !request.signal.aborted && controller === request &&
-        latest.current.id === id && latest.current.token === token && latest.current.accountId === accountId;
-      setPreview({ url: "", error: "" });
-      try {
-        const blob = await api(`/images/${encodeURIComponent(id)}`, { token, accountId, blob: true, signal: request.signal });
-        if (!valid()) return;
-        if (!blob.type.startsWith("image/")) throw new Error("图片格式无法预览");
-        objectURL = URL.createObjectURL(blob);
-        setPreview({ url: objectURL, error: "" });
-      } catch (error) {
-        if (valid()) setPreview({ url: "", error: `图片读取失败：${error.message}` });
-      }
-    };
-    const visibility = () => document.hidden ? suspend() : load();
-    load();
-    document.addEventListener("visibilitychange", visibility);
-    window.addEventListener("pagehide", suspend);
-    window.addEventListener("pageshow", load);
-    return () => {
-      disposed = true;
-      suspend();
-      document.removeEventListener("visibilitychange", visibility);
-      window.removeEventListener("pagehide", suspend);
-      window.removeEventListener("pageshow", load);
-    };
-  }, [api, id, token, accountId]);
-  return <figure className="schedule-image">
-    {preview.error ? <p className="schedule-error">{preview.error}</p> : preview.url
-      ? <img src={preview.url} alt={alt} onError={() => setPreview({ url: "", error: "图片无法解码，请刷新重试。" })} />
-      : <p className="muted">正在读取生成图片…</p>}
-    <figcaption className="schedule-identifiers muted">图片编号：{id}</figcaption>
-  </figure>;
+  return (
+    <StoredImage
+      id={id}
+      api={api}
+      token={token}
+      accountId={accountId}
+      alt={alt}
+      figureClassName="schedule-image"
+      errorClassName="schedule-error"
+      loadingText="正在读取生成图片…"
+      caption={`图片编号：${id}`}
+    />
+  );
 }
 
 function RunRecord({ run, api, token, active }) {
@@ -179,7 +144,7 @@ function RunRecord({ run, api, token, active }) {
       {run.error && <p className="schedule-error">执行说明：{run.error}</p>}
       {run.status === "uncertain" && <p className="schedule-warning">发布结果尚未确定，请在小红书账号核对实际结果。此条记录不会自动重试。</p>}
       {run.status === "succeeded" && <p>本次笔记已发布。</p>}
-      {run.result != null && <pre className="schedule-prose">{typeof run.result === "string" ? run.result : JSON.stringify(run.result, null, 2)}</pre>}
+      {run.result != null && <PublishResult result={run.result} />}
       <details className="schedule-reference"><summary>完整参考（{run.sources?.length || 0} 篇）</summary>
         {run.sources?.length ? run.sources.map((source, index) => <article key={index} className="schedule-source">
           <h4>{source.title || `参考 ${index + 1}`}</h4>
@@ -225,15 +190,19 @@ function SchedulePage({ api, token, active, accounts }) {
     if (await schedules.mutate(`retry-${schedule.id}`, `/schedules/${encodeURIComponent(schedule.id)}/retry`, { method: "POST", body: { run_id: schedule.last_run_id } }, "重试已接收，将按当前任务配置自动创作并发布。原计划启停状态和下次时间不变。")) schedules.select(schedule.id);
   };
   return (
-    <section className="card schedules-page" aria-busy={schedules.loading}>
-      <div className="section-heading"><div><p className="eyebrow">让创作按时发生</p><h1 id="schedules-title" tabIndex={-1}>定时任务</h1></div>
+    <div className="schedules-page" aria-busy={schedules.loading}>
+      <header className="intro">
+        <div>
+          <p className="eyebrow">让创作按时发生</p>
+          <h1 id="schedules-title" tabIndex={-1}>定时任务</h1>
+          <p className="muted">按计划自动创作并发布，离开页面后由服务继续执行。暂停只停止后续计划，已开始的执行会继续。</p>
+        </div>
         <div className="button-group"><button className="button" type="button" disabled={schedules.loading || Boolean(schedules.busy)} onClick={schedules.refresh}>刷新</button><button className="button primary" type="button" disabled={Boolean(schedules.busy)} onClick={() => { setEditor({}); setDeleting(""); }}>新增定时任务</button></div>
-      </div>
-      <p className="muted">按计划自动创作并发布，离开页面后由服务继续执行。暂停只停止后续计划，已开始的执行会继续。</p>
+      </header>
       <ToastNotice active={active} notice={errorNotice} /><ToastNotice active={active} notice={schedules.notice} />
       {!accounts.length && <p className="schedule-warning">请先到<a href="#accounts">账号页添加并登录账号</a>，并在<a href="#settings">设置页保存文字模型</a>。</p>}
       {editor && <ScheduleForm key={editor.id || "new"} schedule={editor.id ? editor : null} accounts={accounts} busy={schedules.busy} onSave={save} onCancel={() => setEditor(null)} />}
-      {!schedules.loading && !schedules.error && !schedules.schedules.length && <div className="schedules-empty"><h2>还没有定时任务</h2><p className="muted">配置关键词、选题和时间，默认读取 20 篇完整参考后自动创作发布。</p><p><a href="#accounts">管理发布账号</a> · <a href="#settings">配置文字模型</a></p></div>}
+      {!schedules.loading && !schedules.error && !schedules.schedules.length && <div className="card schedules-empty"><h2>还没有定时任务</h2><p className="muted">配置关键词、选题和时间，默认读取 20 篇完整参考后自动创作发布。</p><p><a href="#accounts">管理发布账号</a> · <a href="#settings">配置文字模型</a></p></div>}
       <div className="schedule-list">
         {schedules.schedules.map((schedule) => <article key={schedule.id} className={`schedule-item${schedules.selectedId === schedule.id ? " selected" : ""}`} aria-label={`定时任务：${schedule.name}`}>
           <div className="schedule-heading"><h2>{schedule.name}</h2><span className={`schedule-status ${schedule.enabled ? "enabled" : "paused"}`}>{schedule.enabled ? "已启用" : "已暂停"}</span></div>
@@ -262,7 +231,7 @@ function SchedulePage({ api, token, active, accounts }) {
         {schedules.runs.map((run) => <RunRecord key={run.id} run={run} api={api} token={token} active={active} />)}
         {schedules.total > 0 && <nav className="schedule-pagination" aria-label="执行记录分页"><button className="button" type="button" disabled={schedules.runsLoading || Boolean(schedules.busy) || schedules.page <= 1} onClick={() => schedules.setPage(schedules.page - 1)}>上一页</button><span>第 {schedules.page} / {schedules.pages} 页 · 共 {schedules.total} 次</span><button className="button" type="button" disabled={schedules.runsLoading || Boolean(schedules.busy) || schedules.page >= schedules.pages} onClick={() => schedules.setPage(schedules.page + 1)}>下一页</button></nav>}
       </section>}
-    </section>
+    </div>
   );
 }
 

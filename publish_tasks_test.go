@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -392,4 +393,47 @@ func TestPublishLongTextLengthValidation(t *testing.T) {
 	request.Content = "正文"
 	request.Title = strings.Repeat("题", 21)
 	require.ErrorContains(t, request.validate(), "标题长度")
+}
+
+func TestPublishTaskReturnsManagedImageIDs(t *testing.T) {
+	server, account := taskTestServer(t, func(context.Context, *accountRuntime, accounts.PublishTask) (json.RawMessage, error) {
+		return json.RawMessage(`{"status":"发布完成","images":3}`), nil
+	})
+	router := setupRoutes(server)
+	ownDir, err := imageStorageDirForAccount(account.ID)
+	require.NoError(t, err)
+	otherDir, err := imageStorageDirForAccount(strings.Repeat("f", 32))
+	require.NoError(t, err)
+	ownID := "0123456789abcdef0123456789abcdef.png"
+	otherID := "fedcba9876543210fedcba9876543210.jpg"
+	payload, err := json.Marshal(PublishRequest{
+		Title:   "带图任务",
+		Content: "正文",
+		Images: []string{
+			filepath.Join(ownDir, ownID),
+			filepath.Join(otherDir, otherID),
+			filepath.Join(t.TempDir(), "external.png"),
+		},
+	})
+	require.NoError(t, err)
+	created := taskHTTPRequest(t, router, newTaskHTTPRequest(http.MethodPost, "/api/v1/publish", account.ID, "image-ids", string(payload)))
+	require.Equal(t, http.StatusAccepted, created.Code, created.Body.String())
+	task := taskResponse(t, created)
+	require.Equal(t, []string{ownID}, task.ImageIDs)
+	awaitTaskStatus(t, server.accounts.store, task.ID, accounts.TaskSucceeded)
+
+	detail := taskHTTPRequest(t, router, newTaskHTTPRequest(http.MethodGet, "/api/v1/tasks/"+task.ID, account.ID, "", ""))
+	require.Equal(t, http.StatusOK, detail.Code, detail.Body.String())
+	require.Equal(t, []string{ownID}, taskResponse(t, detail).ImageIDs)
+
+	listResp := taskHTTPRequest(t, router, newTaskHTTPRequest(http.MethodGet, "/api/v1/tasks", account.ID, "", ""))
+	require.Equal(t, http.StatusOK, listResp.Code, listResp.Body.String())
+	var listed struct {
+		Data struct {
+			Tasks []accounts.PublishTask `json:"tasks"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listed))
+	require.Len(t, listed.Data.Tasks, 1)
+	require.Equal(t, []string{ownID}, listed.Data.Tasks[0].ImageIDs)
 }

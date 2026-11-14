@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +24,51 @@ func (s *AppServer) requireTaskManager(c *gin.Context) bool {
 	return false
 }
 
-func respondTaskAccepted(c *gin.Context, task accounts.PublishTask) {
+// taskImageIDs 从任务快照中提取归属于该账号的托管图片 ID，供任务页安全回显。
+func (s *AppServer) taskImageIDs(task accounts.PublishTask) []string {
+	if task.Kind != accounts.TaskKindPublish || len(task.Payload) == 0 {
+		return nil
+	}
+	var payload struct {
+		Images []string `json:"images"`
+	}
+	if json.Unmarshal(task.Payload, &payload) != nil || len(payload.Images) == 0 {
+		return nil
+	}
+	ownDir, err := imageStorageDirForAccount(task.AccountID)
+	if err != nil {
+		return nil
+	}
+	baseDir, err := imageStorageDir()
+	if err != nil {
+		return nil
+	}
+	ownCanonical := canonicalPath(ownDir)
+	baseCanonical := canonicalPath(baseDir)
+	legacy := s.accounts != nil && task.AccountID == s.accounts.store.LegacyAccountID()
+	ids := make([]string, 0, len(payload.Images))
+	for _, item := range payload.Images {
+		id := filepath.Base(item)
+		if !workbenchImageID.MatchString(id) {
+			continue
+		}
+		abs, err := filepath.Abs(item)
+		if err != nil {
+			continue
+		}
+		dir := canonicalPath(filepath.Dir(abs))
+		if dir == ownCanonical || (legacy && dir == baseCanonical) {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return ids
+}
+
+func (s *AppServer) respondTaskAccepted(c *gin.Context, task accounts.PublishTask) {
+	task.ImageIDs = s.taskImageIDs(task)
 	c.JSON(http.StatusAccepted, SuccessResponse{Success: true, Data: gin.H{"task": task}, Message: "发布任务已接收"})
 }
 
@@ -45,6 +91,9 @@ func (s *AppServer) listPublishTasksHandler(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "TASK_LIST_FAILED", "读取任务列表失败", err)
 		return
 	}
+	for i := range tasks {
+		tasks[i].ImageIDs = s.taskImageIDs(tasks[i])
+	}
 	respondSuccess(c, gin.H{"tasks": tasks, "total": total, "page": page, "page_size": pageSize}, "任务列表已读取")
 }
 
@@ -61,5 +110,6 @@ func (s *AppServer) getPublishTaskHandler(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "TASK_READ_FAILED", "读取任务失败", err)
 		return
 	}
+	task.ImageIDs = s.taskImageIDs(task)
 	respondSuccess(c, gin.H{"task": task}, "任务已读取")
 }
