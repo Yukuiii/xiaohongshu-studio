@@ -23,8 +23,8 @@ func scheduleTestTime(value string) time.Time {
 
 func scheduleTestInput(accountID string) ScheduledJobInput {
 	return ScheduledJobInput{
-		Name: "自动创作", AccountID: accountID, Keyword: "咖啡", Topic: "手冲入门",
-		Instructions: "记录完整步骤", Cron: "* * * * *", Timezone: "Asia/Shanghai", Enabled: true,
+		Name: "自动创作", AccountID: accountID, Keyword: "咖啡",
+		Cron: "* * * * *", Timezone: "Asia/Shanghai", Enabled: true,
 	}
 }
 
@@ -82,29 +82,33 @@ func TestScheduledJobValidationAndIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, job.NextRunAt)
 	require.Empty(t, job.UserID)
-	require.Equal(t, 20, job.ReferenceCount)
+	require.Equal(t, "咖啡", job.Keyword)
+	require.Empty(t, job.Instructions)
 	require.Equal(t, "0 9 * * *", job.Cron)
 
 	require.NoError(t, s.BindIdentity(a.ID, "bound-user", "创作者"))
 	require.NoError(t, s.SetLoginStatus(a.ID, false))
 	input.Enabled = true
+	input.Instructions = "  面向新手，语气自然。\n不包含报价。  "
 	job, err = s.UpdateScheduledJob(ctx, job.ID, input, now)
 	require.NoError(t, err, "启用只要求已绑定身份，不要求当前登录")
 	require.Equal(t, "bound-user", job.UserID)
 	require.Equal(t, scheduleTestTime("2026-01-01T01:00:00Z"), *job.NextRunAt)
 	require.Equal(t, "image", job.PublicationType)
+	require.Equal(t, "面向新手，语气自然。\n不包含报价。", job.Instructions)
 	encoded, err := json.Marshal(job)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "user_id")
 	require.NotContains(t, string(encoded), "bound-user")
+	for _, field := range []string{"topic", "reference_count"} {
+		require.NotContains(t, string(encoded), `"`+field+`"`)
+	}
 
 	for _, mutate := range []func(*ScheduledJobInput){
 		func(value *ScheduledJobInput) { value.Name = " " },
 		func(value *ScheduledJobInput) { value.Keyword = " " },
-		func(value *ScheduledJobInput) { value.Topic = " " },
-		func(value *ScheduledJobInput) { value.ReferenceCount = -1 },
-		func(value *ScheduledJobInput) { value.ReferenceCount = 21 },
 		func(value *ScheduledJobInput) { value.PublicationType = "video" },
+		func(value *ScheduledJobInput) { value.Keyword = string([]byte{0xff}) },
 		func(value *ScheduledJobInput) { value.Instructions = string([]byte{0xff}) },
 		func(value *ScheduledJobInput) { value.Timezone = "Local" },
 	} {
@@ -120,10 +124,12 @@ func TestScheduledJobValidationAndIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.BindIdentity(other.ID, "other-user", "另一个身份"))
 	input.AccountID = other.ID
+	input.Instructions = ""
 	job, err = s.UpdateScheduledJob(ctx, job.ID, input, now)
 	require.NoError(t, err)
 	require.Equal(t, "other-user", job.UserID)
 	require.Equal(t, other.Name, job.AccountName)
+	require.Empty(t, job.Instructions, "创作要求可以清空")
 	_, err = s.UpdateScheduledJob(ctx, strings.Repeat("a", 32), input, now)
 	require.ErrorIs(t, err, ErrScheduleNotFound)
 }
@@ -168,6 +174,11 @@ func TestClaimDueSchedulesSerializesAccountsAndOccurrences(t *testing.T) {
 	}
 	require.Len(t, claimed, 2)
 	require.NotEqual(t, claimed[0].AccountID, claimed[1].AccountID)
+	for _, run := range claimed {
+		require.Equal(t, "composing", run.Stage)
+		require.JSONEq(t, `[]`, string(run.Sources))
+		require.Equal(t, "咖啡", run.Snapshot.Keyword)
+	}
 	var total, skipped int
 	require.NoError(t, s.db.QueryRow(`SELECT count(*), sum(status = 'skipped') FROM schedule_runs`).Scan(&total, &skipped))
 	require.Equal(t, 3, total)
@@ -243,7 +254,10 @@ func TestScheduleSnapshotDraftAndRestart(t *testing.T) {
 		ImagePrompt:   "手冲咖啡配图", Images: []string{"managed-image"},
 	}
 	require.NoError(t, s.UpdateScheduleRun(ctx, run.ID, progress))
-	input.Topic = "后续新选题"
+	_, err = s.db.Exec(`UPDATE schedule_runs SET snapshot = json_set(snapshot, '$.topic', '旧选题', '$.instructions', '旧要求', '$.reference_count', 5) WHERE id = ?`, run.ID)
+	require.NoError(t, err)
+	input.Keyword = "后续关键词"
+	input.Instructions = "后续创作要求"
 	input.Enabled = false
 	_, err = s.UpdateScheduledJob(ctx, job.ID, input, now.Add(2*time.Minute))
 	require.NoError(t, err)
@@ -262,7 +276,8 @@ func TestScheduleSnapshotDraftAndRestart(t *testing.T) {
 	recovered := unfinished[0]
 	require.Equal(t, "publishing", recovered.Status)
 	require.Equal(t, "schedule-user", recovered.Snapshot.UserID)
-	require.Equal(t, "手冲入门", recovered.Snapshot.Topic)
+	require.Equal(t, "咖啡", recovered.Snapshot.Keyword)
+	require.Equal(t, "旧要求", recovered.Snapshot.Instructions)
 	require.Equal(t, progress.Content, recovered.Content)
 	require.Equal(t, progress.Images, recovered.Images)
 	require.Equal(t, progress.ImagePrompt, recovered.ImagePrompt)
@@ -271,10 +286,13 @@ func TestScheduleSnapshotDraftAndRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "user_id")
 	require.NotContains(t, string(encoded), "schedule-user")
+	for _, field := range []string{"topic", "reference_count"} {
+		require.NotContains(t, string(encoded), `"`+field+`"`)
+	}
 
 	require.NoError(t, reopened.FinishScheduleRun(ctx, run.ID, "uncertain", "已提交，结果未知"))
 	require.NoError(t, reopened.FinishScheduleRun(ctx, run.ID, "failed", "迟到的失败不能覆盖终态"))
-	require.NoError(t, reopened.UpdateScheduleRun(ctx, run.ID, ScheduleRunProgress{Stage: "searching"}))
+	require.NoError(t, reopened.UpdateScheduleRun(ctx, run.ID, ScheduleRunProgress{Stage: "composing"}))
 	require.NoError(t, reopened.DeleteScheduledJob(ctx, job.ID))
 	require.NoError(t, reopened.Delete(a.ID))
 	_, err = reopened.ScheduledJob(ctx, job.ID)
@@ -390,7 +408,8 @@ func TestScheduleRetryIdempotencyAndCurrentConfiguration(t *testing.T) {
 	require.Empty(t, summary.ActiveRunID)
 	input.Enabled = false
 	input.PublicationType = "long_text"
-	input.Topic = "重试的新选题"
+	input.Keyword = "重试的新关键词"
+	input.Instructions = "使用本次修改的创作要求"
 	paused, err := s.UpdateScheduledJob(ctx, job.ID, input, source.StartedAt)
 	require.NoError(t, err)
 	require.Nil(t, paused.NextRunAt)
@@ -428,7 +447,10 @@ func TestScheduleRetryIdempotencyAndCurrentConfiguration(t *testing.T) {
 	require.Equal(t, source.ID, retry.RetryOfID)
 	require.Equal(t, source.ScheduledAt, retry.ScheduledAt, "重试不占用普通时点的唯一索引")
 	require.Equal(t, "long_text", retry.Snapshot.PublicationType)
-	require.Equal(t, "重试的新选题", retry.Snapshot.Topic)
+	require.Equal(t, "重试的新关键词", retry.Snapshot.Keyword)
+	require.Equal(t, input.Instructions, retry.Snapshot.Instructions)
+	require.Equal(t, "composing", retry.Stage)
+	require.JSONEq(t, `[]`, string(retry.Sources))
 	require.False(t, retry.Snapshot.Enabled)
 	require.Empty(t, retry.Images)
 	require.Empty(t, retry.ImagePrompt)

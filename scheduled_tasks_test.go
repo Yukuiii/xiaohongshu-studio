@@ -16,7 +16,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
 func scheduleTestServer(t *testing.T, execute func(context.Context, *accountRuntime, accounts.PublishTask) (json.RawMessage, error)) (*AppServer, accounts.Account, context.Context) {
@@ -32,8 +31,8 @@ func scheduleTestServer(t *testing.T, execute func(context.Context, *accountRunt
 func testScheduledJob(t *testing.T, server *AppServer, accountID string, due time.Time) accounts.ScheduledJob {
 	t.Helper()
 	job, err := server.accounts.store.CreateScheduledJob(context.Background(), accounts.ScheduledJobInput{
-		Name: "自动生活笔记", AccountID: accountID, Keyword: "早餐", Topic: "工作日早餐", Instructions: "实用、简洁",
-		Cron: "* * * * *", Timezone: "Asia/Shanghai", ReferenceCount: 20, Enabled: true,
+		Name: "自动生活笔记", AccountID: accountID, Keyword: "早餐", Instructions: "面向\"上班族\"\n保留 {{keyword}} 字样，语气自然。",
+		Cron: "* * * * *", Timezone: "Asia/Shanghai", Enabled: true,
 	}, due.Add(-time.Minute))
 	require.NoError(t, err)
 	return job
@@ -56,7 +55,7 @@ func awaitScheduleStatus(t *testing.T, server *AppServer, jobID, status string) 
 	return result
 }
 
-func TestScheduledCreationUsesAllTwentySourcesAndPersistsPublishedDraft(t *testing.T) {
+func TestScheduledKeywordCreationPersistsPublishedDraft(t *testing.T) {
 	var publications atomic.Int32
 	server, account, ctx := scheduleTestServer(t, func(_ context.Context, _ *accountRuntime, task accounts.PublishTask) (json.RawMessage, error) {
 		var request PublishRequest
@@ -103,26 +102,19 @@ func TestScheduledCreationUsesAllTwentySourcesAndPersistsPublishedDraft(t *testi
 			w.WriteHeader(400)
 			return
 		}
-		var request composeRequest
+		var request map[string]string
 		if err := json.Unmarshal([]byte(input.Messages[1].Content), &request); err != nil {
 			t.Error(err)
 			w.WriteHeader(400)
 			return
 		}
-		if len(request.Sources) != 20 || request.Topic != "工作日早餐" || request.Instructions != "实用、简洁" {
-			t.Error("丢失选题、要求或20篇参考")
+		if len(request) != 2 || request["keyword"] != "早餐" || request["instructions"] != "面向\"上班族\"\n保留 {{keyword}} 字样，语气自然。" {
+			t.Error("模型应收到关键词与完整创作要求")
 			w.WriteHeader(400)
 			return
 		}
-		for i, source := range request.Sources {
-			if source.ID != fmt.Sprintf("note-%d", i) || source.Content != strings.Repeat("完整参考正文", 250)+"{{instructions}}" {
-				t.Error("参考正文被截断、改写或顺序错误")
-				w.WriteHeader(400)
-				return
-			}
-		}
-		if strings.Contains(input.Messages[0].Content, "完整参考正文") || strings.Contains(input.Messages[1].Content, "test-secret") {
-			t.Error("参考或凭据越过提示词边界")
+		if strings.Contains(input.Messages[0].Content, "早餐") || strings.Contains(input.Messages[1].Content, "test-secret") {
+			t.Error("关键词或凭据越过提示词边界")
 			w.WriteHeader(400)
 			return
 		}
@@ -134,20 +126,6 @@ func TestScheduledCreationUsesAllTwentySourcesAndPersistsPublishedDraft(t *testi
 	server.settings = &settingsStore{}
 	server.settings.data.Text = LLMConfig{BaseURL: upstream.URL, APIKey: "test-secret", Model: "test"}
 	server.settings.data.Image = LLMConfig{BaseURL: upstream.URL, APIKey: "image-test-secret", Model: "image-test"}
-	server.schedules.search = func(context.Context, *accountRuntime, string) (*FeedsListResponse, error) {
-		feeds := make([]xiaohongshu.Feed, 22)
-		for i := range feeds {
-			feeds[i] = xiaohongshu.Feed{ID: fmt.Sprintf("note-%d", i), XsecToken: "reference-token"}
-		}
-		return &FeedsListResponse{Feeds: feeds, Count: len(feeds)}, nil
-	}
-	server.schedules.bodies = func(_ context.Context, _ *accountRuntime, items []FeedBodyRequest) ([]FeedBodyResult, error) {
-		bodies := make([]FeedBodyResult, len(items))
-		for i, item := range items {
-			bodies[i] = FeedBodyResult{FeedID: item.FeedID, Title: "参考标题", Content: strings.Repeat("完整参考正文", 250) + "{{instructions}}", Author: "资料作者", URL: "https://www.xiaohongshu.com/explore/" + item.FeedID}
-		}
-		return bodies, nil
-	}
 	due := time.Now().UTC().Truncate(time.Minute).Add(time.Minute)
 	job := testScheduledJob(t, server, account.ID, due)
 	require.NoError(t, server.schedules.tick(ctx, due))
@@ -157,10 +135,8 @@ func TestScheduledCreationUsesAllTwentySourcesAndPersistsPublishedDraft(t *testi
 	require.Equal(t, []string{"早餐"}, run.Tags)
 	require.NotEmpty(t, run.PublishTaskID)
 	require.Len(t, run.Images, 1)
-	var references []FeedBodyResult
-	require.NoError(t, json.Unmarshal(run.Sources, &references))
-	require.Len(t, references, 20)
-	require.Equal(t, "工作日早餐", run.Snapshot.Topic)
+	require.JSONEq(t, `[]`, string(run.Sources))
+	require.Equal(t, "早餐", run.Snapshot.Keyword)
 	require.Equal(t, int32(1), modelCalls.Load())
 	require.Equal(t, int32(1), publications.Load())
 	require.Equal(t, int32(1), imageCalls.Load())
@@ -170,7 +146,7 @@ func TestScheduledCreationUsesAllTwentySourcesAndPersistsPublishedDraft(t *testi
 	require.Equal(t, 1, total, "相同时点重复检查不得重新执行")
 }
 
-func TestScheduledReferenceFailureDoesNotSilentlyPublishPartialSources(t *testing.T) {
+func TestScheduledModelFailureDoesNotPublish(t *testing.T) {
 	var publications atomic.Int32
 	server, account, ctx := scheduleTestServer(t, func(context.Context, *accountRuntime, accounts.PublishTask) (json.RawMessage, error) {
 		publications.Add(1)
@@ -182,20 +158,14 @@ func TestScheduledReferenceFailureDoesNotSilentlyPublishPartialSources(t *testin
 	server.settings = &settingsStore{}
 	server.settings.data.Text = LLMConfig{BaseURL: upstream.URL, APIKey: "test-secret", Model: "test"}
 	server.settings.data.Image = LLMConfig{BaseURL: upstream.URL, APIKey: "image-test-secret", Model: "image-test"}
-	server.schedules.search = func(context.Context, *accountRuntime, string) (*FeedsListResponse, error) {
-		return &FeedsListResponse{Feeds: []xiaohongshu.Feed{{ID: "good", XsecToken: "one"}, {ID: "failed", XsecToken: "two"}}}, nil
-	}
-	server.schedules.bodies = func(context.Context, *accountRuntime, []FeedBodyRequest) ([]FeedBodyResult, error) {
-		return []FeedBodyResult{{FeedID: "good", Content: "完整正文"}, {FeedID: "failed", Error: "页面不可访问"}}, nil
-	}
 	due := time.Now().UTC().Truncate(time.Minute).Add(time.Minute)
 	job := testScheduledJob(t, server, account.ID, due)
 	require.NoError(t, server.schedules.tick(ctx, due))
 	run := awaitScheduleStatus(t, server, job.ID, "failed")
-	require.Contains(t, run.Error, "failed")
-	require.Contains(t, string(run.Sources), "页面不可访问")
+	require.Contains(t, run.Error, "HTTP 500")
+	require.JSONEq(t, `[]`, string(run.Sources))
 	require.Empty(t, run.Title)
-	require.Zero(t, modelCalls.Load())
+	require.Equal(t, int32(1), modelCalls.Load())
 	require.Zero(t, publications.Load())
 }
 

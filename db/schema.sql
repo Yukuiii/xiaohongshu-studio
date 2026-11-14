@@ -171,3 +171,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS schedule_runs_retry_unique
 
 CREATE INDEX IF NOT EXISTS schedule_runs_newest
   ON schedule_runs(schedule_id, started_at DESC);
+
+-- schema version 4
+-- 定时创作只保留关键词，历史执行快照及参考来源保持原样。
+ALTER TABLE scheduled_jobs DROP COLUMN topic;
+ALTER TABLE scheduled_jobs DROP COLUMN instructions;
+ALTER TABLE scheduled_jobs DROP COLUMN reference_count;
+
+-- schema version 5
+-- 创作要求可选，已有关键词任务默认留空。
+ALTER TABLE scheduled_jobs ADD COLUMN instructions TEXT NOT NULL DEFAULT '';

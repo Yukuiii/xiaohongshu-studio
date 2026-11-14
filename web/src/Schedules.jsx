@@ -7,7 +7,7 @@ import "./schedules.css";
 
 const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 const statuses = { running: "执行中", publishing: "发布中", succeeded: "发布成功", failed: "执行失败", uncertain: "发布结果未知", skipped: "已跳过" };
-const stages = { searching: "搜索参考", reading: "读取参考正文", composing: "撰写笔记", imaging: "生成配图", publishing: "发布笔记", finished: "已结束" };
+const stages = { searching: "准备创作", reading: "准备创作", composing: "撰写笔记", imaging: "生成配图", publishing: "发布笔记", finished: "已结束" };
 const publicationLabel = (type) => type === "long_text" ? "长文" : "图文";
 const canRetry = (schedule) => schedule.retry_allowed === true && Boolean(schedule.last_run_id) &&
   ["failed", "skipped"].includes(schedule.last_run_status) && !schedule.active_run_id;
@@ -47,14 +47,14 @@ function ruleLabel(cron) {
   return `Cron · ${cron}`;
 }
 function inputFor(schedule) {
-  const { name, account_id, keyword, topic, instructions, cron, timezone, reference_count, enabled, publication_type = "image" } = schedule;
-  return { name, account_id, keyword, topic, instructions, cron, timezone, reference_count, enabled, publication_type };
+  const { name, account_id, keyword, instructions = "", cron, timezone, enabled, publication_type = "image" } = schedule;
+  return { name, account_id, keyword, instructions, cron, timezone, enabled, publication_type };
 }
 
 function ScheduleForm({ schedule, accounts, busy, onSave, onCancel }) {
   const [form, setForm] = useState(() => ({
-    name: "", account_id: accounts[0]?.id || "", keyword: "", topic: "", instructions: "",
-    timezone: defaultTimezone(), reference_count: 20, enabled: true, publication_type: "image",
+    name: "", account_id: accounts[0]?.id || "", keyword: "", instructions: "",
+    timezone: defaultTimezone(), enabled: true, publication_type: "image",
     ...schedule, ...cadence(schedule?.cron),
   }));
   const heading = useRef(null);
@@ -67,8 +67,8 @@ function ScheduleForm({ schedule, accounts, busy, onSave, onCancel }) {
       <h2 id="schedule-editor-title" tabIndex={-1} ref={heading}>{schedule ? "编辑定时任务" : "新增定时任务"}</h2>
       <form onSubmit={(event) => {
         event.preventDefault();
-        onSave({ ...inputFor(form), name: form.name.trim(), keyword: form.keyword.trim(), topic: form.topic.trim(),
-          timezone: form.timezone.trim(), cron: cronFor(form), reference_count: Number(form.reference_count) });
+        onSave({ ...inputFor(form), name: form.name.trim(), keyword: form.keyword.trim(), instructions: form.instructions.trim(),
+          timezone: form.timezone.trim(), cron: cronFor(form) });
       }}>
         <fieldset disabled={Boolean(busy)} className="schedule-fields">
           <div className="schedule-form-grid">
@@ -78,17 +78,17 @@ function ScheduleForm({ schedule, accounts, busy, onSave, onCancel }) {
               {schedule && !accounts.some((item) => item.id === form.account_id) && <option value={form.account_id}>{schedule.account_name || form.account_id}（不可用）</option>}
               {accounts.map((item) => <option key={item.id} value={item.id}>{item.name}{item.user_id ? "" : "（尚未登录绑定）"}</option>)}
             </Select></div>
-            <div><label htmlFor="schedule-keyword">搜索关键词</label><input id="schedule-keyword" required value={form.keyword} onChange={(event) => change("keyword", event.target.value)} /></div>
-            <div><label htmlFor="schedule-topic">创作选题</label><input id="schedule-topic" required value={form.topic} onChange={(event) => change("topic", event.target.value)} /></div>
           </div>
+          <label htmlFor="schedule-keyword">创作关键词</label><input id="schedule-keyword" required aria-describedby="schedule-keyword-help" value={form.keyword} onChange={(event) => change("keyword", event.target.value)} />
+          <p id="schedule-keyword-help" className="helper">模型围绕关键词自行选择切入点并创作。</p>
+          <label htmlFor="schedule-instructions">创作要求（可选）</label><textarea id="schedule-instructions" rows={3} aria-describedby="schedule-instructions-help" placeholder="例如：面向首次去港澳的游客，语气自然，给出实用建议，避免营销口吻" value={form.instructions} onChange={(event) => change("instructions", event.target.value)} />
+          <p id="schedule-instructions-help" className="helper">可指定受众、语气、风格或内容偏好；留空则由模型自由发挥。</p>
           <label htmlFor="schedule-publication-type">发布类型</label>
           <Select id="schedule-publication-type" value={form.publication_type} onChange={(event) => change("publication_type", event.target.value)}>
             <option value="image">图文 · 生成 1 张配图</option><option value="long_text">长文 · 原生文字排版</option>
           </Select>
           <p className="helper">{form.publication_type === "long_text" ? "使用平台原生长文文字排版卡片，不调用生图模型。" : "使用设置中已保存的生图模型生成 1 张图片，再发布图文。缺少模型配置时仍可保存，请在执行前补全设置。"}</p>
-          <label htmlFor="schedule-instructions">写作要求</label><textarea id="schedule-instructions" rows={4} placeholder="例如：面向新手，语气自然，给出具体步骤" value={form.instructions} onChange={(event) => change("instructions", event.target.value)} />
           <div className="schedule-form-grid">
-            <div><label htmlFor="schedule-reference-count">参考数量</label><input id="schedule-reference-count" type="number" min="1" max="20" step="1" required value={form.reference_count} onChange={(event) => change("reference_count", event.target.value)} /></div>
             <div><label htmlFor="schedule-timezone">时区</label><input id="schedule-timezone" required placeholder="Asia/Shanghai" value={form.timezone} onChange={(event) => change("timezone", event.target.value)} /></div>
             <div><label htmlFor="schedule-mode">执行频率</label><Select id="schedule-mode" value={form.mode} onChange={(event) => change("mode", event.target.value)}>
               <option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option><option value="custom">自定义 Cron</option>
@@ -102,7 +102,7 @@ function ScheduleForm({ schedule, accounts, busy, onSave, onCancel }) {
           <p className="helper">按所选时区执行。服务离线时错过的时间不会补发；失败或结果未知时不会自动重试。</p>
           <label className="schedule-checkbox"><input type="checkbox" checked={form.enabled} onChange={(event) => change("enabled", event.target.checked)} />启用定时任务</label>
           {unbound && <p className="schedule-warning">此账号尚未登录绑定，可先关闭启用并保存，再到<a href="#accounts">账号页</a>完成登录。</p>}
-          <p className="schedule-consent">启用后将按计划自动搜索参考、创作并发布，无需逐次审核。使用<a href="#settings">设置中已保存的模型</a>；{form.publication_type === "long_text" ? "长文使用原生文字排版，不调用生图模型。" : "图文自动生成 1 张配图。"}</p>
+          <p className="schedule-consent">启用后将按计划围绕关键词自动创作并发布，无需逐次审核。使用<a href="#settings">设置中已保存的模型</a>；{form.publication_type === "long_text" ? "长文使用原生文字排版，不调用生图模型。" : "图文自动生成 1 张配图。"}</p>
           <div className="button-group"><button type="submit" className="button primary" disabled={!account || (form.enabled && unbound)}>{busy === "save" ? "保存中…" : form.enabled ? "保存并自动发布" : "保存为暂停"}</button><button type="button" className="button" onClick={onCancel}>取消编辑</button></div>
         </fieldset>
       </form>
@@ -145,21 +145,21 @@ function RunRecord({ run, api, token, active }) {
       {run.status === "uncertain" && <p className="schedule-warning">发布结果尚未确定，请在小红书账号核对实际结果。此条记录不会自动重试。</p>}
       {run.status === "succeeded" && <p>本次笔记已发布。</p>}
       {run.result != null && <PublishResult result={run.result} />}
-      <details className="schedule-reference"><summary>完整参考（{run.sources?.length || 0} 篇）</summary>
-        {run.sources?.length ? run.sources.map((source, index) => <article key={index} className="schedule-source">
+      {run.sources?.length > 0 && <details className="schedule-reference"><summary>完整参考（{run.sources.length} 篇）</summary>
+        {run.sources.map((source, index) => <article key={index} className="schedule-source">
           <h4>{source.title || `参考 ${index + 1}`}</h4>
           <div className="schedule-prose">{typeof source === "string" ? source : source.content || "暂无正文"}</div>
           {source.author && <p className="muted">作者：{source.author}</p>}
           {source.url && <p className="schedule-prose">来源：{source.url}</p>}
           {source.feed_id && <p className="schedule-identifiers muted">参考编号：{source.feed_id}</p>}
           {source.error && <p className="schedule-error">{source.error}</p>}
-        </article>) : <p className="muted">暂无参考记录。</p>}
-      </details>
+        </article>)}
+      </details>}
       {run.snapshot && <details className="schedule-reference"><summary>本次执行配置</summary><dl className="schedule-meta">
-        <div><dt>任务名称</dt><dd>{run.snapshot.name}</dd></div><div><dt>关键词</dt><dd>{run.snapshot.keyword}</dd></div><div><dt>选题</dt><dd>{run.snapshot.topic}</dd></div>
-        <div><dt>参考数量</dt><dd>{run.snapshot.reference_count}</dd></div><div><dt>时间规则</dt><dd>{run.snapshot.cron} · {run.snapshot.timezone}</dd></div>
+        <div><dt>任务名称</dt><dd>{run.snapshot.name}</dd></div><div><dt>创作关键词</dt><dd>{run.snapshot.keyword}</dd></div>
+        <div><dt>时间规则</dt><dd>{run.snapshot.cron} · {run.snapshot.timezone}</dd></div>
         <div><dt>发布类型</dt><dd>{publicationLabel(run.snapshot.publication_type)}</dd></div>
-      </dl><p className="schedule-prose">{run.snapshot.instructions || "未填写额外写作要求"}</p></details>}
+      </dl><h4>创作要求</h4><p className="schedule-prose">{run.snapshot.instructions || "未设置，由模型自由发挥。"}</p></details>}
       <p className="schedule-identifiers muted">执行编号：{run.id}{run.publish_task_id && <><br />发布任务编号：{run.publish_task_id} · <a href="#tasks">查看发布任务</a></>}</p>
     </article>
   );
@@ -202,7 +202,7 @@ function SchedulePage({ api, token, active, accounts }) {
       <ToastNotice active={active} notice={errorNotice} /><ToastNotice active={active} notice={schedules.notice} />
       {!accounts.length && <p className="schedule-warning">请先到<a href="#accounts">账号页添加并登录账号</a>，并在<a href="#settings">设置页保存文字模型</a>。</p>}
       {editor && <ScheduleForm key={editor.id || "new"} schedule={editor.id ? editor : null} accounts={accounts} busy={schedules.busy} onSave={save} onCancel={() => setEditor(null)} />}
-      {!schedules.loading && !schedules.error && !schedules.schedules.length && <div className="card schedules-empty"><h2>还没有定时任务</h2><p className="muted">配置关键词、选题和时间，默认读取 20 篇完整参考后自动创作发布。</p><p><a href="#accounts">管理发布账号</a> · <a href="#settings">配置文字模型</a></p></div>}
+      {!schedules.loading && !schedules.error && !schedules.schedules.length && <div className="card schedules-empty"><h2>还没有定时任务</h2><p className="muted">配置创作关键词和执行时间，模型将自动创作并发布。</p><p><a href="#accounts">管理发布账号</a> · <a href="#settings">配置文字模型</a></p></div>}
       <div className="schedule-list">
         {schedules.schedules.map((schedule) => <article key={schedule.id} className={`schedule-item${schedules.selectedId === schedule.id ? " selected" : ""}`} aria-label={`定时任务：${schedule.name}`}>
           <div className="schedule-heading"><h2>{schedule.name}</h2><span className={`schedule-status ${schedule.enabled ? "enabled" : "paused"}`}>{schedule.enabled ? "已启用" : "已暂停"}</span></div>
@@ -224,7 +224,7 @@ function SchedulePage({ api, token, active, accounts }) {
       </div>
       {schedules.selectedId && <section id="schedule-detail" className="schedule-detail" aria-labelledby="schedule-detail-title">
         <div className="schedule-heading"><h2 id="schedule-detail-title">{selected?.name || "已删除的定时任务"} · 执行记录</h2><button className="button" type="button" disabled={Boolean(schedules.busy)} onClick={() => schedules.select("")}>关闭详情</button></div>
-        {selected && <div className="schedule-config"><dl className="schedule-meta"><div><dt>搜索关键词</dt><dd>{selected.keyword}</dd></div><div><dt>创作选题</dt><dd>{selected.topic}</dd></div><div><dt>参考数量</dt><dd>{selected.reference_count}</dd></div><div><dt>Cron / 时区</dt><dd>{selected.cron} · {selected.timezone}</dd></div></dl><h3>写作要求</h3><p className="schedule-prose">{selected.instructions || "未填写额外写作要求"}</p></div>}
+        {selected && <div className="schedule-config"><dl className="schedule-meta"><div><dt>创作关键词</dt><dd>{selected.keyword}</dd></div><div><dt>Cron / 时区</dt><dd>{selected.cron} · {selected.timezone}</dd></div></dl><h3>创作要求</h3><p className="schedule-prose">{selected.instructions || "未设置，由模型自由发挥。"}</p></div>}
         <p className="helper">以下时间按浏览器本地时区显示，计划按任务设置的时区执行。</p>
         {schedules.runsLoading && <p className="muted">正在读取执行记录…</p>}
         {!schedules.runsLoading && !schedules.runsError && !schedules.total && <p className="muted">暂无执行记录，启用后将按计划执行。</p>}

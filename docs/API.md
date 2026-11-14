@@ -464,19 +464,17 @@ DELETE /api/v1/schedules/:id
   "name": "工作日早餐计划",
   "account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "keyword": "早餐食谱",
-  "topic": "适合上班族的简单早餐",
-  "instructions": "给出实用步骤，语气自然",
+  "instructions": "面向上班族，语气自然，给出实用建议",
   "publication_type": "image",
-  "reference_count": 20,
   "cron": "0 9 * * 1-5",
   "timezone": "Asia/Shanghai",
   "enabled": true
 }
 ```
 
-`name`、`account_id`、`keyword`、`topic`、`cron`、`timezone` 必填；`reference_count` 默认为 20，范围 1–20。Cron 为「分 时 日 月 星期」五字段，不含秒；时区使用 IANA 名称。每天/每周/每月选择在前端转换为对应 Cron。启用前账号须绑定真实身份，执行时再次核验。
+`name`、`account_id`、`keyword`、`cron`、`timezone` 必填。`instructions` 是可选创作要求，默认空字符串，可设置受众、语气、风格和内容偏好；留空则由模型自由发挥。模型根据关键词和要求自行决定选题与写作结构，不搜索或读取参考文章；配置不再使用 `topic`、`reference_count`。Cron 为「分 时 日 月 星期」五字段，不含秒；时区使用 IANA 名称。每天/每周/每月选择在前端转换为对应 Cron。启用前账号须绑定真实身份，执行时再次核验。已有关键词任务升级后创作要求默认为空，执行规则和历史记录保留；执行快照记录当次要求，重试使用当前配置。
 
-`publication_type` 为 `image`（默认）时，使用已保存的文字和生图模型，默认生成 1 张图片；`long_text` 使用文字模型和平台原生长文排版，不调用生图模型。保存允许模型配置尚未完成，响应中的 `configuration_error` 给出缺失原因，执行时会明确失败并留记录。完整参考正文全部注入模型，不截断或静默丢弃读取失败的参考。
+`publication_type` 为 `image`（默认）时，使用已保存的文字和生图模型，默认生成 1 张图片；`long_text` 使用文字模型和平台原生长文排版，不调用生图模型。保存允许模型配置尚未完成，响应中的 `configuration_error` 给出缺失原因，执行时会明确失败并留记录。
 
 列表返回 `data.schedules`；详情、创建、修改返回 `data.schedule`，创建状态码为 201。配置还包含 `account_name`、`next_run_at`、`last_run_at`、`created_at`、`updated_at`、`last_run_id`、`last_run_status`、`last_run_error`、`active_run_id`、`configuration_error` 和 `retry_allowed`。时间为 RFC3339；暂停计划的 `next_run_at` 为 null。
 
@@ -490,7 +488,7 @@ Content-Type: application/json
 
 历史返回 `data.runs`、`total`、`page`、`page_size`，默认每页 20 条、最多 100 条。记录包含 `id`、`schedule_id`、账号、`status`、`stage`、计划/开始/结束时间、`title`、`content`、`tags`、`sources`、`image_prompt`、`images`、`error`、`publish_task_id`、`snapshot` 和 `retry_of_id`。`images` 是账号托管图片 ID，用原账号的 `X-XHS-Account-ID` 请求 `/api/v1/images/:id`；快照不返回凭据或内部身份字段。
 
-状态为 `running`、`publishing`、`succeeded`、`failed`、`uncertain`、`skipped`；阶段为 `searching`、`reading`、`composing`、`imaging`、`publishing`、`finished`。标题、正文和引用在发布前保存，失败时仍可查看。
+状态为 `running`、`publishing`、`succeeded`、`failed`、`uncertain`、`skipped`；新执行从 `composing` 开始，后续阶段为 `imaging`（仅图文）、`publishing`、`finished`。标题、正文和生图描述在发布前保存，失败时仍可查看。新记录的 `sources` 为 `[]`；旧记录中的参考资料保留，历史阶段可能包含 `searching` 和 `reading`。
 
 重试返回 202 和 `data.run`，只接受该计划最近一次明确失败或跳过的执行。使用当前配置生成新运行，保留旧记录，不改变启停状态和正常执行时间。原执行 ID 是重试的幂等键；同一来源重复请求返回已创建的同一个运行，包括其终态。成功或结果未知的记录禁止直接重试，活动发布或未解除的发布保护仍会阻止重试。
 

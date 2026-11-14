@@ -15,6 +15,12 @@ var composeSystemTemplate string
 //go:embed prompt/compose-user.md
 var composeUserTemplate string
 
+//go:embed prompt/schedule-system.md
+var scheduleSystemTemplate string
+
+//go:embed prompt/schedule-user.md
+var scheduleUserTemplate string
+
 //go:embed prompt/image.md
 var imagePromptTemplate string
 
@@ -37,10 +43,10 @@ func renderPrompt(template string, values map[string]string) (string, error) {
 	return result, nil
 }
 
-// composeDraft 供手动和定时创作共用，完整保留每篇参考正文。
-func composeDraft(ctx context.Context, cfg LLMConfig, topic, instructions, publicationType string, sources []composeSource) (composedDraft, error) {
-	if strings.TrimSpace(topic) == "" || len(sources) < 1 || len(sources) > 20 {
-		return composedDraft{}, fmt.Errorf("请填写选题并提供 1 至 20 篇完整参考")
+// composeDraft 根据手动选取的完整参考创作。
+func composeDraft(ctx context.Context, cfg LLMConfig, topic, instructions string, sources []composeSource) (composedDraft, error) {
+	if strings.TrimSpace(topic) == "" || len(sources) < 1 || len(sources) > 5 {
+		return composedDraft{}, fmt.Errorf("请填写选题并提供 1 至 5 篇完整参考")
 	}
 	for _, source := range sources {
 		if strings.TrimSpace(source.ID) == "" || strings.TrimSpace(source.Content) == "" {
@@ -50,11 +56,7 @@ func composeDraft(ctx context.Context, cfg LLMConfig, topic, instructions, publi
 	if err := cfg.validate(true); err != nil {
 		return composedDraft{}, err
 	}
-	publicationName, contentLimit := "图文", "1000"
-	if publicationType == "long_text" {
-		publicationName, contentLimit = "长文", "10000"
-	}
-	system, err := renderPrompt(composeSystemTemplate, map[string]string{"publication_type": publicationName, "title_limit": "20", "content_limit": contentLimit})
+	system, err := renderPrompt(composeSystemTemplate, map[string]string{"publication_type": "图文", "title_limit": "20", "content_limit": "1000"})
 	if err != nil {
 		return composedDraft{}, err
 	}
@@ -67,6 +69,35 @@ func composeDraft(ctx context.Context, cfg LLMConfig, topic, instructions, publi
 	user, err := renderPrompt(composeUserTemplate, map[string]string{
 		"topic": string(encodedTopic), "instructions": string(encodedInstructions), "sources": string(encodedSources),
 	})
+	if err != nil {
+		return composedDraft{}, err
+	}
+	text, err := newLLMClient().chat(ctx, cfg, system, user)
+	if err != nil {
+		return composedDraft{}, err
+	}
+	return parseComposedDraft(text)
+}
+
+// composeKeywordDraft 让定时任务围绕关键词自主选择主题并创作。
+func composeKeywordDraft(ctx context.Context, cfg LLMConfig, keyword, instructions, publicationType string) (composedDraft, error) {
+	if strings.TrimSpace(keyword) == "" {
+		return composedDraft{}, fmt.Errorf("请填写创作关键词")
+	}
+	if err := cfg.validate(true); err != nil {
+		return composedDraft{}, err
+	}
+	publicationName, contentLimit := "图文", "1000"
+	if publicationType == "long_text" {
+		publicationName, contentLimit = "长文", "10000"
+	}
+	system, err := renderPrompt(scheduleSystemTemplate, map[string]string{"publication_type": publicationName, "title_limit": "20", "content_limit": contentLimit})
+	if err != nil {
+		return composedDraft{}, err
+	}
+	encodedKeyword, _ := json.Marshal(keyword)
+	encodedInstructions, _ := json.Marshal(instructions)
+	user, err := renderPrompt(scheduleUserTemplate, map[string]string{"keyword": string(encodedKeyword), "instructions": string(encodedInstructions)})
 	if err != nil {
 		return composedDraft{}, err
 	}

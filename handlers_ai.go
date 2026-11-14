@@ -105,7 +105,7 @@ func (s *AppServer) aiComposeHandler(c *gin.Context) {
 			return
 		}
 	}
-	draft, err := composeDraft(c.Request.Context(), req.Config, req.Topic, req.Instructions, "image", req.Sources)
+	draft, err := composeDraft(c.Request.Context(), req.Config, req.Topic, req.Instructions, req.Sources)
 	if err != nil {
 		respondAIError(c, err)
 		return

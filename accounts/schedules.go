@@ -26,11 +26,9 @@ type ScheduledJobInput struct {
 	Name            string `json:"name"`
 	AccountID       string `json:"account_id"`
 	Keyword         string `json:"keyword"`
-	Topic           string `json:"topic"`
 	Instructions    string `json:"instructions"`
 	Cron            string `json:"cron"`
 	Timezone        string `json:"timezone"`
-	ReferenceCount  int    `json:"reference_count"`
 	Enabled         bool   `json:"enabled"`
 	PublicationType string `json:"publication_type"`
 }
@@ -42,11 +40,9 @@ type ScheduledJob struct {
 	AccountName     string     `json:"account_name"`
 	UserID          string     `json:"-"`
 	Keyword         string     `json:"keyword"`
-	Topic           string     `json:"topic"`
 	Instructions    string     `json:"instructions"`
 	Cron            string     `json:"cron"`
 	Timezone        string     `json:"timezone"`
-	ReferenceCount  int        `json:"reference_count"`
 	Enabled         bool       `json:"enabled"`
 	NextRunAt       *time.Time `json:"next_run_at"`
 	LastRunAt       *time.Time `json:"last_run_at"`
@@ -98,8 +94,8 @@ type storedScheduleSnapshot struct {
 	UserID string `json:"user_id"`
 }
 
-const scheduledJobColumns = `id, name, account_id, account_name, user_id, keyword, topic,
- instructions, cron, timezone, reference_count, enabled, next_run_at, last_run_at, created_at, updated_at, publication_type`
+const scheduledJobColumns = `id, name, account_id, account_name, user_id, keyword, instructions,
+ cron, timezone, enabled, next_run_at, last_run_at, created_at, updated_at, publication_type`
 
 const scheduledJobSummaryColumns = `,
  COALESCE((SELECT id FROM schedule_runs WHERE schedule_id = scheduled_jobs.id ORDER BY started_at DESC, rowid DESC LIMIT 1), ''),
@@ -140,19 +136,11 @@ func NextScheduleTime(expression, timezone string, after time.Time) (time.Time, 
 func normalizeScheduledJob(input ScheduledJobInput, now time.Time) (ScheduledJobInput, *time.Time, error) {
 	input.Name = strings.TrimSpace(input.Name)
 	input.Keyword = strings.TrimSpace(input.Keyword)
-	input.Topic = strings.TrimSpace(input.Topic)
 	input.Instructions = strings.TrimSpace(input.Instructions)
 	input.Cron = strings.Join(strings.Fields(input.Cron), " ")
 	input.Timezone = strings.TrimSpace(input.Timezone)
-	if !validName(input.Name) || !validID(input.AccountID) || input.Keyword == "" || input.Topic == "" ||
-		!utf8.ValidString(input.Keyword) || !utf8.ValidString(input.Topic) || !utf8.ValidString(input.Instructions) {
-		return input, nil, fmt.Errorf("%w: 名称、账号、关键词和选题必须有效", ErrInvalid)
-	}
-	if input.ReferenceCount == 0 {
-		input.ReferenceCount = 20
-	}
-	if input.ReferenceCount < 1 || input.ReferenceCount > 20 {
-		return input, nil, fmt.Errorf("%w: 参考篇数必须在 1 到 20 之间", ErrInvalid)
+	if !validName(input.Name) || !validID(input.AccountID) || input.Keyword == "" || !utf8.ValidString(input.Keyword) || !utf8.ValidString(input.Instructions) {
+		return input, nil, fmt.Errorf("%w: 名称、账号、关键词或创作要求无效", ErrInvalid)
 	}
 	if input.PublicationType == "" {
 		input.PublicationType = "image"
@@ -194,15 +182,14 @@ func (s *Store) CreateScheduledJob(ctx context.Context, input ScheduledJobInput,
 	}
 	job := ScheduledJob{
 		ID: id, Name: input.Name, AccountID: a.ID, AccountName: a.Name, UserID: a.UserID,
-		Keyword: input.Keyword, Topic: input.Topic, Instructions: input.Instructions,
-		Cron: input.Cron, Timezone: input.Timezone, ReferenceCount: input.ReferenceCount,
+		Keyword: input.Keyword, Instructions: input.Instructions, Cron: input.Cron, Timezone: input.Timezone,
 		Enabled: input.Enabled, NextRunAt: next, CreatedAt: now, UpdatedAt: now,
 		PublicationType: input.PublicationType,
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO scheduled_jobs (`+scheduledJobColumns+`)
-	 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-		job.ID, job.Name, job.AccountID, job.AccountName, job.UserID, job.Keyword, job.Topic,
-		job.Instructions, job.Cron, job.Timezone, job.ReferenceCount, boolInt(job.Enabled),
+	 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+		job.ID, job.Name, job.AccountID, job.AccountName, job.UserID, job.Keyword, job.Instructions,
+		job.Cron, job.Timezone, boolInt(job.Enabled),
 		nullableTime(job.NextRunAt), now.UnixMilli(), now.UnixMilli(), job.PublicationType)
 	return job, err
 }
@@ -226,11 +213,11 @@ func (s *Store) UpdateScheduledJob(ctx context.Context, id string, input Schedul
 		return ScheduledJob{}, fmt.Errorf("%w: 启用定时任务前必须绑定账号身份", ErrInvalid)
 	}
 	return scanScheduledJob(s.db.QueryRowContext(ctx, `UPDATE scheduled_jobs SET
-	 name = ?, account_id = ?, account_name = ?, user_id = ?, keyword = ?, topic = ?, instructions = ?,
-	 cron = ?, timezone = ?, reference_count = ?, enabled = ?, next_run_at = ?, updated_at = ?, publication_type = ?
+	 name = ?, account_id = ?, account_name = ?, user_id = ?, keyword = ?, instructions = ?,
+	 cron = ?, timezone = ?, enabled = ?, next_run_at = ?, updated_at = ?, publication_type = ?
 	 WHERE id = ? AND deleted = 0 RETURNING `+scheduledJobColumns,
-		input.Name, a.ID, a.Name, a.UserID, input.Keyword, input.Topic, input.Instructions,
-		input.Cron, input.Timezone, input.ReferenceCount, boolInt(input.Enabled), nullableTime(next), now.UnixMilli(), input.PublicationType, id), false)
+		input.Name, a.ID, a.Name, a.UserID, input.Keyword, input.Instructions,
+		input.Cron, input.Timezone, boolInt(input.Enabled), nullableTime(next), now.UnixMilli(), input.PublicationType, id), false)
 }
 
 func (s *Store) DeleteScheduledJob(ctx context.Context, id string) error {
@@ -364,7 +351,7 @@ func (s *Store) ClaimDueScheduleRuns(ctx context.Context, now time.Time) ([]Sche
 		}
 		run := ScheduleRun{
 			ID: id, ScheduleID: job.ID, AccountID: job.AccountID, AccountName: job.AccountName,
-			Status: "running", Stage: "searching", ScheduledAt: *job.NextRunAt, StartedAt: now,
+			Status: "running", Stage: "composing", ScheduledAt: *job.NextRunAt, StartedAt: now,
 			Tags: []string{}, Sources: json.RawMessage(`[]`), Images: []string{}, Snapshot: job,
 		}
 		if err := checkNoActiveScheduleRun(tx, job.AccountID, job.ID); errors.Is(err, ErrScheduleActive) {
@@ -581,11 +568,11 @@ func scanScheduledJob(scanner interface{ Scan(...any) error }, withSummary bool)
 	var next, last sql.NullInt64
 	var created, updated int64
 	fields := []any{&job.ID, &job.Name, &job.AccountID, &job.AccountName, &job.UserID,
-		&job.Keyword, &job.Topic, &job.Instructions, &job.Cron, &job.Timezone, &job.ReferenceCount,
+		&job.Keyword, &job.Instructions, &job.Cron, &job.Timezone,
 		&enabled, &next, &last, &created, &updated, &job.PublicationType,
 		&job.LastRunID, &job.LastRunStatus, &job.LastRunError, &job.ActiveRunID}
 	if !withSummary {
-		fields = fields[:17]
+		fields = fields[:15]
 	}
 	if err := scanner.Scan(fields...); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -736,7 +723,7 @@ func (s *Store) RetryScheduleRun(ctx context.Context, scheduleID, runID string, 
 	}
 	run := ScheduleRun{
 		ID: id, ScheduleID: job.ID, AccountID: job.AccountID, AccountName: job.AccountName,
-		Status: "running", Stage: "searching", ScheduledAt: now, StartedAt: now,
+		Status: "running", Stage: "composing", ScheduledAt: now, StartedAt: now,
 		Tags: []string{}, Sources: json.RawMessage(`[]`), Images: []string{}, Snapshot: job, RetryOfID: runID,
 	}
 	snapshot, err := json.Marshal(storedScheduleSnapshot{ScheduledJob: job, UserID: job.UserID})
@@ -744,7 +731,7 @@ func (s *Store) RetryScheduleRun(ctx context.Context, scheduleID, runID string, 
 		return ScheduleRun{}, false, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_runs (`+scheduleRunColumns+`)
-	 VALUES (?, ?, ?, ?, 'running', 'searching', ?, ?, NULL, '', '', '[]', '[]', '', '', ?, '', '[]', ?)`,
+	 VALUES (?, ?, ?, ?, 'running', 'composing', ?, ?, NULL, '', '', '[]', '[]', '', '', ?, '', '[]', ?)`,
 		run.ID, run.ScheduleID, run.AccountID, run.AccountName, now.UnixMilli(), now.UnixMilli(), string(snapshot), runID); err != nil {
 		return ScheduleRun{}, false, err
 	}

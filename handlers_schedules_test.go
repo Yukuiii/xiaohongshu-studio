@@ -14,7 +14,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
 func scheduleListResponse(t *testing.T, router http.Handler) []scheduledJobView {
@@ -57,14 +56,6 @@ func TestScheduledMissingImageModelCanBeConfiguredAndRetriedOnlyOnce(t *testing.
 	server.settings = testSettingsStore(t)
 	_, err := server.settings.update(settingsUpdate{Text: settingsInput(upstream.URL, "text", "text-key")})
 	require.NoError(t, err)
-	var searches atomic.Int32
-	server.schedules.search = func(context.Context, *accountRuntime, string) (*FeedsListResponse, error) {
-		searches.Add(1)
-		return &FeedsListResponse{Feeds: []xiaohongshu.Feed{{ID: "note", XsecToken: "token"}}}, nil
-	}
-	server.schedules.bodies = func(context.Context, *accountRuntime, []FeedBodyRequest) ([]FeedBodyResult, error) {
-		return []FeedBodyResult{{FeedID: "note", Title: "参考", Content: "参考完整正文"}}, nil
-	}
 	due := time.Now().UTC().Truncate(time.Minute)
 	job := testScheduledJob(t, server, account.ID, due)
 	router := setupRoutes(server)
@@ -76,7 +67,6 @@ func TestScheduledMissingImageModelCanBeConfiguredAndRetriedOnlyOnce(t *testing.
 	require.NoError(t, server.schedules.tick(ctx, due))
 	failed := awaitScheduleStatus(t, server, job.ID, "failed")
 	require.Contains(t, failed.Error, "生图模型")
-	require.Zero(t, searches.Load(), "缺少生图配置时不应浪费搜索和文字模型调用")
 	require.Zero(t, textCalls.Load())
 	require.Zero(t, imageCalls.Load())
 	listed = scheduleListResponse(t, router)
@@ -168,14 +158,8 @@ func TestScheduledLongTextDoesNotRequireOrCallImageModel(t *testing.T) {
 	defer upstream.Close()
 	server.settings = &settingsStore{}
 	server.settings.data.Text = LLMConfig{BaseURL: upstream.URL, APIKey: "key", Model: "text"}
-	server.schedules.search = func(context.Context, *accountRuntime, string) (*FeedsListResponse, error) {
-		return &FeedsListResponse{Feeds: []xiaohongshu.Feed{{ID: "note", XsecToken: "token"}}}, nil
-	}
-	server.schedules.bodies = func(context.Context, *accountRuntime, []FeedBodyRequest) ([]FeedBodyResult, error) {
-		return []FeedBodyResult{{FeedID: "note", Content: "完整资料"}}, nil
-	}
 	due := time.Now().UTC().Truncate(time.Minute)
-	job, err := server.accounts.store.CreateScheduledJob(ctx, accounts.ScheduledJobInput{Name: "长文计划", AccountID: account.ID, Keyword: "生活", Topic: "生活中的观察", Cron: "* * * * *", Timezone: "Asia/Shanghai", ReferenceCount: 20, Enabled: true, PublicationType: "long_text"}, due.Add(-time.Minute))
+	job, err := server.accounts.store.CreateScheduledJob(ctx, accounts.ScheduledJobInput{Name: "长文计划", AccountID: account.ID, Keyword: "生活", Cron: "* * * * *", Timezone: "Asia/Shanghai", Enabled: true, PublicationType: "long_text"}, due.Add(-time.Minute))
 	require.NoError(t, err)
 	require.Empty(t, server.scheduleView(job).ConfigurationError)
 	require.NoError(t, server.schedules.tick(ctx, due))

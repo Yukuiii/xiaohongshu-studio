@@ -235,7 +235,7 @@ func TestUpgradeVersionTwoPreservesPublishHistory(t *testing.T) {
 	var version, revision, uncertain int
 	var name, userID, model, key, payload, status string
 	require.NoError(t, database.QueryRow(`PRAGMA user_version`).Scan(&version))
-	require.Equal(t, 3, version)
+	require.Equal(t, schemaVersion, version)
 	require.NoError(t, database.QueryRow(`SELECT name, user_id FROM accounts WHERE id = 'existing'`).Scan(&name, &userID))
 	require.Equal(t, "已有账号", name)
 	require.Equal(t, "existing-user", userID)
@@ -252,8 +252,8 @@ func TestUpgradeVersionTwoPreservesPublishHistory(t *testing.T) {
 	require.JSONEq(t, `{"content":"正文"}`, payload)
 	require.Equal(t, "running", status)
 	_, err = database.Exec(`INSERT INTO scheduled_jobs
-	 (id, name, account_id, account_name, user_id, keyword, topic, cron, timezone, enabled, next_run_at, created_at, updated_at)
-	 VALUES ('new-job', '新任务', 'existing', '已有账号', 'existing-user', '关键词', '选题', '0 9 * * *', 'Asia/Shanghai', 1, 3000, 2000, 2000)`)
+	 (id, name, account_id, account_name, user_id, keyword, cron, timezone, enabled, next_run_at, created_at, updated_at)
+	 VALUES ('new-job', '新任务', 'existing', '已有账号', 'existing-user', '关键词', '0 9 * * *', 'Asia/Shanghai', 1, 3000, 2000, 2000)`)
 	require.NoError(t, err)
 }
 
@@ -281,8 +281,8 @@ func TestScheduleRunDatabaseConstraints(t *testing.T) {
 	_, err := database.Exec(`
 	 INSERT INTO accounts (id, name, seed, created_at, updated_at) VALUES ('account', '账号', 1, 1, 1);
 	 INSERT INTO scheduled_jobs
-	 (id, name, account_id, account_name, keyword, topic, cron, timezone, created_at, updated_at)
-	 VALUES ('job', '定时任务', 'account', '账号', '关键词', '选题', '* * * * *', 'UTC', 1, 1);
+	 (id, name, account_id, account_name, keyword, cron, timezone, created_at, updated_at)
+	 VALUES ('job', '定时任务', 'account', '账号', '关键词', '* * * * *', 'UTC', 1, 1);
 	`)
 	require.NoError(t, err)
 	insert := func(id string, scheduled int, status, stage string, finished any) error {
@@ -315,8 +315,8 @@ func TestScheduleRetryDatabaseConstraints(t *testing.T) {
 	database := openTestDB(t)
 	_, err := database.Exec(`
 	 INSERT INTO accounts (id, name, seed, created_at, updated_at) VALUES ('a', '账号 A', 1, 1, 1), ('b', '账号 B', 2, 1, 1);
-	 INSERT INTO scheduled_jobs (id, name, account_id, account_name, keyword, topic, cron, timezone, created_at, updated_at)
-	 VALUES ('job', '定时任务', 'a', '账号 A', '关键词', '选题', '* * * * *', 'UTC', 1, 1);
+	 INSERT INTO scheduled_jobs (id, name, account_id, account_name, keyword, cron, timezone, created_at, updated_at)
+	 VALUES ('job', '定时任务', 'a', '账号 A', '关键词', '* * * * *', 'UTC', 1, 1);
 	 INSERT INTO schedule_runs (id, schedule_id, account_id, account_name, status, stage, scheduled_at, started_at, finished_at, snapshot)
 	 VALUES ('source', 'job', 'a', '账号 A', 'failed', 'finished', 1, 1, 2, '{}');
 	 INSERT INTO schedule_runs (id, schedule_id, account_id, account_name, status, stage, scheduled_at, started_at, finished_at, snapshot, retry_of_id)
@@ -339,4 +339,132 @@ func TestScheduleRetryDatabaseConstraints(t *testing.T) {
 	require.Error(t, err)
 	_, err = database.Exec(`UPDATE scheduled_jobs SET publication_type = 'video' WHERE id = 'job'`)
 	require.Error(t, err)
+}
+
+func TestUpgradeVersionThreePreservesSchedulesAndHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "studio.db")
+	legacy, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = legacy.Close() })
+	legacySchema, _, found := strings.Cut(schemaSQL, "-- schema version 4")
+	require.True(t, found)
+	_, err = legacy.Exec(legacySchema)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`
+	 PRAGMA user_version = 3;
+	 INSERT INTO accounts (id, name, user_id, seed, created_at, updated_at)
+	 VALUES ('account', '已有账号', 'bound-user', 9, 1000, 2000);
+	 INSERT INTO settings (id, text_model, updated_at) VALUES (1, 'saved-model', 2000);
+	 INSERT INTO drafts (account_id, payload, revision, updated_at)
+	 VALUES ('account', '{"content":"手动草稿"}', 4, 2000);
+	 INSERT INTO publish_protection (account_id, revision, uncertain, updated_at)
+	 VALUES ('account', 7, 1, 2000);
+	 INSERT INTO publish_tasks
+	 (id, account_id, account_name, user_id, kind, title, payload, fingerprint, request_id, protection_revision, status, created_at, updated_at)
+	 VALUES ('published', 'account', '已有账号', 'bound-user', 'publish', '历史发布', '{"content":"发布正文"}', '{}', 'request', 7, 'succeeded', 1000, 2000);
+	 INSERT INTO scheduled_jobs
+	 (id, name, account_id, account_name, user_id, keyword, topic, instructions, reference_count, publication_type, cron, timezone, enabled, next_run_at, last_run_at, created_at, updated_at, deleted)
+	 VALUES ('enabled', '继续执行', 'account', '已有账号', 'bound-user', '旧关键词', '旧选题', '旧要求', 5, 'long_text', '0 9 * * *', 'Asia/Shanghai', 1, 3000, 2000, 1000, 2000, 0),
+	 ('paused', '暂停任务', 'account', '已有账号', 'bound-user', '暂停关键词', '旧选题', '', 20, 'image', '* * * * *', 'UTC', 0, NULL, NULL, 1000, 2000, 0),
+	 ('deleted', '删除任务', 'account', '已有账号', 'bound-user', '墓碑关键词', '旧选题', '', 1, 'image', '* * * * *', 'UTC', 0, NULL, 2000, 1000, 2000, 1);
+	 INSERT INTO schedule_runs
+	 (id, schedule_id, account_id, account_name, status, stage, scheduled_at, started_at, finished_at, title, content, tags, sources, error, publish_task_id, snapshot, image_prompt, images)
+	 VALUES ('history', 'enabled', 'account', '已有账号', 'succeeded', 'finished', 1000, 1000, 2000, '历史标题', '历史完整正文', '["咖啡"]', '[{"feed_id":"ref","content":"完整参考正文"}]', '', 'published', '{"keyword":"旧关键词","topic":"旧选题","instructions":"旧要求","reference_count":5,"user_id":"bound-user"}', '历史配图提示', '["saved-image"]'),
+	 ('active', 'paused', 'account', '已有账号', 'running', 'reading', 2000, 2000, NULL, '', '', '[]', '[{"feed_id":"pending"}]', '', '', '{"keyword":"暂停关键词","topic":"旧选题"}', '', '[]');
+	`)
+	require.NoError(t, err)
+
+	// 比较所有保留列，历史快照和 sources 按原始文本检查。
+	queries := []string{
+		`SELECT * FROM accounts ORDER BY id`,
+		`SELECT * FROM settings ORDER BY id`,
+		`SELECT * FROM drafts ORDER BY account_id`,
+		`SELECT * FROM publish_protection ORDER BY account_id`,
+		`SELECT * FROM publish_tasks ORDER BY id`,
+		`SELECT id, name, account_id, account_name, user_id, keyword, publication_type, cron, timezone, enabled, next_run_at, last_run_at, created_at, updated_at, deleted FROM scheduled_jobs ORDER BY id`,
+		`SELECT * FROM schedule_runs ORDER BY id`,
+	}
+	readRows := func(database *sql.DB, query string) [][]any {
+		rows, err := database.Query(query)
+		require.NoError(t, err)
+		defer rows.Close()
+		columns, err := rows.Columns()
+		require.NoError(t, err)
+		var result [][]any
+		for rows.Next() {
+			values := make([]any, len(columns))
+			pointers := make([]any, len(columns))
+			for i := range values {
+				pointers[i] = &values[i]
+			}
+			require.NoError(t, rows.Scan(pointers...))
+			result = append(result, values)
+		}
+		require.NoError(t, rows.Err())
+		return result
+	}
+	before := make([][][]any, len(queries))
+	for i, query := range queries {
+		before[i] = readRows(legacy, query)
+	}
+	require.NoError(t, legacy.Close())
+
+	for range 2 {
+		database, err := Open(path)
+		require.NoError(t, err)
+		for i, query := range queries {
+			require.Equal(t, before[i], readRows(database, query), query)
+		}
+		var version, obsoleteColumns int
+		require.NoError(t, database.QueryRow(`PRAGMA user_version`).Scan(&version))
+		require.Equal(t, schemaVersion, version)
+		require.NoError(t, database.QueryRow(`SELECT count(*) FROM pragma_table_info('scheduled_jobs') WHERE name IN ('topic', 'reference_count')`).Scan(&obsoleteColumns))
+		require.Zero(t, obsoleteColumns)
+		require.NoError(t, database.Close())
+	}
+	database, err := Open(path)
+	require.NoError(t, err)
+	defer database.Close()
+	_, err = database.Exec(`INSERT INTO scheduled_jobs
+	 (id, name, account_id, account_name, user_id, keyword, cron, timezone, enabled, next_run_at, created_at, updated_at)
+	 VALUES ('new', '关键词任务', 'account', '已有账号', 'bound-user', '新关键词', '* * * * *', 'UTC', 1, 4000, 3000, 3000)`)
+	require.NoError(t, err)
+}
+
+func TestUpgradeVersionFourAddsOptionalInstructions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "studio.db")
+	legacy, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = legacy.Close() })
+	legacySchema, _, found := strings.Cut(schemaSQL, "-- schema version 5")
+	require.True(t, found)
+	_, err = legacy.Exec(legacySchema)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`
+	 PRAGMA user_version = 4;
+	 INSERT INTO accounts (id, name, seed, created_at, updated_at) VALUES ('account', '账号', 1, 1, 1);
+	 INSERT INTO scheduled_jobs (id, name, account_id, account_name, keyword, cron, timezone, created_at, updated_at)
+	 VALUES ('job', '关键词任务', 'account', '账号', '香港 澳门', '0 9 * * *', 'Asia/Shanghai', 1, 1);
+	 INSERT INTO schedule_runs (id, schedule_id, account_id, account_name, status, stage, scheduled_at, started_at, finished_at, content, snapshot)
+	 VALUES ('history', 'job', 'account', '账号', 'succeeded', 'finished', 1, 1, 2, '已发布正文', '{"keyword":"香港 澳门"}');
+	`)
+	require.NoError(t, err)
+	require.NoError(t, legacy.Close())
+	database, err := Open(path)
+	require.NoError(t, err)
+	var keyword, instructions, content, snapshot string
+	require.NoError(t, database.QueryRow(`SELECT keyword, instructions FROM scheduled_jobs WHERE id = 'job'`).Scan(&keyword, &instructions))
+	require.Equal(t, "香港 澳门", keyword)
+	require.Empty(t, instructions)
+	require.NoError(t, database.QueryRow(`SELECT content, snapshot FROM schedule_runs WHERE id = 'history'`).Scan(&content, &snapshot))
+	require.Equal(t, "已发布正文", content)
+	require.JSONEq(t, `{"keyword":"香港 澳门"}`, snapshot)
+	_, err = database.Exec(`UPDATE scheduled_jobs SET instructions = ? WHERE id = 'job'`, "面向新手\n不要营销口吻")
+	require.NoError(t, err)
+	require.NoError(t, database.Close())
+	reopened, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	require.NoError(t, reopened.QueryRow(`SELECT instructions FROM scheduled_jobs WHERE id = 'job'`).Scan(&instructions))
+	require.Equal(t, "面向新手\n不要营销口吻", instructions)
 }

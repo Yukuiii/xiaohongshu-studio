@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -28,21 +27,11 @@ type ScheduleManager struct {
 	active   sync.WaitGroup
 	interval time.Duration
 	timeout  time.Duration
-	search   func(context.Context, *accountRuntime, string) (*FeedsListResponse, error)
-	bodies   func(context.Context, *accountRuntime, []FeedBodyRequest) ([]FeedBodyResult, error)
 }
 
 func newScheduleManager(server *AppServer) *ScheduleManager {
 	return &ScheduleManager{
 		server: server, interval: 5 * time.Second, timeout: 15 * time.Minute,
-		search: func(ctx context.Context, runtime *accountRuntime, keyword string) (*FeedsListResponse, error) {
-			service := &XiaohongshuService{account: runtime, waitForBrowser: true}
-			return service.SearchFeeds(ctx, keyword)
-		},
-		bodies: func(ctx context.Context, runtime *accountRuntime, items []FeedBodyRequest) ([]FeedBodyResult, error) {
-			service := &XiaohongshuService{account: runtime, waitForBrowser: true}
-			return service.FetchFeedBodies(ctx, items)
-		},
 	}
 }
 
@@ -247,55 +236,10 @@ func (m *ScheduleManager) createPublication(ctx context.Context, run *accounts.S
 		return err
 	}
 
-	feeds, err := m.search(ctx, runtime, job.Keyword)
-	if err != nil {
-		return fmt.Errorf("搜索参考资料失败: %w", err)
-	}
-	if feeds == nil || len(feeds.Feeds) == 0 {
-		return errors.New("没有搜索到可用参考资料，未调用模型或发布")
-	}
-	items := make([]FeedBodyRequest, 0, job.ReferenceCount)
-	seen := make(map[string]bool, job.ReferenceCount)
-	for _, feed := range feeds.Feeds {
-		if feed.ID == "" || seen[feed.ID] {
-			continue
-		}
-		seen[feed.ID] = true
-		items = append(items, FeedBodyRequest{FeedID: feed.ID, XsecToken: feed.XsecToken})
-		if len(items) == job.ReferenceCount {
-			break
-		}
-	}
-	if len(items) == 0 {
-		return errors.New("搜索结果没有有效笔记，未调用模型或发布")
-	}
-	if err := store.UpdateScheduleRun(ctx, run.ID, runProgress(*run, "reading")); err != nil {
-		return err
-	}
-	bodies, err := m.bodies(ctx, runtime, items)
-	if err != nil {
-		return fmt.Errorf("读取参考正文失败: %w", err)
-	}
-	run.Sources, err = json.Marshal(bodies)
-	if err != nil {
-		return err
-	}
 	if err := store.UpdateScheduleRun(ctx, run.ID, runProgress(*run, "composing")); err != nil {
 		return err
 	}
-	byID := make(map[string]FeedBodyResult, len(bodies))
-	for _, body := range bodies {
-		byID[body.FeedID] = body
-	}
-	sources := make([]composeSource, 0, len(items))
-	for _, item := range items {
-		body, ok := byID[item.FeedID]
-		if !ok || body.Error != "" || strings.TrimSpace(body.Content) == "" {
-			return fmt.Errorf("参考笔记 %s 正文读取失败，本次不使用缺失资料生成内容", item.FeedID)
-		}
-		sources = append(sources, composeSource{ID: body.FeedID, Title: body.Title, Content: body.Content, URL: body.URL, Author: body.Author})
-	}
-	draft, err := composeDraft(ctx, cfg, job.Topic, job.Instructions, job.PublicationType, sources)
+	draft, err := composeKeywordDraft(ctx, cfg, job.Keyword, job.Instructions, job.PublicationType)
 	if err != nil {
 		return fmt.Errorf("生成笔记失败: %w", err)
 	}
