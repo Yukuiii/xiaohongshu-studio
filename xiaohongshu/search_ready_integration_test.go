@@ -76,6 +76,8 @@ func TestSearchReadyLocal(t *testing.T) {
 		// 风控的重定向可能正好落在这段窗口里，必须能单独覆盖。
 		afterNavigate time.Duration
 	}{
+		{name: "canonical_path", want: 1},
+		{name: "navigation_error", wantErr: "打开搜索页面失败"},
 		{name: "background", want: 1},
 		{name: "dom", want: 1},
 		{name: "slow_load", want: 1},
@@ -127,6 +129,12 @@ func TestSearchReadyLocal(t *testing.T) {
 				path := h.Request.URL().Path
 				h.Response.SetHeader("Content-Type", "text/html; charset=utf-8")
 				switch {
+				case tc.name == "canonical_path" && path == "/search_result":
+					// 模拟旧路径主文档无响应，规范路径仍可正常搜索。
+					<-done
+					h.Response.SetBody("")
+				case tc.name == "navigation_error" && strings.HasPrefix(path, "/search_result"):
+					h.Response.Fail(proto.NetworkErrorReasonTimedOut)
 				case strings.HasPrefix(path, "/search_result"):
 					h.Response.SetBody(searchFixtureHTML(tc.name))
 				case path == "/fixture-background" || path == "/fixture-slow-image":

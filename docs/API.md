@@ -583,6 +583,8 @@ GET /api/v1/feeds/list
 
 根据关键词搜索 Feeds，支持 GET 和 POST 两种请求方式。
 
+浏览器使用站点规范搜索路径 `/search_result/`，避免旧路径重定向造成导航超时。导航失败会返回带「打开搜索页面失败」的错误；不会将超时或网络失败当作空搜索结果。
+
 **请求方式一：GET**
 ```
 GET /api/v1/feeds/search?keyword=搜索关键词

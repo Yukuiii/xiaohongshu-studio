@@ -118,7 +118,9 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 	responses, stop := watchSearchResponses(page, keyword)
 	defer stop()
 	searchURL := makeSearchURL(keyword)
-	page.MustNavigate(searchURL)
+	if err := page.Navigate(searchURL); err != nil {
+		return nil, fmt.Errorf("打开搜索页面失败: %w", err)
+	}
 	if err := waitSearchReady(page, keyword, responses); err != nil {
 		return nil, fmt.Errorf("等待搜索结果失败: %w", err)
 	}
@@ -319,7 +321,6 @@ func makeSearchURL(keyword string) string {
 	values.Set("keyword", keyword)
 	values.Set("source", "web_explore_feed")
 
-	//https://www.xiaohongshu.com/search_result?keyword=%25E7%258E%258B%25E5%25AD%2590&source=web_search_result_notes
-	//https://www.xiaohongshu.com/search_result?keyword=%25E7%258E%258B%25E5%25AD%2590&source=web_explore_feed
-	return fmt.Sprintf("https://www.xiaohongshu.com/search_result?%s", values.Encode())
+	// 使用站点规范路径，避免旧路径重定向阻塞主文档导航。
+	return fmt.Sprintf("https://www.xiaohongshu.com/search_result/?%s", values.Encode())
 }
