@@ -24,6 +24,7 @@ type AppServer struct {
 	settings           *settingsStore
 	desktop            *desktopGateway
 	tasks              *PublishTaskManager
+	schedules          *ScheduleManager
 }
 
 // NewAppServer 创建新的应用服务器实例
@@ -40,6 +41,7 @@ func NewAccountAppServer(manager *AccountManager, token string) *AppServer {
 	s := NewAppServer(nil, token)
 	s.accounts = manager
 	s.tasks = NewPublishTaskManager(manager)
+	s.schedules = newScheduleManager(s)
 	s.desktop.sessionActive = manager.visualActive
 	manager.onLoginEnd = s.desktop.revoke
 	return s
@@ -54,7 +56,7 @@ func (s *AppServer) Start(port string) error {
 func (s *AppServer) StartContext(ctx context.Context, port string, onListen func(net.Addr)) error {
 	defer func() {
 		if s.accounts != nil {
-			if err := s.accounts.closeWithTasks(s.tasks); err != nil {
+			if err := s.accounts.closeWithTasks(s.tasks, s.schedules); err != nil {
 				logrus.Errorf("账号浏览器退出未完成: %v", err)
 			}
 		} else if s.xiaohongshuService != nil {
@@ -76,6 +78,11 @@ func (s *AppServer) StartContext(ctx context.Context, port string, onListen func
 	if s.tasks != nil {
 		if err := s.tasks.Start(ctx); err != nil {
 			return fmt.Errorf("启动发布任务管理器失败: %w", err)
+		}
+	}
+	if s.schedules != nil {
+		if err := s.schedules.Start(ctx); err != nil {
+			return fmt.Errorf("启动定时任务管理器失败: %w", err)
 		}
 	}
 	if s.accounts != nil {

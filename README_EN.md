@@ -16,6 +16,7 @@ A self-hosted workspace for creating Xiaohongshu image posts. Research topics, s
 - **Manage accounts**: Add, rename, and switch accounts. Each account has its own browser environment and persistent site data.
 - **Confirm publication**: Review and confirm before creating a background publication task. Protection state is kept per account, with coordination across tabs using the same account.
 - **Task history**: Open Tasks (任务) in the sidebar to view queued, running, completed, failed, and uncertain publications across accounts, including after a page reload.
+- **Scheduled creation**: Schedule daily, weekly, monthly, or Cron-based research, writing, and publication. Choose one generated image or a native long-form post, with complete content and execution history.
 - **HTTP API**: Access account management, search, image and video publication, comments, likes, favorites, user profiles, and other operations programmatically.
 
 ## Quick start
@@ -60,6 +61,19 @@ Routine reads such as task lists, account lists, and model settings do not show 
 The provider URL must include any required version path, such as `https://api.openai.com/v1`; the application does not append `/v1`. Text and image models can use different providers. Image generation requires an OpenAI-compatible `images/generations` endpoint; uploading images does not require an image model. Selected reference material is sent to your configured text provider.
 
 The workspace currently focuses on image posts: titles allow 20 counted characters, with English letters and digits counting as half; bodies allow 1,000 characters. Posts use 1–9 JPEG, PNG, WebP, or GIF images, up to 10 MiB each. See the [HTTP API](./docs/API.md) for video publication and other operations.
+
+## Scheduled creation and publication
+
+Open Scheduled tasks (定时任务), choose an account, and enter a search query, topic, and writing requirements. Select daily, weekly, monthly, or a five-field Cron expression with an explicit time zone. The default is the first 20 search results, configurable from 1 to 20. Every selected result must have its complete body loaded before all references are sent to the text model. A failed reference stops that run with a recorded reason; fewer search results use all available results.
+
+Image posts are the default and generate one picture with the saved image model. Long-form posts use Xiaohongshu's native article editor, which lays out the full text as cards without an image-model call. Titles allow 20 counted characters; image posts allow 1,000 characters including tags, while long-form bodies allow 10,000. Enabled schedules publish automatically without review for each run and do not overwrite manual workspace drafts.
+
+The list shows upcoming execution, the latest result, and model configuration errors. After fixing a missing image model, retry the latest failed or skipped run from the list. A retry uses the current configuration, retains the previous record, and leaves the normal schedule and enabled state unchanged. Repeated requests for the same retry return the same run. Successful or uncertain publications cannot be retried directly.
+
+Run details retain the title, complete body, tags, generated image, references, configuration snapshot, and errors. Keep the service running; missed times while offline are skipped, and startup resumes with the next scheduled time. Monthly dates absent from a month are skipped. If the account or schedule already has an active run, that occurrence is recorded as skipped. Accepted publications retain the existing background-task and duplicate-prevention guarantees.
+
+Maintain model prompts as Markdown in [`prompt/`](./prompt/) using `{{variable}}` placeholders. Templates are embedded at build time; rebuild after editing them. See the [prompt maintenance guide](./CONTRIBUTING.md#提示词维护--prompt-templates).
+
 
 ## Accounts and sign-in
 
@@ -108,7 +122,7 @@ Then open **http://127.0.0.1:18060/**. When using a reverse proxy, keep the page
 | Data | Docker deployment | Running from source |
 | --- | --- | --- |
 | Accounts, complete browser profiles, and downloads | `xiaohongshu-studio-data/accounts/` | `data/accounts/` |
-| Account metadata, model settings, drafts, publication protection, and task history | `xiaohongshu-studio-data/studio.db` (SQLite) | `data/studio.db` |
+| Account metadata, model settings, drafts, publication protection, task history, and scheduled runs | `xiaohongshu-studio-data/studio.db` (SQLite) | `data/studio.db` |
 | Uploaded and generated images | `xiaohongshu-studio-data/uploads/`, separated by account | `data/uploads/`, separated by account |
 | Service access token | The visiting browser's localStorage | Same |
 

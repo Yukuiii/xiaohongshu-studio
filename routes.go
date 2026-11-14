@@ -47,6 +47,13 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 	api.POST("/ai/models", appServer.aiModelsHandler)
 	api.GET("/tasks", appServer.listPublishTasksHandler)
 	api.GET("/tasks/:id", appServer.getPublishTaskHandler)
+	api.GET("/schedules", appServer.listSchedulesHandler)
+	api.POST("/schedules", appServer.createScheduleHandler)
+	api.GET("/schedules/:id", appServer.getScheduleHandler)
+	api.PUT("/schedules/:id", appServer.updateScheduleHandler)
+	api.DELETE("/schedules/:id", appServer.deleteScheduleHandler)
+	api.GET("/schedules/:id/runs", appServer.listScheduleRunsHandler)
+	api.POST("/schedules/:id/retry", appServer.retryScheduleHandler)
 	api.Use(appServer.accountMiddleware())
 	{
 		api.GET("/login/session", appServer.loginSessionHandler)

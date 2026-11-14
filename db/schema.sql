@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS publish_protection (
   updated_at INTEGER NOT NULL                -- 最后更新时间，Unix 毫秒
 );
 
+-- schema version 2
 -- 后台发布任务保留提交快照，账号墓碑不会删除历史。
 CREATE TABLE IF NOT EXISTS publish_tasks (
   id TEXT PRIMARY KEY,
@@ -101,3 +102,72 @@ CREATE INDEX IF NOT EXISTS publish_tasks_newest
 
 CREATE INDEX IF NOT EXISTS publish_tasks_queued
   ON publish_tasks(created_at, id) WHERE status = 'queued';
+
+-- schema version 3
+-- 定时配置保存账号身份快照；删除只留墓碑，不删除执行历史。
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  account_name TEXT NOT NULL,
+  user_id TEXT NOT NULL DEFAULT '',
+  keyword TEXT NOT NULL CHECK (length(trim(keyword)) > 0),
+  topic TEXT NOT NULL CHECK (length(trim(topic)) > 0),
+  instructions TEXT NOT NULL DEFAULT '',
+  publication_type TEXT NOT NULL DEFAULT 'image' CHECK (publication_type IN ('image', 'long_text')),
+  cron TEXT NOT NULL,
+  timezone TEXT NOT NULL,
+  reference_count INTEGER NOT NULL DEFAULT 20 CHECK (reference_count BETWEEN 1 AND 20),
+  enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+  next_run_at INTEGER,
+  last_run_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
+  CHECK (enabled = 0 OR (deleted = 0 AND user_id <> '' AND next_run_at IS NOT NULL)),
+  CHECK (enabled = 1 OR next_run_at IS NULL)
+);
+
+CREATE INDEX IF NOT EXISTS scheduled_jobs_due
+  ON scheduled_jobs(next_run_at, id) WHERE enabled = 1 AND deleted = 0;
+
+-- snapshot 保存完整配置和私有身份，公开 JSON 不包含 user_id。
+CREATE TABLE IF NOT EXISTS schedule_runs (
+  id TEXT PRIMARY KEY,
+  schedule_id TEXT NOT NULL REFERENCES scheduled_jobs(id),
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  account_name TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('running', 'publishing', 'succeeded', 'failed', 'uncertain', 'skipped')),
+  stage TEXT NOT NULL CHECK (stage IN ('searching', 'reading', 'composing', 'imaging', 'publishing', 'finished')),
+  scheduled_at INTEGER NOT NULL,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  title TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  tags TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags) AND json_type(tags) = 'array'),
+  sources TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(sources) AND json_type(sources) = 'array'),
+  error TEXT NOT NULL DEFAULT '',
+  publish_task_id TEXT NOT NULL DEFAULT '',
+  snapshot TEXT NOT NULL CHECK (json_valid(snapshot) AND json_type(snapshot) = 'object'),
+  image_prompt TEXT NOT NULL DEFAULT '',
+  images TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(images) AND json_type(images) = 'array'),
+  retry_of_id TEXT NOT NULL DEFAULT '',
+  CHECK ((status IN ('running', 'publishing') AND finished_at IS NULL AND stage <> 'finished')
+    OR (status IN ('succeeded', 'failed', 'uncertain', 'skipped') AND finished_at IS NOT NULL AND stage = 'finished')),
+  CHECK (status <> 'publishing' OR (publish_task_id <> '' AND stage = 'publishing'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS schedule_runs_occurrence_unique
+  ON schedule_runs(schedule_id, scheduled_at) WHERE retry_of_id = '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS schedule_runs_active_account_unique
+  ON schedule_runs(account_id) WHERE status IN ('running', 'publishing');
+
+CREATE UNIQUE INDEX IF NOT EXISTS schedule_runs_active_schedule_unique
+  ON schedule_runs(schedule_id) WHERE status IN ('running', 'publishing');
+
+CREATE UNIQUE INDEX IF NOT EXISTS schedule_runs_retry_unique
+  ON schedule_runs(retry_of_id) WHERE retry_of_id <> '';
+
+CREATE INDEX IF NOT EXISTS schedule_runs_newest
+  ON schedule_runs(schedule_id, started_at DESC);

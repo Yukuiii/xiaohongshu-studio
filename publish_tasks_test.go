@@ -148,32 +148,32 @@ func TestPublishTaskIdempotencyDoesNotRunTwice(t *testing.T) {
 		}
 	})
 	request := &PublishRequest{Title: "幂等发布", Content: "正文", Images: []string{"/tmp/image.png"}}
-	first, err := server.tasks.SubmitImage(context.Background(), account.ID, "same-request", request)
+	first, err := server.tasks.SubmitContent(context.Background(), account.ID, "same-request", request)
 	require.NoError(t, err)
 	select {
 	case <-started:
 	case <-time.After(2 * time.Second):
 		t.Fatal("任务没有执行")
 	}
-	second, err := server.tasks.SubmitImage(context.Background(), account.ID, "same-request", request)
+	second, err := server.tasks.SubmitContent(context.Background(), account.ID, "same-request", request)
 	require.NoError(t, err)
 	require.Equal(t, first.ID, second.ID)
-	_, err = server.tasks.SubmitImage(context.Background(), account.ID, "different-request", request)
+	_, err = server.tasks.SubmitContent(context.Background(), account.ID, "different-request", request)
 	require.ErrorIs(t, err, accounts.ErrTaskActive)
 	changed := *request
 	changed.Content = "不同内容"
-	_, err = server.tasks.SubmitImage(context.Background(), account.ID, "same-request", &changed)
+	_, err = server.tasks.SubmitContent(context.Background(), account.ID, "same-request", &changed)
 	require.Equal(t, "IDEMPOTENCY_KEY_REUSED", accountFailure(err).Code)
-	_, err = server.tasks.SubmitImage(context.Background(), account.ID, "another-request", &changed)
+	_, err = server.tasks.SubmitContent(context.Background(), account.ID, "another-request", &changed)
 	require.ErrorIs(t, err, accounts.ErrTaskActive)
 	close(finish)
 	awaitTaskStatus(t, server.accounts.store, first.ID, accounts.TaskSucceeded)
-	replayed, err := server.tasks.SubmitImage(context.Background(), account.ID, "same-request", request)
+	replayed, err := server.tasks.SubmitContent(context.Background(), account.ID, "same-request", request)
 	require.NoError(t, err)
 	require.Equal(t, first.ID, replayed.ID)
 	require.Equal(t, accounts.TaskSucceeded, replayed.Status)
 	for _, key := range []string{"different-request", "new-request"} {
-		_, err = server.tasks.SubmitImage(context.Background(), account.ID, key, request)
+		_, err = server.tasks.SubmitContent(context.Background(), account.ID, key, request)
 		require.Equal(t, "ALREADY_PUBLISHED", accountFailure(err).Code)
 	}
 	require.Equal(t, int32(1), calls.Load())
@@ -206,7 +206,7 @@ func TestPublishTaskWaitsForAccountAndKeepsSubmissionSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(held.Close)
 	request := &PublishRequest{Title: "原始标题", Content: "原始正文", Images: []string{"/tmp/original.png"}}
-	task, err := server.tasks.SubmitImage(context.Background(), account.ID, "queued-snapshot", request)
+	task, err := server.tasks.SubmitContent(context.Background(), account.ID, "queued-snapshot", request)
 	require.NoError(t, err)
 	stored, err := server.accounts.store.PublishTask(context.Background(), task.ID)
 	require.NoError(t, err)
@@ -246,7 +246,7 @@ func TestPublishTaskFailureAndUncertainResultsKeepCorrectProtection(t *testing.T
 				}
 				return nil, tc.err
 			})
-			task, err := server.tasks.SubmitImage(context.Background(), account.ID, "failure", &PublishRequest{Title: "发布测试", Content: "正文", Images: []string{"/tmp/image.png"}})
+			task, err := server.tasks.SubmitContent(context.Background(), account.ID, "failure", &PublishRequest{Title: "发布测试", Content: "正文", Images: []string{"/tmp/image.png"}})
 			require.NoError(t, err)
 			completed := awaitTaskStatus(t, server.accounts.store, task.ID, tc.status)
 			require.NotEmpty(t, completed.Error)
@@ -269,7 +269,7 @@ func TestPublishTaskQueuedShutdownResumesWithoutDuplicate(t *testing.T) {
 	held, err := runtime.borrowBrowser(context.Background(), false)
 	require.NoError(t, err)
 	t.Cleanup(held.Close)
-	task, err := server.tasks.SubmitImage(context.Background(), account.ID, "resume", &PublishRequest{Title: "重启恢复", Content: "正文", Images: []string{"/tmp/image.png"}})
+	task, err := server.tasks.SubmitContent(context.Background(), account.ID, "resume", &PublishRequest{Title: "重启恢复", Content: "正文", Images: []string{"/tmp/image.png"}})
 	require.NoError(t, err)
 	server.tasks.Stop()
 	stored, err := server.accounts.store.PublishTask(context.Background(), task.ID)
@@ -299,7 +299,7 @@ func TestPublishTaskLegacyFingerprintBlocksDuplicate(t *testing.T) {
 	legacy := `{"visibility":"公开可见","tags":[],"images":["/tmp/image.png"],"content":"正文 <b> & 内容","title":"旧记录"}`
 	_, err := server.accounts.store.SaveProtection(account.ID, 0, false, legacy, nil)
 	require.NoError(t, err)
-	_, err = server.tasks.SubmitImage(context.Background(), account.ID, "legacy", &PublishRequest{Title: "旧记录", Content: "正文 <b> & 内容", Images: []string{"/tmp/image.png"}})
+	_, err = server.tasks.SubmitContent(context.Background(), account.ID, "legacy", &PublishRequest{Title: "旧记录", Content: "正文 <b> & 内容", Images: []string{"/tmp/image.png"}, PublicationType: "image"})
 	require.Equal(t, "ALREADY_PUBLISHED", accountFailure(err).Code)
 	_, total, err := server.accounts.store.ListPublishTasks(context.Background(), 1, 20)
 	require.NoError(t, err)
@@ -326,4 +326,70 @@ func TestPublishVideoUsesAsyncTaskAndTaskEndpointsRequireAuthentication(t *testi
 	require.Equal(t, accounts.TaskSucceeded, taskResponse(t, detail).Status)
 	invalidPage := taskHTTPRequest(t, router, newTaskHTTPRequest(http.MethodGet, "/api/v1/tasks?page=0", "", "", ""))
 	require.Equal(t, http.StatusBadRequest, invalidPage.Code)
+}
+
+func TestPublishTextTaskNormalizesEmptyImagesAndBlocksDuplicate(t *testing.T) {
+	var calls atomic.Int32
+	server, account := taskTestServer(t, func(_ context.Context, _ *accountRuntime, task accounts.PublishTask) (json.RawMessage, error) {
+		calls.Add(1)
+		var request PublishRequest
+		if err := json.Unmarshal(task.Payload, &request); err != nil {
+			return nil, err
+		}
+		if task.Kind != accounts.TaskKindPublish || request.PublicationType != "long_text" || len(request.Images) != 0 {
+			return nil, errors.New("文本发布任务不能生成图片或改变任务类型")
+		}
+		return json.RawMessage(`{"status":"发布完成"}`), nil
+	})
+	request := &PublishRequest{Title: "原生文本", Content: "正文", PublicationType: "long_text"}
+	first, err := server.tasks.SubmitContent(context.Background(), account.ID, "text-request", request)
+	require.NoError(t, err)
+	awaitTaskStatus(t, server.accounts.store, first.ID, accounts.TaskSucceeded)
+	request.Images = []string{}
+	replayed, err := server.tasks.SubmitContent(context.Background(), account.ID, "text-request", request)
+	require.NoError(t, err)
+	require.Equal(t, first.ID, replayed.ID)
+	_, err = server.tasks.SubmitContent(context.Background(), account.ID, "new-text-request", request)
+	require.Equal(t, "ALREADY_PUBLISHED", accountFailure(err).Code)
+	require.Equal(t, int32(1), calls.Load())
+}
+
+func TestPublishTaskHTTPValidatesPublicationType(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		body   string
+		status int
+	}{
+		{"默认图文必须配图", `{"title":"标题","content":"正文"}`, http.StatusBadRequest},
+		{"显式图文必须配图", `{"title":"标题","content":"正文","publication_type":"image","images":[]}`, http.StatusBadRequest},
+		{"长文不能额外上传图", `{"title":"标题","content":"正文","publication_type":"long_text","images":["image.png"]}`, http.StatusBadRequest},
+		{"未知发布类型", `{"title":"标题","content":"正文","publication_type":"other"}`, http.StatusBadRequest},
+		{"长文无需图片", `{"title":"标题","content":"正文","publication_type":"long_text"}`, http.StatusAccepted},
+		{"旧图文请求兼容", `{"title":"标题","content":"正文","images":["image.png"]}`, http.StatusAccepted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server, account := taskTestServer(t, func(context.Context, *accountRuntime, accounts.PublishTask) (json.RawMessage, error) {
+				return json.RawMessage(`{"status":"发布完成"}`), nil
+			})
+			response := taskHTTPRequest(t, setupRoutes(server), newTaskHTTPRequest(http.MethodPost, "/api/v1/publish", account.ID, "type-validation", tc.body))
+			require.Equal(t, tc.status, response.Code, response.Body.String())
+			if tc.status == http.StatusAccepted {
+				awaitTaskStatus(t, server.accounts.store, taskResponse(t, response).ID, accounts.TaskSucceeded)
+			} else {
+				_, total, err := server.accounts.store.ListPublishTasks(context.Background(), 1, 20)
+				require.NoError(t, err)
+				require.Zero(t, total)
+			}
+		})
+	}
+}
+
+func TestPublishLongTextLengthValidation(t *testing.T) {
+	request := &PublishRequest{Title: "长文标题", Content: strings.Repeat("文", 10000), PublicationType: "long_text"}
+	require.NoError(t, request.validate())
+	request.Content += "文"
+	require.ErrorContains(t, request.validate(), "10000")
+	request.Content = "正文"
+	request.Title = strings.Repeat("题", 21)
+	require.ErrorContains(t, request.validate(), "标题长度")
 }

@@ -230,6 +230,9 @@ func (s *Store) Delete(id string) error {
 		if err := checkNoActivePublishTask(tx, id); err != nil {
 			return err
 		}
+		if err := checkNoActiveScheduleRun(tx, id, ""); err != nil {
+			return err
+		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		_, err = tx.Exec(
 			`UPDATE accounts SET name = '', user_id = '', nickname = '', avatar = '',
@@ -237,6 +240,9 @@ func (s *Store) Delete(id string) error {
 			 updated_at = ?, deleted = 1 WHERE id = ?`,
 			now.UnixMilli(), id,
 		)
+		if err == nil {
+			_, err = tx.Exec(`UPDATE scheduled_jobs SET enabled = 0, next_run_at = NULL, updated_at = ? WHERE account_id = ? AND deleted = 0`, now.UnixMilli(), id)
+		}
 		if err == nil {
 			_, err = tx.Exec(`DELETE FROM drafts WHERE account_id = ?`, id)
 		}

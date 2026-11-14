@@ -933,13 +933,16 @@ func (m *AccountManager) shutdownBrowsers(list []*accountRuntime) error {
 }
 
 func (m *AccountManager) Close() error {
-	return m.closeWithTasks(nil)
+	return m.closeWithTasks(nil, nil)
 }
 
 // closeWithTasks 在关闭浏览器后排空发布任务，再释放数据根锁。
-func (m *AccountManager) closeWithTasks(tasks *PublishTaskManager) error {
+func (m *AccountManager) closeWithTasks(tasks *PublishTaskManager, schedules *ScheduleManager) error {
 	m.closeMu.Lock()
 	defer m.closeMu.Unlock()
+	if schedules != nil {
+		schedules.stopAccepting()
+	}
 	if tasks != nil {
 		tasks.stopAccepting()
 	}
@@ -972,6 +975,9 @@ func (m *AccountManager) closeWithTasks(tasks *PublishTaskManager) error {
 	}
 	if err := m.shutdownBrowsers(list); err != nil {
 		return err
+	}
+	if schedules != nil {
+		schedules.Stop()
 	}
 	if tasks != nil {
 		tasks.Stop()

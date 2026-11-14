@@ -38,6 +38,9 @@ describe("账号请求契约", () => {
       "/settings",
       "/tasks?page=2&page_size=20",
       "/tasks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "/schedules",
+      "/schedules/schedule-A",
+      "/schedules/schedule-A/runs?page=1&page_size=20",
     ])
       await api(path, { accountId: "A" });
     for (const [, options] of fetch.mock.calls)

@@ -42,6 +42,7 @@ export function createAPI(getSettings, getFormSettings = getSettings) {
     const shared =
       /^\/accounts(?:\/|$)/.test(path) ||
       /^\/tasks(?:[/?]|$)/.test(path) ||
+      /^\/schedules(?:[/?]|$)/.test(path) ||
       path === "/ai/models" ||
       path === "/settings";
     if (!shared && accountId) headers["X-XHS-Account-ID"] = accountId;

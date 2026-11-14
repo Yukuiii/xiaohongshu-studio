@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
@@ -36,15 +38,41 @@ func NewXiaohongshuService() *XiaohongshuService {
 
 // PublishRequest 发布请求
 type PublishRequest struct {
-	Title      string   `json:"title" binding:"required"`
-	Content    string   `json:"content" binding:"required"`
-	Images     []string `json:"images" binding:"required,min=1"`
-	Tags       []string `json:"tags,omitempty"`
-	AtUsers    []string `json:"at_users,omitempty"`    // 需要 @ 的用户昵称列表
-	ScheduleAt string   `json:"schedule_at,omitempty"` // 定时发布时间，ISO8601格式，为空则立即发布
-	IsOriginal bool     `json:"is_original,omitempty"` // 是否声明原创
-	Visibility string   `json:"visibility,omitempty"`  // 可见范围: "公开可见"(默认), "仅自己可见", "仅互关好友可见"
-	Products   []string `json:"products,omitempty"`    // 商品关键词列表，用于绑定带货商品
+	Title           string   `json:"title" binding:"required"`
+	Content         string   `json:"content" binding:"required"`
+	Images          []string `json:"images,omitempty"`
+	PublicationType string   `json:"publication_type,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
+	AtUsers         []string `json:"at_users,omitempty"`    // 需要 @ 的用户昵称列表
+	ScheduleAt      string   `json:"schedule_at,omitempty"` // 定时发布时间，ISO8601格式，为空则立即发布
+	IsOriginal      bool     `json:"is_original,omitempty"` // 是否声明原创
+	Visibility      string   `json:"visibility,omitempty"`  // 可见范围: "公开可见"(默认), "仅自己可见", "仅互关好友可见"
+	Products        []string `json:"products,omitempty"`    // 商品关键词列表，用于绑定带货商品
+}
+
+func (r *PublishRequest) validate() error {
+	if r == nil || strings.TrimSpace(r.Title) == "" || strings.TrimSpace(r.Content) == "" {
+		return fmt.Errorf("标题和正文不能为空")
+	}
+	if xhsutil.CalcTitleLength(r.Title) > 20 {
+		return fmt.Errorf("标题长度超过限制")
+	}
+	switch r.PublicationType {
+	case "", "image":
+		if len(r.Images) == 0 {
+			return fmt.Errorf("图文发布至少需要一张图片")
+		}
+	case "long_text":
+		if len(r.Images) != 0 {
+			return fmt.Errorf("长文使用平台原生文字排版，不能上传额外图片")
+		}
+		if utf8.RuneCountInString(r.Content) > 10000 {
+			return fmt.Errorf("长文正文不能超过10000字")
+		}
+	default:
+		return fmt.Errorf("publication_type 仅支持 image 或 long_text")
+	}
+	return nil
 }
 
 // LoginStatusResponse 登录状态响应
@@ -399,14 +427,17 @@ func (s *XiaohongshuService) startLoginSession(
 
 // PublishContent 发布内容
 func (s *XiaohongshuService) PublishContent(ctx context.Context, req *PublishRequest) (*PublishResponse, error) {
-	// 验证标题长度（小红书限制：最大20个字）
-	if xhsutil.CalcTitleLength(req.Title) > 20 {
-		return nil, fmt.Errorf("标题长度超过限制")
+	if err := req.validate(); err != nil {
+		return nil, err
 	}
 
-	imagePaths, err := s.processImages(req.Images)
-	if err != nil {
-		return nil, err
+	var imagePaths []string
+	if req.PublicationType != "long_text" {
+		var err error
+		imagePaths, err = s.processImages(req.Images)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var scheduleTime *time.Time
@@ -487,6 +518,14 @@ func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohon
 
 	page := b.NewPage()
 	defer page.Close()
+
+	if len(content.ImagePaths) == 0 {
+		action, err := xiaohongshu.NewPublishTextAction(page)
+		if err != nil {
+			return err
+		}
+		return action.Publish(ctx, content)
+	}
 
 	action, err := xiaohongshu.NewPublishImageAction(page)
 	if err != nil {

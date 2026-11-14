@@ -31,7 +31,7 @@ Vite + React 创作台位于 `/`（内嵌的 `web/dist/index.html`），公开�
 
 ## 账号选择与持久化
 
-账号管理接口、任务查询接口和 `/api/v1/ai/models` 不要求选择账号。登录、搜索、详情、发布、互动、用户资料、写稿、生图、图片上传与读取等账号业务请求均携带 `X-XHS-Account-ID`，例如：
+账号管理接口、任务查询接口、定时任务接口和 `/api/v1/ai/models` 不要求选择账号。定时任务在配置中指定 `account_id`；登录、搜索、详情、发布、互动、用户资料、写稿、生图、图片上传与读取等账号业务请求均携带 `X-XHS-Account-ID`，例如：
 
 ```bash
 curl http://localhost:18060/api/v1/account/verify \
@@ -49,7 +49,7 @@ curl http://localhost:18060/api/v1/account/verify \
 
 源码及 Docker 的数据根固定为当前工作目录下的 `data/`，Docker 工作目录为 `/app`，因此使用 `/app/data`；桌面端直接使用系统应用数据目录，具体位置见[桌面端说明](../desktop/README.md#运行期数据目录)。数据根中的 `accounts/` 保存各账号的完整 Chromium user-data-dir，`studio.db` 保存元数据，`uploads/` 保存上传和生成的图片。账号浏览器正常退出和服务启动时会清理 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留 Cookie、Local Storage、IndexedDB、Service Worker 和浏览器配置。模型配置、服务令牌由整个工作台共用；拥有有效令牌即可访问所有账号，此功能不提供访问者权限隔离。
 
-SQLite 数据库包含 `accounts`、`settings`、`drafts`、`publish_protection` 和 `publish_tasks` 五张表。全新数据库不创建默认账号，也不自动导入旧 JSON、Cookie 文件或浏览器 localStorage 草稿。源码旧 `.xhs-accounts/`、根目录 `studio.db` 和临时图片不会自动迁移，旧文件保留；Docker 和桌面端的数据路径不变，无需搬迁。数据根下的 `cookies.json` 仅供底层 Cookie 文件 API 兼容使用，不会自动恢复账号。
+SQLite 数据库包含 `accounts`、`settings`、`drafts`、`publish_protection`、`publish_tasks`、`scheduled_jobs` 和 `schedule_runs` 七张表。全新数据库不创建默认账号，也不自动导入旧 JSON、Cookie 文件或浏览器 localStorage 草稿。源码旧 `.xhs-accounts/`、根目录 `studio.db` 和临时图片不会自动迁移，旧文件保留；Docker 和桌面端的数据路径不变，无需搬迁。数据根下的 `cookies.json` 仅供底层 Cookie 文件 API 兼容使用，不会自动恢复账号。
 
 ## 通用响应格式
 
@@ -86,10 +86,14 @@ SQLite 数据库包含 `accounts`、`settings`、`drafts`、`publish_protection`
 | GET | `/api/v1/account/verify` | 手动核验所选账号登录状态 |
 | POST/DELETE | `/api/v1/login/browser` | 打开或结束所选账号的可视化登录浏览器 |
 | DELETE | `/api/v1/login/cookies` | 仅清除所选浏览器 Cookie |
-| POST | `/api/v1/publish` | 创建图文发布任务，返回 202 |
+| POST | `/api/v1/publish` | 创建图文或原生长文发布任务，返回 202 |
 | POST | `/api/v1/publish_video` | 创建视频发布任务，返回 202 |
 | GET | `/api/v1/tasks` | 分页读取全账号任务记录 |
 | GET | `/api/v1/tasks/:id` | 读取单个任务状态与结果 |
+| GET/POST | `/api/v1/schedules` | 读取或创建定时任务 |
+| GET/PUT/DELETE | `/api/v1/schedules/:id` | 读取、修改或删除定时任务 |
+| GET | `/api/v1/schedules/:id/runs` | 分页读取定时执行历史 |
+| POST | `/api/v1/schedules/:id/retry` | 手动重试最近一次失败或跳过的执行 |
 | GET | `/api/v1/feeds/list` | 获取 Feeds 列表 |
 | GET/POST | `/api/v1/feeds/search` | 搜索 Feeds |
 | POST | `/api/v1/feeds/detail` | 获取 Feed 详情 |
@@ -297,9 +301,9 @@ X-XHS-Account-ID: 11111111111111111111111111111111
 
 建议为每次用户确认生成 `Idempotency-Key`，同一次确认重试必须复用原值。同账号、同 key、同内容返回原任务（包括已结束任务），不会重复执行；同 key 不同内容返回 `409 IDEMPOTENCY_KEY_REUSED`。已有未完成任务时，不同 key 即使内容相同也返回 `409 PUBLISH_TASK_ACTIVE`。缺省时由服务端生成。提交前账号须已绑定并确认登录，执行时仍会核验真实身份。
 
-#### 3.1 发布图文内容
+#### 3.1 发布图文或长文内容
 
-创建图文发布任务，提交内容和图片引用按当前请求保存快照。
+创建发布任务，内容和图片引用按当前请求保存快照。`publication_type` 缺省或 `image` 为普通图文；`long_text` 为原生长文，全文由平台排版成文字卡片，最终简介只包含话题和提及。
 
 **请求**
 ```
@@ -326,7 +330,8 @@ Idempotency-Key: image-publish-001
 **请求参数说明:**
 - `title` (string, required): 笔记标题
 - `content` (string, required): 笔记内容
-- `images` (array, required): 图片URL数组，至少包含一张图片
+- `publication_type` (string, optional): `image`（默认）或 `long_text`。标题均最多 20 字，长文正文最多 10000 字
+- `images` (array): 图文至少一张图片；长文必须省略或传空数组，不上传额外图片
 - `tags` (array, optional): 标签数组
 - `at_users` (array, optional): 需要 @ 的用户，插入在正文之后、话题之前。三种写法：
   - `"昵称"`：按昵称搜索并点中同名候选；找不到同名用户时退化成纯文本 `@昵称`，不会阻断发布
@@ -439,6 +444,58 @@ GET /api/v1/tasks/0123456789abcdef0123456789abcdef
 | `uncertain` | 无法确认发布结果，需到小红书核对后处理发布保护 |
 
 任务还提供 `message`、创建/更新/开始/结束时间。查询失败任务仍返回 HTTP 200，请以 `task.status` 和 `task.error` 判断结果，不要用重复 POST 代替查询。任务存入 SQLite，服务重启后排队任务继续执行；遗留执行中记录转为 `uncertain`，不自动重发。账号移除后保留任务历史和提交时备注名。
+
+#### 3.4 定时创作任务
+
+以下接口使用工作台访问令牌，不要求 `X-XHS-Account-ID`。
+
+```http
+GET /api/v1/schedules
+POST /api/v1/schedules
+GET /api/v1/schedules/:id
+PUT /api/v1/schedules/:id
+DELETE /api/v1/schedules/:id
+```
+
+创建与全量修改使用同一配置：
+
+```json
+{
+  "name": "工作日早餐计划",
+  "account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "keyword": "早餐食谱",
+  "topic": "适合上班族的简单早餐",
+  "instructions": "给出实用步骤，语气自然",
+  "publication_type": "image",
+  "reference_count": 20,
+  "cron": "0 9 * * 1-5",
+  "timezone": "Asia/Shanghai",
+  "enabled": true
+}
+```
+
+`name`、`account_id`、`keyword`、`topic`、`cron`、`timezone` 必填；`reference_count` 默认为 20，范围 1–20。Cron 为「分 时 日 月 星期」五字段，不含秒；时区使用 IANA 名称。每天/每周/每月选择在前端转换为对应 Cron。启用前账号须绑定真实身份，执行时再次核验。
+
+`publication_type` 为 `image`（默认）时，使用已保存的文字和生图模型，默认生成 1 张图片；`long_text` 使用文字模型和平台原生长文排版，不调用生图模型。保存允许模型配置尚未完成，响应中的 `configuration_error` 给出缺失原因，执行时会明确失败并留记录。完整参考正文全部注入模型，不截断或静默丢弃读取失败的参考。
+
+列表返回 `data.schedules`；详情、创建、修改返回 `data.schedule`，创建状态码为 201。配置还包含 `account_name`、`next_run_at`、`last_run_at`、`created_at`、`updated_at`、`last_run_id`、`last_run_status`、`last_run_error`、`active_run_id`、`configuration_error` 和 `retry_allowed`。时间为 RFC3339；暂停计划的 `next_run_at` 为 null。
+
+```http
+GET /api/v1/schedules/:id/runs?page=1&page_size=20
+POST /api/v1/schedules/:id/retry
+Content-Type: application/json
+
+{"run_id":"需要重试的失败执行记录 ID"}
+```
+
+历史返回 `data.runs`、`total`、`page`、`page_size`，默认每页 20 条、最多 100 条。记录包含 `id`、`schedule_id`、账号、`status`、`stage`、计划/开始/结束时间、`title`、`content`、`tags`、`sources`、`image_prompt`、`images`、`error`、`publish_task_id`、`snapshot` 和 `retry_of_id`。`images` 是账号托管图片 ID，用原账号的 `X-XHS-Account-ID` 请求 `/api/v1/images/:id`；快照不返回凭据或内部身份字段。
+
+状态为 `running`、`publishing`、`succeeded`、`failed`、`uncertain`、`skipped`；阶段为 `searching`、`reading`、`composing`、`imaging`、`publishing`、`finished`。标题、正文和引用在发布前保存，失败时仍可查看。
+
+重试返回 202 和 `data.run`，只接受该计划最近一次明确失败或跳过的执行。使用当前配置生成新运行，保留旧记录，不改变启停状态和正常执行时间。原执行 ID 是重试的幂等键；同一来源重复请求返回已创建的同一个运行，包括其终态。成功或结果未知的记录禁止直接重试，活动发布或未解除的发布保护仍会阻止重试。
+
+同一账号、同一计划不重叠执行；触发时已有执行则记录跳过。暂停只阻止后续触发，删除在活动执行期间返回 409，删除后保留历史。服务关闭期间错过的时间不补发；重启时已接收的发布继续关联原任务，其余中断创作标记失败，不自动重发。
+
 
 
 ---
@@ -1335,6 +1392,12 @@ Content-Type: application/json
 | `PUBLISH_UNCERTAIN` | 409 | 上次结果尚未核对，禁止再次发布 |
 | `ALREADY_PUBLISHED` | 409 | 相同内容已有成功发布记录 |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | 同一幂等 key 被用于不同发布内容 |
+| `SCHEDULES_UNAVAILABLE` | 503 | 定时任务服务不可用或正在关闭 |
+| `SCHEDULE_NOT_FOUND` | 404 | 定时配置或执行记录不存在 |
+| `INVALID_SCHEDULE` | 400 | 配置、Cron、时区或发布类型无效 |
+| `SCHEDULE_ACTIVE` | 409 | 同账号或同计划有正在执行的任务 |
+| `SCHEDULE_NOT_RETRYABLE` | 409 | 记录不是可重试的最近失败或跳过执行 |
+| `SCHEDULE_FAILED` | 500 | 定时配置或执行记录操作失败 |
 | `LIST_FEEDS_FAILED` | 500 | 获取 Feeds 列表失败 |
 | `SEARCH_FEEDS_FAILED` | 500 | 搜索 Feeds 失败 |
 | `GET_FEED_DETAIL_FAILED` | 500 | 获取 Feed 详情失败 |

@@ -89,7 +89,10 @@ func (m *PublishTaskManager) stopAccepting() {
 	m.mu.Unlock()
 }
 
-func (m *PublishTaskManager) SubmitImage(ctx context.Context, accountID, requestID string, req *PublishRequest) (accounts.PublishTask, error) {
+func (m *PublishTaskManager) SubmitContent(ctx context.Context, accountID, requestID string, req *PublishRequest) (accounts.PublishTask, error) {
+	if err := req.validate(); err != nil {
+		return accounts.PublishTask{}, fmt.Errorf("%w: %v", accounts.ErrInvalid, err)
+	}
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return accounts.PublishTask{}, err
@@ -98,6 +101,7 @@ func (m *PublishTaskManager) SubmitImage(ctx context.Context, accountID, request
 		Title: req.Title, Content: req.Content, Images: req.Images, Tags: req.Tags,
 		Visibility: req.Visibility, AtUsers: req.AtUsers, ScheduleAt: req.ScheduleAt,
 		IsOriginal: req.IsOriginal, Products: req.Products,
+		PublicationType: req.PublicationType,
 	}
 	encoded, err := fingerprint.encode()
 	if err != nil {
@@ -274,7 +278,7 @@ func (m *PublishTaskManager) publish(ctx context.Context, runtime *accountRuntim
 	case accounts.TaskKindPublish:
 		var req PublishRequest
 		if err := json.Unmarshal(task.Payload, &req); err != nil {
-			return nil, fmt.Errorf("读取图文任务失败: %w", err)
+			return nil, fmt.Errorf("读取内容发布任务失败: %w", err)
 		}
 		result, err := service.PublishContent(ctx, &req)
 		if err != nil {
@@ -298,19 +302,24 @@ func (m *PublishTaskManager) publish(ctx context.Context, runtime *accountRuntim
 
 // publicationFingerprint 归一化可选字段，保留图片和标签的顺序。
 type publicationFingerprint struct {
-	Title      string   `json:"title"`
-	Content    string   `json:"content"`
-	Images     []string `json:"images,omitempty"`
-	Video      string   `json:"video,omitempty"`
-	Tags       []string `json:"tags"`
-	Visibility string   `json:"visibility"`
-	AtUsers    []string `json:"at_users,omitempty"`
-	ScheduleAt string   `json:"schedule_at,omitempty"`
-	IsOriginal bool     `json:"is_original,omitempty"`
-	Products   []string `json:"products,omitempty"`
+	Title           string   `json:"title"`
+	Content         string   `json:"content"`
+	Images          []string `json:"images,omitempty"`
+	Video           string   `json:"video,omitempty"`
+	Tags            []string `json:"tags"`
+	Visibility      string   `json:"visibility"`
+	AtUsers         []string `json:"at_users,omitempty"`
+	ScheduleAt      string   `json:"schedule_at,omitempty"`
+	IsOriginal      bool     `json:"is_original,omitempty"`
+	Products        []string `json:"products,omitempty"`
+	PublicationType string   `json:"publication_type,omitempty"`
 }
 
 func (p *publicationFingerprint) encode() (string, error) {
+	// 缺省图文沿用旧指纹，避免升级后重复发布。
+	if p.PublicationType == "image" {
+		p.PublicationType = ""
+	}
 	if p.Tags == nil {
 		p.Tags = []string{}
 	}
@@ -329,7 +338,10 @@ func samePublication(kind accounts.TaskKind, stored, fingerprint string) bool {
 	if json.Unmarshal([]byte(stored), &value) != nil {
 		return false
 	}
-	if (kind == accounts.TaskKindPublish && len(value.Images) == 0) || (kind == accounts.TaskKindPublishVideo && value.Video == "") {
+	if kind == accounts.TaskKindPublishVideo && value.Video == "" {
+		return false
+	}
+	if kind == accounts.TaskKindPublish && value.PublicationType != "long_text" && len(value.Images) == 0 {
 		return false
 	}
 	encoded, err := value.encode()

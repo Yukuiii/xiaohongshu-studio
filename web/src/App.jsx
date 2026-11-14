@@ -3,6 +3,7 @@ import Workspace from "./Workspace.jsx";
 import Settings from "./Settings.jsx";
 import Accounts from "./accounts/Accounts.jsx";
 import Tasks from "./Tasks.jsx";
+import Schedules from "./Schedules.jsx";
 import { canStartLogin, useAccount } from "./accounts/useAccount.js";
 import { useWorkbench } from "./useWorkbench.js";
 import logo from "./assets/logo-128.png";
@@ -23,7 +24,7 @@ function savedAccount() {
   }
 }
 
-const pages = { workspace: "工作台", tasks: "任务", accounts: "账号", settings: "设置" };
+const pages = { workspace: "工作台", tasks: "任务", schedules: "定时任务", accounts: "账号", settings: "设置" };
 const currentPage = () =>
   Object.hasOwn(pages, location.hash.slice(1))
     ? location.hash.slice(1)
@@ -56,6 +57,11 @@ function NavIcon({ page }) {
         <>
           <rect x="4" y="3" width="16" height="18" rx="2" />
           <path d="m8 9 1 1 2-2M13 9h3M8 15h8" />
+        </>
+      ) : page === "schedules" ? (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
         </>
       ) : (
         <>
@@ -453,7 +459,7 @@ export default function App() {
             红薯创作台<small>YOUR CREATIVE DESK</small>
           </span>
         </a>
-        <nav className="sidebar-nav" aria-label="页面导航">
+        <nav className="sidebar-nav schedules-navigation" aria-label="页面导航">
           {Object.entries(pages).map(([key, label]) => (
             <button
               type="button"
@@ -544,6 +550,14 @@ export default function App() {
           hidden={page !== "tasks"}
         >
           <Tasks api={wb.api} token={wb.settings.token} active={page === "tasks"} />
+        </section>
+        <section
+          className="page-view"
+          data-view="schedules"
+          aria-labelledby="schedules-title"
+          hidden={page !== "schedules"}
+        >
+          <Schedules api={wb.api} token={wb.settings.token} active={page === "schedules"} accounts={accounts} />
         </section>
         <section
           className="page-view"

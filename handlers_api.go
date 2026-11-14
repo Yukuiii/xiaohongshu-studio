@@ -104,11 +104,15 @@ func (s *AppServer) publishHandler(c *gin.Context) {
 			"请求参数错误", err)
 		return
 	}
+	if err := req.validate(); err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数错误", err)
+		return
+	}
 
 	if !s.requireTaskManager(c) {
 		return
 	}
-	task, err := s.tasks.SubmitImage(c.Request.Context(), requestAccountID(c), c.GetHeader(idempotencyHeader), &req)
+	task, err := s.tasks.SubmitContent(c.Request.Context(), requestAccountID(c), c.GetHeader(idempotencyHeader), &req)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "TASK_SUBMIT_FAILED", "提交发布任务失败", err)
 		return

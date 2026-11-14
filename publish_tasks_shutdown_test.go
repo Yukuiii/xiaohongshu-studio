@@ -42,7 +42,7 @@ func TestPublishTaskShutdownClosesBrowserBeforeWaiting(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("服务未能就绪")
 	}
-	_, err := server.tasks.SubmitImage(context.Background(), account.ID, "shutdown", &PublishRequest{
+	_, err := server.tasks.SubmitContent(context.Background(), account.ID, "shutdown", &PublishRequest{
 		Title: "退出中的发布", Content: "正文", Images: []string{"/tmp/image.png"},
 	})
 	require.NoError(t, err)
