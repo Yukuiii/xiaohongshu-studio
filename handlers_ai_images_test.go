@@ -98,7 +98,9 @@ func TestComposeKeepsSourceBoundaryAndLongDraft(t *testing.T) {
 			t.Error("source entered system prompt")
 		}
 		var input composeRequest
-		if err := json.Unmarshal([]byte(payload.Messages[1].Content), &input); err != nil || len(input.Sources) != 1 || input.Sources[0].Content != "SOURCE_ATTACK" {
+		_, rawInput, _ := strings.Cut(payload.Messages[1].Content, "```json\n")
+		rawInput, _, _ = strings.Cut(rawInput, "\n```")
+		if err := json.Unmarshal([]byte(rawInput), &input); err != nil || len(input.Sources) != 1 || input.Sources[0].Content != "SOURCE_ATTACK" {
 			t.Error("lost structured source boundary")
 		}
 		if strings.Contains(payload.Messages[1].Content, "secret") {

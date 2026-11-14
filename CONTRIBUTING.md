@@ -50,9 +50,11 @@ Follow the [README](./README_EN.md) for the page workflow and the [HTTP API docu
 
 模型提示词统一维护在 `prompt/*.md`：`compose-system.md` 和 `compose-user.md` 用于手动工作台的选题、要求和完整参考；`schedule-system.md` 和 `schedule-user.md` 用于定时任务的关键词自由创作，不调用搜索或正文读取；`image.md` 定义一张主图的生成要求。模板通过 `{{变量}}` 单次替换，不重新解释关键词或参考正文中的双花括号。
 
+模板内容统一使用 Markdown 标题、列表和代码块组织。两个写稿用户模板的结构化数据放在 `json` 代码块中；系统模板里的 JSON 代码块用于说明输出结构，模型回复仍须返回 JSON 对象。
+
 两个写稿系统模板均支持 `publication_type`、`title_limit`、`content_limit`；手动写稿用户模板支持 `topic`、`instructions`、`sources`，定时写稿用户模板支持 `keyword` 和可选的 `instructions`。上述用户模板变量已 JSON 编码，不要再添加引号；生图模板支持 `title`、`content`、`image_prompt`。配置和密钥不得进入模板。模板使用 `go:embed` 编译进程序，修改后重新构建后端；桌面和 Docker 沿用相同模板。
 
-Maintain prompts in `prompt/*.md` using `{{variable}}` placeholders. The `compose-*` templates handle manual writing with references; `schedule-*` templates handle keywords and optional writing instructions without searches. User-template values are JSON encoded before substitution, and input content is never interpreted as a template. Keep credentials outside prompts. Templates are embedded with `go:embed`, so rebuild the backend, desktop sidecar, or Docker image after changes.
+Maintain prompts in `prompt/*.md` using Markdown headings, lists, fenced JSON blocks, and `{{variable}}` placeholders. The `compose-*` templates handle manual writing with references; `schedule-*` templates handle keywords and optional writing instructions without searches. User-template values are JSON encoded before substitution, and input content is never interpreted as a template. The model must still return a JSON object. Keep credentials outside prompts. Templates are embedded with `go:embed`, so rebuild the backend, desktop sidecar, or Docker image after changes.
 
 
 ---

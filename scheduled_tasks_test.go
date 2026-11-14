@@ -103,7 +103,9 @@ func TestScheduledKeywordCreationPersistsPublishedDraft(t *testing.T) {
 			return
 		}
 		var request map[string]string
-		if err := json.Unmarshal([]byte(input.Messages[1].Content), &request); err != nil {
+		_, rawInput, _ := strings.Cut(input.Messages[1].Content, "```json\n")
+		rawInput, _, _ = strings.Cut(rawInput, "\n```")
+		if err := json.Unmarshal([]byte(rawInput), &request); err != nil {
 			t.Error(err)
 			w.WriteHeader(400)
 			return
