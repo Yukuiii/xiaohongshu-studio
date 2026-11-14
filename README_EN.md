@@ -1,3 +1,5 @@
+<img src="./web/src/assets/logo.png" width="88" height="88" alt="Xiaohongshu Studio logo" />
+
 # Xiaohongshu Studio · 红薯创作台
 
 [中文](./README.md) · [Desktop app](./desktop/README.md) · [Docker deployment](./docker/README.md) · [HTTP API](./docs/API.md) · [Contributing](./CONTRIBUTING.md)

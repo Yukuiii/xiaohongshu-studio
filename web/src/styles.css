@@ -191,15 +191,11 @@ small {
   white-space: nowrap;
 }
 .brand-mark {
-  display: grid;
-  place-items: center;
-  background: var(--red);
-  color: white;
-  width: 42px;
-  height: 42px;
-  border-radius: 13px;
-  font-size: 25px;
-  transform: rotate(-5deg);
+  display: block;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 .brand small {
   display: block;
@@ -1302,9 +1298,8 @@ fieldset label:first-of-type {
     gap: 9px;
   }
   .brand-mark {
-    width: 35px;
-    height: 35px;
-    font-size: 22px;
+    width: 40px;
+    height: 40px;
   }
   .brand small {
     font-size: 6px;
@@ -1444,8 +1439,8 @@ fieldset label:first-of-type {
     letter-spacing: 1px;
   }
   .brand-mark {
-    width: 31px;
-    height: 31px;
+    width: 36px;
+    height: 36px;
   }
   .workspace {
     padding-left: 14px;

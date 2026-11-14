@@ -1,3 +1,5 @@
+<img src="./web/src/assets/logo.png" width="88" height="88" alt="红薯创作台 Logo" />
+
 # 红薯创作台 · Xiaohongshu Studio
 
 [English](./README_EN.md) · [桌面端](./desktop/README.md) · [Docker 部署](./docker/README.md) · [HTTP API](./docs/API.md) · [贡献指南](./CONTRIBUTING.md)

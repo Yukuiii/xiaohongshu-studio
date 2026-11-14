@@ -4,6 +4,7 @@ import Settings from "./Settings.jsx";
 import Accounts from "./accounts/Accounts.jsx";
 import { canStartLogin, useAccount } from "./accounts/useAccount.js";
 import { useWorkbench } from "./useWorkbench.js";
+import logo from "./assets/logo-128.png";
 
 const ACCOUNT_KEY = "hongshu-workbench.account.v1";
 
@@ -432,7 +433,7 @@ export default function App() {
             navigate("workspace");
           }}
         >
-          <span className="brand-mark">薯</span>
+          <img className="brand-mark" src={logo} alt="" width="48" height="48" />
           <span>
             红薯创作台<small>YOUR CREATIVE DESK</small>
           </span>
