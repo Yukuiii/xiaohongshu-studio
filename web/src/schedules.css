@@ -21,32 +21,34 @@
   min-width: 0;
 }
 .schedule-heading h2 {
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 .schedule-list {
   display: grid;
-  gap: 16px;
-  margin-top: 20px;
+  gap: 12px;
+  margin-top: 16px;
 }
 .schedule-item,
 .schedule-run,
 .schedule-editor {
-  padding: 24px 26px;
+  padding: 20px 22px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--white);
   box-shadow: var(--shadow-card);
   min-width: 0;
-  transition: border-color 0.16s var(--ease);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
 .schedule-item:hover {
   border-color: var(--line-strong);
 }
 .schedule-item.selected {
-  border-color: var(--red-border);
+  border-color: #d1d5db;
   box-shadow:
-    0 0 0 1px var(--red),
-    var(--shadow-card);
+    0 1px 3px rgba(15, 23, 42, 0.05),
+    0 8px 22px rgba(15, 23, 42, 0.05);
 }
 .schedule-item > p,
 .schedule-meta dd,
@@ -54,13 +56,13 @@
   overflow-wrap: anywhere;
 }
 .schedule-status {
-  padding: 4px 12px;
+  padding: 3px 10px;
   border-radius: 999px;
   background: var(--paper);
   border: 1px solid var(--line);
   color: var(--muted);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 550;
   white-space: nowrap;
 }
 .schedule-status.enabled,
@@ -72,7 +74,7 @@
 .schedule-status.running,
 .schedule-status.publishing {
   background: var(--blue-soft);
-  border-color: #cbd8ec;
+  border-color: #bfdbfe;
   color: var(--blue);
 }
 .schedule-status.failed,
@@ -84,10 +86,10 @@
 .schedule-meta {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 24px;
-  margin: 16px 0;
-  padding: 14px 16px;
-  background: var(--paper);
+  gap: 10px 20px;
+  margin: 14px 0;
+  padding: 12px 14px;
+  background: var(--paper-subtle);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   font-size: 13px;
@@ -95,11 +97,13 @@
 .schedule-meta dt {
   color: var(--muted);
   font-size: 11.5px;
-  margin-bottom: 4px;
+  font-weight: 500;
+  margin-bottom: 2px;
 }
 .schedule-meta dd {
   margin: 0;
-  line-height: 1.6;
+  font-size: 12.5px;
+  line-height: 1.55;
   font-variant-numeric: tabular-nums;
 }
 .schedule-editor {

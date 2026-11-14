@@ -17,11 +17,11 @@
 .toast-portal .Toastify__toast {
   pointer-events: auto;
   font-size: 13px;
-  line-height: 1.65;
-  padding: 15px 16px;
+  line-height: 1.6;
+  padding: 13px 15px;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   box-shadow: var(--shadow-float);
   overflow-wrap: anywhere;
 }

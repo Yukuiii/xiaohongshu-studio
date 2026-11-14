@@ -454,9 +454,9 @@ export default function App() {
             navigate("workspace");
           }}
         >
-          <img className="brand-mark" src={logo} alt="" width="48" height="48" />
+          <img className="brand-mark" src={logo} alt="" width="36" height="36" />
           <span>
-            红薯创作台<small>YOUR CREATIVE DESK</small>
+            红薯创作台<small>CREATOR STUDIO</small>
           </span>
         </a>
         <nav className="sidebar-nav schedules-navigation" aria-label="页面导航">
@@ -487,14 +487,20 @@ export default function App() {
       </aside>
       <header className="topbar">
         <span className="page-label">{pages[page]}</span>
-        <span className="current-account" aria-label="当前账号">
-          {selectedAccount
-            ? `当前账号 · ${selectedAccount.name}${selectedAccount.nickname ? ` / ${selectedAccount.nickname}` : ""}`
-            : "尚未选择账号"}
-        </span>
-        <span id="save-status" className="save-status" role="status">
-          {wb.saveStatus}
-        </span>
+        <div className="topbar-meta">
+          <span className="current-account" aria-label="当前账号">
+            <span
+              className={`status-dot${selectedAccount?.is_logged_in ? " connected" : ""}`}
+              aria-hidden="true"
+            />
+            {selectedAccount
+              ? `当前账号 · ${selectedAccount.name}${selectedAccount.nickname ? ` / ${selectedAccount.nickname}` : ""}`
+              : "尚未选择账号"}
+          </span>
+          <span id="save-status" className="save-status" role="status">
+            {wb.saveStatus}
+          </span>
+        </div>
       </header>
       <main className="workspace">
         <ToastNotice active={!wb.persistenceAvailable} notice={storageWarning} />

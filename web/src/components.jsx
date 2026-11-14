@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 export function Dialog({
   open,
@@ -9,6 +9,7 @@ export function Dialog({
   children,
   className = "",
   closeLabel = "关闭窗口",
+  closeOnBackdrop = false,
 }) {
   const ref = useRef(null);
   useLayoutEffect(() => {
@@ -21,6 +22,11 @@ export function Dialog({
       id={id}
       className={`dialog ${className}`.trim()}
       aria-labelledby={`${id}-title`}
+      onClick={(event) => {
+        if (closeOnBackdrop && !busy && event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) onClose();
@@ -51,10 +57,11 @@ export function StoredImage({
   accountId,
   alt,
   className = "",
-  figureClassName = "publish-result-image",
+  figureClassName = "publish-result-thumb",
   errorClassName = "publish-result-image-error",
-  loadingText = "正在读取配图…",
+  loadingText = "加载中…",
   caption = "",
+  onPreview = null,
 }) {
   const [preview, setPreview] = useState({ url: "", error: "" });
   const latest = useRef(null);
@@ -100,12 +107,32 @@ export function StoredImage({
     };
   }, [api, id, token, accountId]);
 
+  const imageNode = (
+    <img
+      src={preview.url}
+      alt={alt}
+      onError={() => setPreview({ url: "", error: "图片无法解码，请刷新重试。" })}
+    />
+  );
+
   return (
     <figure className={`${figureClassName}${className ? ` ${className}` : ""}`}>
       {preview.error ? (
         <p className={errorClassName}>{preview.error}</p>
       ) : preview.url ? (
-        <img src={preview.url} alt={alt} onError={() => setPreview({ url: "", error: "图片无法解码，请刷新重试。" })} />
+        onPreview ? (
+          <button
+            type="button"
+            className="publish-thumb-button"
+            title="点击查看大图"
+            aria-label={`查看大图：${alt}`}
+            onClick={() => onPreview({ url: preview.url, alt })}
+          >
+            {imageNode}
+          </button>
+        ) : (
+          imageNode
+        )
       ) : (
         <p className="muted">{loadingText}</p>
       )}
@@ -118,33 +145,68 @@ export function PublishResult({ result, images, api, token, accountId, active = 
   const imageList = Array.isArray(images) ? images.filter(Boolean) : [];
   const ownerAccountId = accountId || result?.account_id;
   const showImages = imageList.length > 0 && active && Boolean(api) && Boolean(ownerAccountId);
+  const [lightbox, setLightbox] = useState(null);
+  const dialogId = useId();
+  const imageKey = imageList.join(",");
 
-  const imageSection = showImages ? (
-    <div className="publish-result-images">
+  useEffect(() => {
+    if (!showImages) setLightbox(null);
+  }, [showImages, imageKey]);
+
+  const thumbGrid = showImages ? (
+    <div className="publish-result-thumbs">
+      {imageList.map((id, index) => (
+        <StoredImage
+          key={id}
+          id={id}
+          api={api}
+          token={token}
+          accountId={ownerAccountId}
+          alt={`任务配图 ${index + 1}`}
+          onPreview={setLightbox}
+        />
+      ))}
+    </div>
+  ) : null;
+
+  const lightboxDialog = (
+    <Dialog
+      open={Boolean(lightbox)}
+      onClose={() => setLightbox(null)}
+      id={dialogId}
+      title={lightbox?.alt || "查看配图"}
+      className="image-lightbox-dialog"
+      closeOnBackdrop
+    >
+      {lightbox && (
+        <div className="image-lightbox-body">
+          <img className="image-lightbox-img" src={lightbox.url} alt={lightbox.alt} />
+        </div>
+      )}
+    </Dialog>
+  );
+
+  const standaloneImageSection = thumbGrid ? (
+    <div>
       <span className="publish-result-label">配图（{imageList.length} 张）</span>
-      <div className="publish-result-image-grid">
-        {imageList.map((id, index) => (
-          <StoredImage
-            key={id}
-            id={id}
-            api={api}
-            token={token}
-            accountId={ownerAccountId}
-            alt={`任务配图 ${index + 1}`}
-          />
-        ))}
-      </div>
+      {thumbGrid}
     </div>
   ) : null;
 
   if (result == null) {
-    return imageSection ? <div className="publish-result">{imageSection}</div> : null;
+    return standaloneImageSection ? (
+      <div className="publish-result">
+        {standaloneImageSection}
+        {lightboxDialog}
+      </div>
+    ) : null;
   }
   if (typeof result === "string") {
     return (
       <div className="publish-result">
         <div className="publish-result-prose">{result}</div>
-        {imageSection}
+        {standaloneImageSection}
+        {lightboxDialog}
       </div>
     );
   }
@@ -152,7 +214,8 @@ export function PublishResult({ result, images, api, token, accountId, active = 
     return (
       <div className="publish-result">
         <pre className="publish-result-raw">{JSON.stringify(result, null, 2)}</pre>
-        {imageSection}
+        {standaloneImageSection}
+        {lightboxDialog}
       </div>
     );
   }
@@ -160,15 +223,15 @@ export function PublishResult({ result, images, api, token, accountId, active = 
   const meta = [];
   if (result.status) meta.push(["发布状态", result.status]);
   if (result.title) meta.push(["笔记标题", result.title]);
-  if (typeof result.images === "number") meta.push(["配图数量", `${result.images} 张`]);
+  if (!showImages && typeof result.images === "number") meta.push(["配图数量", `${result.images} 张`]);
   if (result.video) meta.push(["视频文件", result.video]);
   if (Array.isArray(result.at_users) && result.at_users.length > 0) {
     meta.push(["@用户", result.at_users.join("、")]);
   }
-  if (result.account_id) meta.push(["账号编号", result.account_id]);
   const hasContent = typeof result.content === "string" && result.content.length > 0;
+  const hasMeta = meta.length > 0 || showImages;
 
-  if (meta.length === 0 && !hasContent && !imageSection) {
+  if (!hasMeta && !hasContent) {
     return (
       <div className="publish-result">
         <pre className="publish-result-raw">{JSON.stringify(result, null, 2)}</pre>
@@ -178,7 +241,7 @@ export function PublishResult({ result, images, api, token, accountId, active = 
 
   return (
     <div className="publish-result">
-      {meta.length > 0 && (
+      {hasMeta && (
         <dl className="publish-result-meta">
           {meta.map(([label, value]) => (
             <div key={label}>
@@ -186,15 +249,21 @@ export function PublishResult({ result, images, api, token, accountId, active = 
               <dd>{value}</dd>
             </div>
           ))}
+          {showImages && (
+            <div className="publish-result-meta-images">
+              <dt>配图（{imageList.length} 张）</dt>
+              <dd>{thumbGrid}</dd>
+            </div>
+          )}
         </dl>
       )}
       {hasContent && (
-        <div className={`publish-result-content${meta.length === 0 ? " standalone" : ""}`}>
+        <div className={`publish-result-content${!hasMeta ? " standalone" : ""}`}>
           <span className="publish-result-label">正文内容</span>
           <div className="publish-result-prose">{result.content}</div>
         </div>
       )}
-      {imageSection}
+      {lightboxDialog}
     </div>
   );
 }

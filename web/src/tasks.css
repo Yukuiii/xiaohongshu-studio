@@ -1,27 +1,28 @@
 .tasks-page {
-  max-width: 1040px;
+  max-width: 1080px;
 }
 .tasks-empty {
   padding: 48px 20px;
   text-align: center;
 }
 .tasks-empty h2 {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .tasks-empty .muted {
   margin-bottom: 18px;
 }
 .task-list {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 .task-item {
-  padding: 24px 26px;
+  padding: 20px 22px;
   overflow-wrap: anywhere;
-  transition: border-color 0.16s var(--ease);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
 .task-item:hover {
   border-color: var(--line-strong);
+  box-shadow: var(--shadow-card);
 }
 .task-item > :last-child {
   margin-bottom: 0;
@@ -33,36 +34,50 @@
   gap: 16px;
 }
 .task-heading h2 {
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
   line-height: 1.4;
 }
 .task-meta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 6px 16px;
-  margin: 6px 0 18px;
+  margin: 6px 0 14px;
+}
+.task-meta-primary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
 }
 .task-account {
   margin: 0;
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: 13px;
 }
 .task-id {
   font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-variant-numeric: tabular-nums;
+  color: var(--subtle);
   line-height: 1.5;
 }
 .task-status {
   flex-shrink: 0;
-  padding: 4px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
   border-radius: 999px;
   background: var(--paper);
   border: 1px solid var(--line);
   color: var(--ink-secondary);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 550;
 }
 .task-status.running,
 .task-status.queued {
@@ -84,22 +99,24 @@
 .task-times {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px 20px;
-  padding: 14px 16px;
-  margin: 0 0 16px;
-  background: var(--paper);
+  gap: 10px 18px;
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  background: var(--paper-subtle);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   font-size: 13px;
 }
 .task-times dt {
-  margin-bottom: 3px;
+  margin-bottom: 2px;
   color: var(--muted);
   font-size: 11.5px;
+  font-weight: 500;
 }
 .task-times dd {
   margin: 0;
   color: var(--ink);
+  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
 }
 .tasks-error {

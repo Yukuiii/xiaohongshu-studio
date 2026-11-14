@@ -66,6 +66,7 @@ describe("全账号任务页", () => {
     expect(screen.getByText("创作账号A · 图文")).toBeVisible();
     await act(async () => vi.advanceTimersByTimeAsync(3000));
     expect(screen.getByText("已完成")).toBeVisible();
+    expect(screen.getByText("已完成").closest("article")?.querySelector(":scope > p")).toBeNull();
     expect(screen.getByText("视频账号 · 视频")).toBeVisible();
     expect(screen.getByText("失败原因：视频文件不存在")).toBeVisible();
     expect(screen.getByText("结果未知")).toBeVisible();
@@ -142,16 +143,28 @@ describe("全账号任务页", () => {
       });
       render(<Tasks api={api} token="secret-token" active />);
       await screen.findByRole("heading", { name: "早餐记录" });
+      expect(screen.getByText("账号编码：acc-img")).toBeVisible();
       expect(api.mock.calls.some(([path]) => path.startsWith("/images/"))).toBe(false);
 
       const summary = screen.getByText("查看发布结果");
       fireEvent.click(summary);
       const img = await screen.findByRole("img", { name: "任务配图 1" });
       expect(img).toHaveAttribute("src", "blob:task-image");
+      expect(summary.closest("details")).not.toHaveTextContent("账号编号");
       expect(api.mock.calls.find(([path]) => path.startsWith("/images/"))).toEqual([
         "/images/0123456789abcdef0123456789abcdef.png",
         expect.objectContaining({ accountId: "acc-img", token: "secret-token", blob: true }),
       ]);
+
+      fireEvent.click(screen.getByRole("button", { name: "查看大图：任务配图 1" }));
+      const dialog = screen.getByRole("dialog", { name: "任务配图 1" });
+      expect(dialog).toHaveAttribute("open");
+      const fullImg = dialog.querySelector("img");
+      expect(fullImg).toHaveAttribute("src", "blob:task-image");
+      fireEvent.click(fullImg);
+      expect(dialog).toHaveAttribute("open");
+      fireEvent.click(dialog);
+      expect(dialog).not.toHaveAttribute("open");
 
       fireEvent.click(summary);
       await waitFor(() => expect(revokeURL).toHaveBeenCalledWith("blob:task-image"));

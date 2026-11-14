@@ -54,7 +54,10 @@ export default function Tasks({ api, token, active }) {
           <article className="card task-item" key={task.id} aria-label={`发布任务：${task.title || "未命名笔记"}`}>
             <div className="task-heading"><h2>{task.title || "未命名笔记"}</h2><span className={`task-status ${task.status}`}>{statuses[task.status] || "未知状态"}</span></div>
             <div className="task-meta">
-              <p className="task-account">{task.account_name || task.account_id} · {task.kind === "publish_video" ? "视频" : "图文"}</p>
+              <div className="task-meta-primary">
+                <p className="task-account">{task.account_name || task.account_id} · {task.kind === "publish_video" ? "视频" : "图文"}</p>
+                {task.account_id && <small className="task-id muted">账号编码：{task.account_id}</small>}
+              </div>
               <small className="task-id muted">任务编号：{task.id}</small>
             </div>
             <dl className="task-times">
@@ -63,7 +66,7 @@ export default function Tasks({ api, token, active }) {
               <div><dt>结束时间</dt><dd>{time(task.finished_at)}</dd></div>
               <div><dt>更新时间</dt><dd>{time(task.updated_at)}</dd></div>
             </dl>
-            {task.message && <p>{task.message}</p>}
+            {task.message && task.status !== "succeeded" && <p>{task.message}</p>}
             {task.error && <p className="tasks-error">失败原因：{task.error}</p>}
             {task.status === "uncertain" && <p className="task-warning">请先在小红书账号核对实际发布结果，避免重复发布。当前账号可在工作台核对后解除锁定。</p>}
             {taskIsActive(task) && <p className="muted">任务进行中，状态将自动更新；此账号暂不能再次发布或手动解除锁定。</p>}
