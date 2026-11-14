@@ -12,6 +12,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "红薯创作台",
         "theme": "Light",
         "backgroundColor": "#f7f6f2",

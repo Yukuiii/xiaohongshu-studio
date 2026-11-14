@@ -85,6 +85,42 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
+fn is_note_url(url: &Url) -> bool {
+    let Some(id) = url.path().strip_prefix("/explore/") else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.host_str() == Some("www.xiaohongshu.com")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && (8..=32).contains(&id.len())
+        && id.bytes().all(|ch| ch.is_ascii_alphanumeric())
+}
+
+fn open_note_in_browser(url: &Url) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("rundll32.exe");
+        command.arg("url.dll,FileProtocolHandler");
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = Command::new("xdg-open");
+    let status = command
+        .arg(url.as_str())
+        .status()
+        .map_err(|error| error.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("系统浏览器打开失败: {status}"))
+    }
+}
+
 fn sidecar_binary_name() -> &'static str {
     if cfg!(target_os = "windows") {
         "xiaohongshu-studio.exe"
@@ -452,6 +488,18 @@ pub fn run() {
         }))
         .invoke_handler(tauri::generate_handler![quit_app])
         .setup(|app| {
+            tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
+                .on_new_window(|url, _| {
+                    if is_note_url(&url) {
+                        tauri::async_runtime::spawn_blocking(move || {
+                            if let Err(error) = open_note_in_browser(&url) {
+                                eprintln!("打开笔记失败: {error}");
+                            }
+                        });
+                    }
+                    tauri::webview::NewWindowResponse::Deny
+                })
+                .build()?;
             setup_tray(app.handle())?;
             let handle = app.handle().clone();
             std::thread::spawn(move || start_backend(handle));
@@ -476,4 +524,30 @@ pub fn run() {
             state.stop();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_note_url;
+    use url::Url;
+
+    #[test]
+    fn external_browser_only_opens_official_notes() {
+        assert!(is_note_url(
+            &Url::parse(
+                "https://www.xiaohongshu.com/explore/6af8bd4c000000002a01272b?xsec_token=token"
+            )
+            .unwrap()
+        ));
+        for value in [
+            "javascript:alert(1)",
+            "file:///tmp/note.html",
+            "https://www.xiaohongshu.com.evil.test/explore/6af8bd4c000000002a01272b",
+            "https://user@www.xiaohongshu.com/explore/6af8bd4c000000002a01272b",
+            "https://www.xiaohongshu.com:8443/explore/6af8bd4c000000002a01272b",
+            "https://www.xiaohongshu.com/user/profile/6af8bd4c000000002a01272b",
+        ] {
+            assert!(!is_note_url(&Url::parse(value).unwrap()), "{value}");
+        }
+    }
 }

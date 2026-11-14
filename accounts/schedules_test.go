@@ -385,6 +385,122 @@ func TestScheduleProgressValidationAndPagination(t *testing.T) {
 	require.ErrorIs(t, err, ErrScheduleNotFound)
 }
 
+func TestScheduleRunPublishResultsPersistAndPaginate(t *testing.T) {
+	s, a := scheduleTestStore(t)
+	ctx := context.Background()
+	now := scheduleTestTime("2026-01-01T00:00:00Z")
+	job, err := s.CreateScheduledJob(ctx, scheduleTestInput(a.ID), now)
+	require.NoError(t, err)
+	other, err := s.Create("其他发布账号")
+	require.NoError(t, err)
+	require.NoError(t, s.BindIdentity(other.ID, "other-publisher", "其他创作者"))
+	cases := []struct {
+		name          string
+		taskAccountID string
+		publishTaskID string
+		result        json.RawMessage
+	}{
+		{
+			name: "linked", taskAccountID: a.ID,
+			result: json.RawMessage(`{"status":"发布完成","note_id":"65a123456789012345678901","note_url":"https://www.xiaohongshu.com/explore/65a123456789012345678901?xsec_token=token&xsec_source=pc_publish"}`),
+		},
+		{
+			name: "link-unavailable", taskAccountID: a.ID,
+			result: json.RawMessage(`{"status":"发布完成","note_url":"","note_link_error":"发布已成功，但未能获取笔记链接"}`),
+		},
+		{name: "legacy-result", taskAccountID: a.ID, result: json.RawMessage(`{"status":"发布完成"}`)},
+		{name: "null-result", taskAccountID: a.ID},
+		{name: "unlinked"},
+		{name: "missing-task", publishTaskID: "missing-publication"},
+		{
+			name: "other-account", taskAccountID: other.ID,
+			result: json.RawMessage(`{"status":"发布完成","note_id":"65b123456789012345678902","note_url":"https://www.xiaohongshu.com/explore/65b123456789012345678902"}`),
+		},
+	}
+	var expected []ScheduleRun
+	var tasks []PublishTask
+	for index, test := range cases {
+		runs, err := s.ClaimDueScheduleRuns(ctx, now.Add(time.Duration(index+1)*time.Minute))
+		require.NoError(t, err, test.name)
+		require.Len(t, runs, 1, test.name)
+		run := runs[0]
+		taskID := test.publishTaskID
+		var task PublishTask
+		if test.taskAccountID != "" {
+			protection, err := s.LoadProtection(test.taskAccountID)
+			require.NoError(t, err, test.name)
+			task, err = s.EnqueuePublishTask(ctx, publishTaskInput(test.taskAccountID, test.name), protection.Revision)
+			require.NoError(t, err, test.name)
+			taskID = task.ID
+		}
+		if taskID != "" {
+			require.NoError(t, s.UpdateScheduleRun(ctx, run.ID, ScheduleRunProgress{Stage: "publishing", PublishTaskID: taskID}), test.name)
+		}
+		if task.ID != "" {
+			pending, _, err := s.ListScheduleRuns(ctx, job.ID, 1, 1)
+			require.NoError(t, err, test.name)
+			require.Len(t, pending, 1, test.name)
+			require.Nil(t, pending[0].Result, test.name)
+			_, err = s.StartPublishTask(ctx, task.ID)
+			require.NoError(t, err, test.name)
+			task, err = s.FinishPublishTask(ctx, task.ID, TaskOutcome{Status: TaskSucceeded, Result: test.result})
+			require.NoError(t, err, test.name)
+			require.Equal(t, TaskSucceeded, task.Status, test.name)
+			tasks = append(tasks, task)
+		}
+		unfinished, err := s.UnfinishedScheduleRuns(ctx)
+		require.NoError(t, err, test.name)
+		require.Len(t, unfinished, 1, test.name)
+		require.Nil(t, unfinished[0].Result, test.name)
+		require.NoError(t, s.FinishScheduleRun(ctx, run.ID, "succeeded", ""), test.name)
+		run.PublishTaskID = taskID
+		if test.taskAccountID == a.ID {
+			run.Result = test.result
+		}
+		expected = append(expected, run)
+	}
+	checkHistory := func(store *Store) {
+		t.Helper()
+		for index, want := range expected {
+			page, total, err := store.ListScheduleRuns(ctx, job.ID, len(expected)-index, 1)
+			require.NoError(t, err, cases[index].name)
+			require.Equal(t, len(expected), total)
+			require.Len(t, page, 1)
+			got := page[0]
+			require.Equal(t, want.ID, got.ID)
+			require.Equal(t, a.ID, got.AccountID)
+			require.Equal(t, want.PublishTaskID, got.PublishTaskID)
+			require.Equal(t, "succeeded", got.Status)
+			require.Equal(t, "finished", got.Stage)
+			require.Empty(t, got.Error)
+			encoded, err := json.Marshal(got)
+			require.NoError(t, err)
+			var fields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(encoded, &fields))
+			if len(want.Result) == 0 {
+				require.Nil(t, got.Result, cases[index].name)
+				require.NotContains(t, fields, "result", cases[index].name)
+			} else {
+				require.JSONEq(t, string(want.Result), string(got.Result), cases[index].name)
+				require.JSONEq(t, string(want.Result), string(fields["result"]), cases[index].name)
+			}
+		}
+		for _, want := range tasks {
+			got, err := store.PublishTask(ctx, want.ID)
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+			require.Equal(t, TaskSucceeded, got.Status)
+		}
+	}
+	checkHistory(s)
+	require.NoError(t, s.Close())
+	require.NoError(t, s.db.Close())
+	reopened, err := Open(s.Root(), openDatabase(t, s.Root()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	checkHistory(reopened)
+}
+
 func TestScheduleRetryIdempotencyAndCurrentConfiguration(t *testing.T) {
 	s, a := scheduleTestStore(t)
 	ctx := context.Background()

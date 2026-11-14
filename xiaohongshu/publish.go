@@ -97,16 +97,16 @@ func NewPublishImageAction(page *rod.Page) (*PublishAction, error) {
 	}, nil
 }
 
-func (p *PublishAction) Publish(ctx context.Context, content PublishImageContent) error {
+func (p *PublishAction) Publish(ctx context.Context, content PublishImageContent) (PublishedNote, error) {
 	if len(content.ImagePaths) == 0 {
-		return errors.New("图片不能为空")
+		return PublishedNote{}, errors.New("图片不能为空")
 	}
 
 	// 重设超时：.Context(ctx) 会替换掉 NewPublishImageAction 里 Timeout(300s) 的 deadline
 	page := p.page.Context(ctx).Timeout(300 * time.Second)
 
 	if err := uploadImages(page, content.ImagePaths); err != nil {
-		return errors.Wrap(err, "小红书上传图片失败")
+		return PublishedNote{}, errors.Wrap(err, "小红书上传图片失败")
 	}
 
 	tags := content.Tags
@@ -123,11 +123,12 @@ func (p *PublishAction) Publish(ctx context.Context, content PublishImageContent
 
 	logrus.Infof("发布内容: title=%s, images=%v, tags=%v, at=%v, schedule=%v, original=%v, visibility=%s, products=%v", content.Title, len(content.ImagePaths), tags, atUsers, content.ScheduleTime, content.IsOriginal, content.Visibility, content.Products)
 
-	if err := submitPublish(ctx, page, content.Title, content.Content, tags, atUsers, content.ScheduleTime, content.IsOriginal, content.Visibility, content.Products); err != nil {
-		return errors.Wrap(err, "小红书发布失败")
+	note, err := submitPublish(ctx, page, content.Title, content.Content, tags, atUsers, content.ScheduleTime, content.IsOriginal, content.Visibility, content.Products)
+	if err != nil {
+		return PublishedNote{}, errors.Wrap(err, "小红书发布失败")
 	}
 
-	return nil
+	return note, nil
 }
 
 // hasPopCover 当前页面是否还有挡人的浮层。
@@ -374,18 +375,18 @@ func waitForUploadComplete(page *rod.Page, expectedCount int) error {
 	return errors.Errorf("第%d张图片上传超时(60s)，请检查网络连接和图片大小", expectedCount)
 }
 
-func submitPublish(ctx context.Context, page *rod.Page, title, content string, tags []string, atUsers []string, scheduleTime *time.Time, isOriginal bool, visibility string, products []string) error {
+func submitPublish(ctx context.Context, page *rod.Page, title, content string, tags []string, atUsers []string, scheduleTime *time.Time, isOriginal bool, visibility string, products []string) (PublishedNote, error) {
 	titleElem, err := page.Element("div.d-input input")
 	if err != nil {
-		return errors.Wrap(err, "查找标题输入框失败")
+		return PublishedNote{}, errors.Wrap(err, "查找标题输入框失败")
 	}
 	if err := humanize.Type(ctx, titleElem, title); err != nil {
-		return errors.Wrap(err, "输入标题失败")
+		return PublishedNote{}, errors.Wrap(err, "输入标题失败")
 	}
 
 	humanize.Delay(ctx, humanize.AfterType)
 	if err := checkTitleMaxLength(page); err != nil {
-		return err
+		return PublishedNote{}, err
 	}
 	slog.Info("检查标题长度：通过")
 
@@ -393,10 +394,10 @@ func submitPublish(ctx context.Context, page *rod.Page, title, content string, t
 
 	contentElem, err := getContentElement(page, contentElemTimeout)
 	if err != nil {
-		return err
+		return PublishedNote{}, err
 	}
 	if err := humanize.Type(ctx, contentElem, content); err != nil {
-		return errors.Wrap(err, "输入正文失败")
+		return PublishedNote{}, errors.Wrap(err, "输入正文失败")
 	}
 	closeFeatureGuide(page)
 	tryRefocusTitle(page)
@@ -404,52 +405,47 @@ func submitPublish(ctx context.Context, page *rod.Page, title, content string, t
 	// @ 和 # 都要另起段落，换行只做一次，避免两者之间多出空行
 	if len(atUsers) > 0 || len(tags) > 0 {
 		if err := startEditorTail(contentElem); err != nil {
-			return err
+			return PublishedNote{}, err
 		}
 	}
 	if err := inputMentions(ctx, contentElem, atUsers); err != nil {
-		return err
+		return PublishedNote{}, err
 	}
 	if err := inputTags(ctx, contentElem, tags); err != nil {
-		return err
+		return PublishedNote{}, err
 	}
 
 	humanize.Delay(ctx, humanize.AfterType)
 
 	if err := checkContentMaxLength(page); err != nil {
-		return err
+		return PublishedNote{}, err
 	}
 	slog.Info("检查正文长度：通过")
 
 	if scheduleTime != nil {
 		if err := setSchedulePublish(ctx, page, *scheduleTime); err != nil {
-			return errors.Wrap(err, "设置定时发布失败")
+			return PublishedNote{}, errors.Wrap(err, "设置定时发布失败")
 		}
 		slog.Info("定时发布设置完成", "schedule_time", scheduleTime.Format("2006-01-02 15:04"))
 	}
 
 	if err := setVisibility(page, visibility); err != nil {
-		return errors.Wrap(err, "设置可见范围失败")
+		return PublishedNote{}, errors.Wrap(err, "设置可见范围失败")
 	}
 
 	// 处理原创声明：显式请求了原创但设置失败 → 报错中止，不静默发成非原创（避免"以为原创其实不是"）
 	if isOriginal {
 		if err := setOriginal(page); err != nil {
-			return errors.Wrap(err, "设置原创声明失败（已请求原创，中止发布）")
+			return PublishedNote{}, errors.Wrap(err, "设置原创声明失败（已请求原创，中止发布）")
 		}
 		slog.Info("已声明原创")
 	}
 
 	if err := bindProducts(ctx, page, products); err != nil {
-		return errors.Wrap(err, "绑定商品失败")
+		return PublishedNote{}, errors.Wrap(err, "绑定商品失败")
 	}
 
-	if err := clickPublishButton(page); err != nil {
-		return err
-	}
-
-	// 点击后仍需确认跳转，未确认的结果不能自动重发。
-	return waitPublishSuccess(page, 15*time.Second)
+	return clickAndConfirmPublish(page)
 }
 
 // waitPublishSuccess 等待离开发布页，超时或中断时保留结果未知。

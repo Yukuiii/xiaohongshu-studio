@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xpzouying/xiaohongshu-mcp/accounts"
 	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
+	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
 func taskTestServer(t *testing.T, execute func(context.Context, *accountRuntime, accounts.PublishTask) (json.RawMessage, error)) (*AppServer, accounts.Account) {
@@ -132,6 +133,43 @@ func TestPublishTaskHTTPReturnsBeforeExecutionAndSurvivesRequestCancellation(t *
 	require.False(t, protection.Uncertain)
 	require.Empty(t, protection.ActiveTaskID)
 	require.NotEmpty(t, protection.LastPublished)
+}
+
+func TestPublishTaskNoteLinkPreservesSuccessAndIdempotency(t *testing.T) {
+	for _, note := range []xiaohongshu.PublishedNote{
+		{NoteID: "6af8bd4c000000002a01272b", NoteURL: "https://www.xiaohongshu.com/explore/6af8bd4c000000002a01272b"},
+		{NoteLinkError: "平台未返回笔记链接"},
+	} {
+		t.Run(note.NoteID+note.NoteLinkError, func(t *testing.T) {
+			var executions atomic.Int32
+			server, account := taskTestServer(t, func(_ context.Context, _ *accountRuntime, task accounts.PublishTask) (json.RawMessage, error) {
+				executions.Add(1)
+				return json.Marshal(PublishResponse{PublishedNote: note, Title: task.Title, Status: "发布完成"})
+			})
+			ctx := context.Background()
+			request := &PublishRequest{Title: "链接回传", Content: "正文", Images: []string{"/tmp/image.png"}}
+			task, err := server.tasks.SubmitContent(ctx, account.ID, "note-link", request)
+			require.NoError(t, err)
+			completed := awaitTaskStatus(t, server.accounts.store, task.ID, accounts.TaskSucceeded)
+			require.Empty(t, completed.Error)
+			response := taskHTTPRequest(t, setupRoutes(server), newTaskHTTPRequest(http.MethodGet, "/api/v1/tasks/"+task.ID, "", "", ""))
+			require.Equal(t, http.StatusOK, response.Code)
+			stored := taskResponse(t, response)
+			var result PublishResponse
+			require.NoError(t, json.Unmarshal(stored.Result, &result))
+			require.Equal(t, note, result.PublishedNote)
+			require.Equal(t, accounts.TaskSucceeded, stored.Status)
+			protection, err := server.accounts.store.LoadProtection(account.ID)
+			require.NoError(t, err)
+			require.False(t, protection.Uncertain)
+			require.Empty(t, protection.ActiveTaskID)
+			require.NotEmpty(t, protection.LastPublished)
+			repeated, err := server.tasks.SubmitContent(ctx, account.ID, "note-link", request)
+			require.NoError(t, err)
+			require.Equal(t, task.ID, repeated.ID)
+			require.Equal(t, int32(1), executions.Load())
+		})
+	}
 }
 
 func TestPublishTaskIdempotencyDoesNotRunTwice(t *testing.T) {

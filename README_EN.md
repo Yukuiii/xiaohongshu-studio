@@ -15,7 +15,7 @@ A self-hosted workspace for creating Xiaohongshu image posts. Research topics, s
 - **Upload and generate images**: Upload local pictures or generate illustrations through a separately configured image model.
 - **Manage accounts**: Add, rename, and switch accounts. Each account has its own browser environment and persistent site data.
 - **Confirm publication**: Review and confirm before creating a background publication task. Protection state is kept per account, with coordination across tabs using the same account.
-- **Task history**: Open Tasks (任务) in the sidebar to view queued, running, completed, failed, and uncertain publications across accounts, including after a page reload.
+- **Task history**: Open Tasks (任务) in the sidebar to view queued, running, completed, failed, and uncertain publications across accounts, including after a page reload. Published results include actions to open the note and copy its link.
 - **Scheduled creation**: Set a keyword and a daily, weekly, monthly, or Cron schedule. The model chooses an angle, writes, and publishes automatically. Choose one generated image or a native long-form post, with complete content and execution history.
 - **HTTP API**: Access account management, search, image and video publication, comments, likes, favorites, user profiles, and other operations programmatically.
 
@@ -73,6 +73,8 @@ Image posts are the default and generate one picture with the saved image model.
 The list shows upcoming execution, the latest result, and model configuration errors. After fixing a missing image model, retry the latest failed or skipped run from the list. A retry uses the current configuration, retains the previous record, and leaves the normal schedule and enabled state unchanged. Repeated requests for the same retry return the same run. Successful or uncertain publications cannot be retried directly.
 
 Run details retain the title, complete body, tags, generated image, configuration snapshot, and errors; references from older runs remain available. Keep the service running; missed times while offline are skipped, and startup resumes with the next scheduled time. Monthly dates absent from a month are skipped. If the account or schedule already has an active run, that occurrence is recorded as skipped. Accepted publications retain the existing background-task and duplicate-prevention guarantees.
+
+After publication, the service captures the note ID from that creation request and obtains the required access parameters from the account profile by ID, then saves the complete URL. Open the note or copy its link from Tasks or scheduled run details. If publication is confirmed but the link is unavailable, the result explains why while remaining successful; a missing link never triggers republication. Older results without saved links are not backfilled.
 
 Maintain model prompts as Markdown in [`prompt/`](./prompt/) using `{{variable}}` placeholders. Templates are embedded at build time; rebuild after editing them. See the [prompt maintenance guide](./CONTRIBUTING.md#提示词维护--prompt-templates).
 

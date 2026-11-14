@@ -173,4 +173,59 @@ describe("全账号任务页", () => {
       revokeURL.mockRestore();
     }
   });
+  it.each([false, true])("发布结果打开官方笔记并反馈复制结果，失败=%s", async (fails) => {
+    const url = "https://www.xiaohongshu.com/explore/abc123?xsec_token=token";
+    const writeText = vi.fn(() => fails ? Promise.reject(new Error("denied")) : Promise.resolve());
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    try {
+      const api = vi.fn().mockResolvedValue(list([task({ status: "succeeded", result: { note_id: "abc123", note_url: url } })]));
+      render(<Tasks api={api} token="token" active />);
+      fireEvent.click(await screen.findByText("查看发布结果"));
+      expect(screen.getByRole("link", { name: "打开笔记" })).toHaveAttribute("href", url);
+      expect(screen.getByRole("link", { name: "打开笔记" })).toHaveAttribute("target", "_blank");
+      await waitFor(() => expect(screen.getByRole("button", { name: "复制链接" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "复制链接" }));
+      expect(writeText).toHaveBeenCalledWith(url);
+      expect(await screen.findByRole(fails ? "alert" : "status")).toBeVisible();
+      expect(screen.getByText("已完成")).toBeVisible();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each([
+    {},
+    { note_url: "", note_link_error: "发布页未返回笔记地址" },
+    { note_url: "javascript:alert(1)" },
+    { note_url: "data:text/html,hello" },
+    { note_url: "https://www.xiaohongshu.com.evil.test/explore/abc123" },
+    { note_url: "http://www.xiaohongshu.com/explore/abc123" },
+    { note_url: "https://www.xiaohongshu.com/user/profile/abc123" },
+    { note_url: "https://www.xiaohongshu.com/explore/abc123", note_id: "other" },
+  ])("历史、缺失或不安全链接不提供操作：%j", async (fields) => {
+    const api = vi.fn().mockResolvedValue(list([task({ status: "succeeded", result: { content: "历史正文", ...fields } })]));
+    render(<Tasks api={api} token="token" active />);
+    fireEvent.click(await screen.findByText("查看发布结果"));
+    expect(screen.getByText("历史正文")).toBeVisible();
+    expect(screen.getByText("已完成")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "打开笔记" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "复制链接" })).not.toBeInTheDocument();
+    if (fields.note_link_error) expect(screen.getByText(new RegExp(fields.note_link_error))).toBeVisible();
+  });
+
+  it("离开任务页后忽略迟到的复制结果", async () => {
+    const copying = deferred();
+    const writeText = vi.fn(() => copying.promise);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    try {
+      const api = vi.fn().mockResolvedValue(list([task({ status: "succeeded", result: { note_url: "https://www.xiaohongshu.com/explore/abc123" } })]));
+      const view = render(<Tasks api={api} token="token" active />);
+      fireEvent.click(await screen.findByText("查看发布结果"));
+      await waitFor(() => expect(screen.getByRole("button", { name: "复制链接" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "复制链接" }));
+      expect(writeText).toHaveBeenCalledTimes(1);
+      view.rerender(<Tasks api={api} token="token" active={false} />);
+      await act(async () => copying.resolve());
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    } finally { vi.unstubAllGlobals(); }
+  });
 });

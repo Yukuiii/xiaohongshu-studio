@@ -237,4 +237,61 @@ describe("定时任务用户操作", () => {
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
+  it.each([false, true])("执行记录打开笔记并反馈复制结果，失败=%s", async (fails) => {
+    const url = "https://www.xiaohongshu.com/explore/abc123?xsec_token=token";
+    const writeText = vi.fn(() => fails ? Promise.reject(new Error("denied")) : Promise.resolve());
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    try {
+      const api = vi.fn(async (path) => path === "/schedules" ? { schedules: [job()] } : runs([run({ result: { title: "本次早餐", content: "完整的正文", note_id: "abc123", note_url: url } })]));
+      render(<Schedules api={api} token="token" active accounts={accounts} />);
+      fireEvent.click(await screen.findByRole("button", { name: "详情与执行记录" }));
+      const link = await screen.findByRole("link", { name: "打开笔记" });
+      expect(link).toHaveAttribute("href", url);
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(screen.getAllByText("完整的正文")).toHaveLength(1);
+      expect(screen.getAllByText("本次早餐")).toHaveLength(1);
+      fireEvent.click(screen.getByRole("button", { name: "复制链接" }));
+      expect(writeText).toHaveBeenCalledWith(url);
+      expect(await screen.findByRole(fails ? "alert" : "status")).toBeVisible();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each([
+    undefined,
+    { note_link_error: "发布页未返回笔记地址" },
+    { note_url: "javascript:alert(1)" },
+    { note_url: "data:text/html,hello" },
+    { note_url: "https://evil.test/explore/abc123" },
+    { note_url: "https://www.xiaohongshu.com/explore/abc123", note_id: "other" },
+  ])("历史与无有效链接执行仍保留发布结果：%j", async (result) => {
+    const api = vi.fn(async (path) => path === "/schedules" ? { schedules: [job()] } : runs([run({ result })]));
+    render(<Schedules api={api} token="token" active accounts={accounts} />);
+    fireEvent.click(await screen.findByRole("button", { name: "详情与执行记录" }));
+    const record = await screen.findByRole("article", { name: "执行记录：本次早餐" });
+    expect(within(record).getByText("完整的正文")).toBeVisible();
+    expect(within(record).getByText("发布成功", { exact: true })).toBeVisible();
+    expect(within(record).queryByRole("link", { name: "打开笔记" })).not.toBeInTheDocument();
+    expect(within(record).queryByRole("button", { name: "复制链接" })).not.toBeInTheDocument();
+    if (result?.note_link_error) expect(within(record).getByText(new RegExp(result.note_link_error))).toBeVisible();
+  });
+
+  it("切换执行记录后忽略上一页迟到的复制结果", async () => {
+    const copying = deferred();
+    vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(() => copying.promise) } });
+    try {
+      const api = vi.fn(async (path) => {
+        if (path === "/schedules") return { schedules: [job()] };
+        if (path.includes("page=2")) return runs([run({ id: "r2", title: "后续记录" })], 21);
+        return runs([run({ result: { note_url: "https://www.xiaohongshu.com/explore/abc123" } })], 21);
+      });
+      render(<Schedules api={api} token="token" active accounts={accounts} />);
+      fireEvent.click(await screen.findByRole("button", { name: "详情与执行记录" }));
+      fireEvent.click(await screen.findByRole("button", { name: "复制链接" }));
+      fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+      await screen.findByRole("article", { name: "执行记录：后续记录" });
+      await act(async () => copying.resolve());
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    } finally { vi.unstubAllGlobals(); }
+  });
 });

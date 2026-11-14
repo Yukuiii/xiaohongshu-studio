@@ -445,6 +445,19 @@ GET /api/v1/tasks/0123456789abcdef0123456789abcdef
 
 任务还提供 `message`、创建/更新/开始/结束时间。查询失败任务仍返回 HTTP 200，请以 `task.status` 和 `task.error` 判断结果，不要用重复 POST 代替查询。任务存入 SQLite，服务重启后排队任务继续执行；遗留执行中记录转为 `uncertain`，不自动重发。账号移除后保留任务历史和提交时备注名。
 
+图文、原生长文和视频发布成功后，服务从本次创建请求的响应中读取笔记标识，再按该 ID 从当前账号主页取得网页访问参数，将 `note_id` 和完整的 `note_url` 保存到 `task.result`；不按标题匹配。例如：
+
+```json
+{
+  "status": "发布完成",
+  "title": "笔记标题",
+  "note_id": "6af8bd4c000000002a01272b",
+  "note_url": "https://www.xiaohongshu.com/explore/6af8bd4c000000002a01272b?xsec_source=pc_user&xsec_token=access-token"
+}
+```
+
+笔记链接字段为可选。若发布已确认，但未捕获到有效标识、笔记尚未出现在账号主页或访问参数暂不可用，`result.note_link_error` 说明原因，任务仍为 `succeeded`，不会因为链接缺失重新发布。已取得的 `note_id` 会保留，不返回缺少访问参数的裸地址。历史记录未保存链接时不自动补填。链接访问仍受小红书登录、网络风控、审核和可见范围限制；工作台提供「打开笔记」和「复制链接」。
+
 #### 3.4 定时创作任务
 
 以下接口使用工作台访问令牌，不要求 `X-XHS-Account-ID`。
@@ -487,6 +500,8 @@ Content-Type: application/json
 ```
 
 历史返回 `data.runs`、`total`、`page`、`page_size`，默认每页 20 条、最多 100 条。记录包含 `id`、`schedule_id`、账号、`status`、`stage`、计划/开始/结束时间、`title`、`content`、`tags`、`sources`、`image_prompt`、`images`、`error`、`publish_task_id`、`snapshot` 和 `retry_of_id`。`images` 是账号托管图片 ID，用原账号的 `X-XHS-Account-ID` 请求 `/api/v1/images/:id`；快照不返回凭据或内部身份字段。
+
+执行记录还可包含 `result`，直接关联同账号 `publish_task_id` 对应的持久发布结果，包括 `note_id`、`note_url` 或 `note_link_error`，字段含义与任务接口一致；没有关联结果时省略。定时任务页面使用这份结果提供「打开笔记」和「复制链接」。
 
 状态为 `running`、`publishing`、`succeeded`、`failed`、`uncertain`、`skipped`；新执行从 `composing` 开始，后续阶段为 `imaging`（仅图文）、`publishing`、`finished`。标题、正文和生图描述在发布前保存，失败时仍可查看。新记录的 `sources` 为 `[]`；旧记录中的参考资料保留，历史阶段可能包含 `searching` 和 `reading`。
 

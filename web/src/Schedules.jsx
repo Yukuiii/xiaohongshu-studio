@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PublishResult, StoredImage } from "./components.jsx";
+import { PublishedNoteLink, StoredImage } from "./components.jsx";
 import { ToastNotice } from "./notifications.jsx";
 import { useSchedules } from "./useSchedules.js";
 import Select from "./Select.jsx";
@@ -144,7 +144,7 @@ function RunRecord({ run, api, token, active }) {
       {run.error && <p className="schedule-error">执行说明：{run.error}</p>}
       {run.status === "uncertain" && <p className="schedule-warning">发布结果尚未确定，请在小红书账号核对实际结果。此条记录不会自动重试。</p>}
       {run.status === "succeeded" && <p>本次笔记已发布。</p>}
-      {run.result != null && <PublishResult result={run.result} />}
+      <PublishedNoteLink result={run.result} active={active} />
       {run.sources?.length > 0 && <details className="schedule-reference"><summary>完整参考（{run.sources.length} 篇）</summary>
         {run.sources.map((source, index) => <article key={index} className="schedule-source">
           <h4>{source.title || `参考 ${index + 1}`}</h4>

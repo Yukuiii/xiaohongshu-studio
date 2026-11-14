@@ -71,6 +71,7 @@ type ScheduleRun struct {
 	Sources       json.RawMessage `json:"sources"`
 	Error         string          `json:"error"`
 	PublishTaskID string          `json:"publish_task_id"`
+	Result        json.RawMessage `json:"result,omitempty"`
 	Snapshot      ScheduledJob    `json:"snapshot"`
 	ImagePrompt   string          `json:"image_prompt"`
 	Images        []string        `json:"images"`
@@ -105,6 +106,9 @@ const scheduledJobSummaryColumns = `,
 
 const scheduleRunColumns = `id, schedule_id, account_id, account_name, status, stage,
  scheduled_at, started_at, finished_at, title, content, tags, sources, error, publish_task_id, snapshot, image_prompt, images, retry_of_id`
+
+const scheduleRunResultColumns = `,
+ (SELECT result FROM publish_tasks WHERE id = schedule_runs.publish_task_id AND account_id = schedule_runs.account_id)`
 
 var scheduleParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
@@ -402,7 +406,7 @@ func (s *Store) UnfinishedScheduleRuns(ctx context.Context) ([]ScheduleRun, erro
 	if err != nil {
 		return nil, err
 	}
-	return scanScheduleRuns(rows)
+	return scanScheduleRuns(rows, false)
 }
 
 // ListScheduleRuns 保留已删除配置的历史；页码从 1 开始，每页最多 100 条。
@@ -439,11 +443,11 @@ func (s *Store) ListScheduleRuns(ctx context.Context, scheduleID string, page, p
 	if total == 0 || page-1 > (total-1)/pageSize {
 		return []ScheduleRun{}, total, nil
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT `+scheduleRunColumns+` FROM schedule_runs WHERE schedule_id = ? ORDER BY started_at DESC, rowid DESC LIMIT ? OFFSET ?`, scheduleID, pageSize, (page-1)*pageSize)
+	rows, err := tx.QueryContext(ctx, `SELECT `+scheduleRunColumns+scheduleRunResultColumns+` FROM schedule_runs WHERE schedule_id = ? ORDER BY started_at DESC, rowid DESC LIMIT ? OFFSET ?`, scheduleID, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, 0, err
 	}
-	runs, err := scanScheduleRuns(rows)
+	runs, err := scanScheduleRuns(rows, true)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -606,14 +610,19 @@ func scanScheduledJobs(rows *sql.Rows, withSummary bool) ([]ScheduledJob, error)
 	return jobs, rows.Err()
 }
 
-func scanScheduleRun(scanner interface{ Scan(...any) error }) (ScheduleRun, error) {
+func scanScheduleRun(scanner interface{ Scan(...any) error }, withResult bool) (ScheduleRun, error) {
 	var run ScheduleRun
 	var scheduled, started int64
 	var finished sql.NullInt64
 	var tags, sources, snapshot, images string
-	if err := scanner.Scan(&run.ID, &run.ScheduleID, &run.AccountID, &run.AccountName, &run.Status, &run.Stage,
+	var result sql.NullString
+	fields := []any{&run.ID, &run.ScheduleID, &run.AccountID, &run.AccountName, &run.Status, &run.Stage,
 		&scheduled, &started, &finished, &run.Title, &run.Content, &tags, &sources,
-		&run.Error, &run.PublishTaskID, &snapshot, &run.ImagePrompt, &images, &run.RetryOfID); err != nil {
+		&run.Error, &run.PublishTaskID, &snapshot, &run.ImagePrompt, &images, &run.RetryOfID, &result}
+	if !withResult {
+		fields = fields[:19]
+	}
+	if err := scanner.Scan(fields...); err != nil {
 		return ScheduleRun{}, err
 	}
 	run.ScheduledAt, run.StartedAt = time.UnixMilli(scheduled).UTC(), time.UnixMilli(started).UTC()
@@ -628,6 +637,9 @@ func scanScheduleRun(scanner interface{ Scan(...any) error }) (ScheduleRun, erro
 		return ScheduleRun{}, err
 	}
 	run.Sources = json.RawMessage(sources)
+	if result.Valid {
+		run.Result = json.RawMessage(result.String)
+	}
 	var stored storedScheduleSnapshot
 	if err := json.Unmarshal([]byte(snapshot), &stored); err != nil {
 		return ScheduleRun{}, err
@@ -637,11 +649,11 @@ func scanScheduleRun(scanner interface{ Scan(...any) error }) (ScheduleRun, erro
 	return run, nil
 }
 
-func scanScheduleRuns(rows *sql.Rows) ([]ScheduleRun, error) {
+func scanScheduleRuns(rows *sql.Rows, withResult bool) ([]ScheduleRun, error) {
 	defer rows.Close()
 	runs := make([]ScheduleRun, 0)
 	for rows.Next() {
-		run, err := scanScheduleRun(rows)
+		run, err := scanScheduleRun(rows, withResult)
 		if err != nil {
 			return nil, err
 		}
@@ -684,7 +696,7 @@ func (s *Store) RetryScheduleRun(ctx context.Context, scheduleID, runID string, 
 	if sourceStatus != "failed" && sourceStatus != "skipped" {
 		return ScheduleRun{}, false, ErrScheduleNotRetryable
 	}
-	existing, err := scanScheduleRun(tx.QueryRowContext(ctx, `SELECT `+scheduleRunColumns+` FROM schedule_runs WHERE retry_of_id = ?`, runID))
+	existing, err := scanScheduleRun(tx.QueryRowContext(ctx, `SELECT `+scheduleRunColumns+` FROM schedule_runs WHERE retry_of_id = ?`, runID), false)
 	if err == nil {
 		return existing, false, nil
 	}

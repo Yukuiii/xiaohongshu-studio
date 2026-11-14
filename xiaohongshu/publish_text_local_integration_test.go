@@ -55,7 +55,7 @@ func TestPublishTextLocalPreservesFullArticleAndOriginalTitle(t *testing.T) {
 				page.MustEval(`() => sessionStorage.setItem('uncertain','1')`)
 			}
 			content := PublishImageContent{Title: "保留原始标题", Content: strings.Repeat("长文正文不截断。", 150)}
-			err = action.Publish(ctx, content)
+			_, err = action.Publish(ctx, content)
 			if uncertain {
 				require.ErrorIs(t, err, xhsErrors.ErrPublishUncertain)
 			} else {

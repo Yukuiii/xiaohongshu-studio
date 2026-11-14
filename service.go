@@ -95,6 +95,7 @@ type LoginBrowserResponse struct {
 
 // PublishResponse 发布响应
 type PublishResponse struct {
+	xiaohongshu.PublishedNote
 	AccountID string   `json:"account_id,omitempty"`
 	Title     string   `json:"title"`
 	Content   string   `json:"content"`
@@ -117,6 +118,7 @@ type PublishVideoRequest struct {
 
 // PublishVideoResponse 发布视频响应
 type PublishVideoResponse struct {
+	xiaohongshu.PublishedNote
 	AccountID string `json:"account_id,omitempty"`
 	Title     string `json:"title"`
 	Content   string `json:"content"`
@@ -477,18 +479,20 @@ func (s *XiaohongshuService) PublishContent(ctx context.Context, req *PublishReq
 		Products:     req.Products,
 	}
 
-	if err := s.publishContent(ctx, content); err != nil {
+	note, err := s.publishContent(ctx, content)
+	if err != nil {
 		logrus.Errorf("发布内容失败: title=%s %v", content.Title, err)
 		return nil, err
 	}
 
 	response := &PublishResponse{
-		AccountID: s.accountID(),
-		Title:     req.Title,
-		Content:   req.Content,
-		Images:    len(imagePaths),
-		AtUsers:   req.AtUsers,
-		Status:    "发布完成",
+		AccountID:     s.accountID(),
+		Title:         req.Title,
+		Content:       req.Content,
+		Images:        len(imagePaths),
+		AtUsers:       req.AtUsers,
+		PublishedNote: note,
+		Status:        "发布完成",
 	}
 
 	return response, nil
@@ -509,10 +513,10 @@ func (s *XiaohongshuService) processImages(images []string) ([]string, error) {
 }
 
 // publishContent 执行内容发布
-func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohongshu.PublishImageContent) error {
+func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohongshu.PublishImageContent) (xiaohongshu.PublishedNote, error) {
 	b, err := s.newBrowser(ctx)
 	if err != nil {
-		return err
+		return xiaohongshu.PublishedNote{}, err
 	}
 	defer b.Close()
 
@@ -522,17 +526,25 @@ func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohon
 	if len(content.ImagePaths) == 0 {
 		action, err := xiaohongshu.NewPublishTextAction(page)
 		if err != nil {
-			return err
+			return xiaohongshu.PublishedNote{}, err
 		}
-		return action.Publish(ctx, content)
+		note, err := action.Publish(ctx, content)
+		if err != nil {
+			return xiaohongshu.PublishedNote{}, err
+		}
+		return xiaohongshu.ResolvePublishedNoteLink(ctx, page, note), nil
 	}
 
 	action, err := xiaohongshu.NewPublishImageAction(page)
 	if err != nil {
-		return err
+		return xiaohongshu.PublishedNote{}, err
 	}
 
-	return action.Publish(ctx, content)
+	note, err := action.Publish(ctx, content)
+	if err != nil {
+		return xiaohongshu.PublishedNote{}, err
+	}
+	return xiaohongshu.ResolvePublishedNoteLink(ctx, page, note), nil
 }
 
 // PublishVideo 发布视频（本地文件）
@@ -593,25 +605,27 @@ func (s *XiaohongshuService) PublishVideo(ctx context.Context, req *PublishVideo
 		Products:     req.Products,
 	}
 
-	if err := s.publishVideo(ctx, content); err != nil {
+	note, err := s.publishVideo(ctx, content)
+	if err != nil {
 		return nil, err
 	}
 
 	resp := &PublishVideoResponse{
-		AccountID: s.accountID(),
-		Title:     req.Title,
-		Content:   req.Content,
-		Video:     req.Video,
-		Status:    "发布完成",
+		AccountID:     s.accountID(),
+		Title:         req.Title,
+		Content:       req.Content,
+		Video:         req.Video,
+		PublishedNote: note,
+		Status:        "发布完成",
 	}
 	return resp, nil
 }
 
 // publishVideo 执行视频发布
-func (s *XiaohongshuService) publishVideo(ctx context.Context, content xiaohongshu.PublishVideoContent) error {
+func (s *XiaohongshuService) publishVideo(ctx context.Context, content xiaohongshu.PublishVideoContent) (xiaohongshu.PublishedNote, error) {
 	b, err := s.newBrowser(ctx)
 	if err != nil {
-		return err
+		return xiaohongshu.PublishedNote{}, err
 	}
 	defer b.Close()
 
@@ -620,10 +634,14 @@ func (s *XiaohongshuService) publishVideo(ctx context.Context, content xiaohongs
 
 	action, err := xiaohongshu.NewPublishVideoAction(page)
 	if err != nil {
-		return err
+		return xiaohongshu.PublishedNote{}, err
 	}
 
-	return action.PublishVideo(ctx, content)
+	note, err := action.PublishVideo(ctx, content)
+	if err != nil {
+		return xiaohongshu.PublishedNote{}, err
+	}
+	return xiaohongshu.ResolvePublishedNoteLink(ctx, page, note), nil
 }
 
 // ListFeeds 获取Feeds列表

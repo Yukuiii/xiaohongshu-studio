@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { ToastNotice } from "./notifications.jsx";
 
 export function Dialog({
   open,
@@ -141,6 +142,53 @@ export function StoredImage({
   );
 }
 
+function publishedNoteURL(result) {
+  if (typeof result?.note_url !== "string") return "";
+  try {
+    const url = new URL(result.note_url);
+    const match = /^\/explore\/([a-zA-Z0-9]+)$/.exec(url.pathname);
+    if (url.protocol !== "https:" || url.hostname !== "www.xiaohongshu.com" || url.port || url.username || url.password || !match) return "";
+    if (result.note_id && result.note_id !== match[1]) return "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+export function PublishedNoteLink({ result, active = true }) {
+  const url = publishedNoteURL(result);
+  const error = typeof result?.note_link_error === "string" ? result.note_link_error.trim() : "";
+  const [notice, setNotice] = useState(null);
+  const lifecycle = useRef(0);
+  useLayoutEffect(() => {
+    lifecycle.current += 1;
+    setNotice(null);
+    return () => { lifecycle.current += 1; };
+  }, [active, url]);
+
+  const copy = async () => {
+    if (!active) return;
+    const version = lifecycle.current;
+    try {
+      await navigator.clipboard.writeText(url);
+      if (lifecycle.current === version) setNotice({ type: "success", message: "链接已复制" });
+    } catch {
+      if (lifecycle.current === version) setNotice({ type: "error", message: "复制链接失败，请打开笔记后复制地址栏链接。" });
+    }
+  };
+
+  if (!url) return error ? <p className="muted">已发布但未获取到链接：{error}</p> : null;
+  return (
+    <>
+      <div className="button-group">
+        <a className="button" href={url} target="_blank" rel="noopener noreferrer">打开笔记</a>
+        <button className="button" type="button" disabled={!active} onClick={copy}>复制链接</button>
+      </div>
+      <ToastNotice active={active} notice={notice} />
+    </>
+  );
+}
+
 export function PublishResult({ result, images, api, token, accountId, active = true }) {
   const imageList = Array.isArray(images) ? images.filter(Boolean) : [];
   const ownerAccountId = accountId || result?.account_id;
@@ -231,7 +279,7 @@ export function PublishResult({ result, images, api, token, accountId, active = 
   const hasContent = typeof result.content === "string" && result.content.length > 0;
   const hasMeta = meta.length > 0 || showImages;
 
-  if (!hasMeta && !hasContent) {
+  if (!hasMeta && !hasContent && !result.note_url && !result.note_id && !result.note_link_error) {
     return (
       <div className="publish-result">
         <pre className="publish-result-raw">{JSON.stringify(result, null, 2)}</pre>
@@ -263,6 +311,7 @@ export function PublishResult({ result, images, api, token, accountId, active = 
           <div className="publish-result-prose">{result.content}</div>
         </div>
       )}
+      <PublishedNoteLink result={result} active={active} />
       {lightboxDialog}
     </div>
   );

@@ -39,13 +39,13 @@ func NewPublishTextAction(page *rod.Page) (*PublishTextAction, error) {
 	return &PublishTextAction{page: page}, nil
 }
 
-func (p *PublishTextAction) Publish(ctx context.Context, content PublishImageContent) error {
+func (p *PublishTextAction) Publish(ctx context.Context, content PublishImageContent) (PublishedNote, error) {
 	if len(content.ImagePaths) != 0 {
-		return errors.New("长文不能上传额外图片")
+		return PublishedNote{}, errors.New("长文不能上传额外图片")
 	}
 	page := p.page.Context(ctx).Timeout(300 * time.Second)
 	if err := prepareTextPublication(page, content.Title, content.Content); err != nil {
-		return err
+		return PublishedNote{}, err
 	}
 	tags := content.Tags
 	if len(tags) > 10 {

@@ -47,22 +47,23 @@ func NewPublishVideoAction(page *rod.Page) (*PublishAction, error) {
 }
 
 // PublishVideo 上传视频并提交
-func (p *PublishAction) PublishVideo(ctx context.Context, content PublishVideoContent) error {
+func (p *PublishAction) PublishVideo(ctx context.Context, content PublishVideoContent) (PublishedNote, error) {
 	if content.VideoPath == "" {
-		return errors.New("视频不能为空")
+		return PublishedNote{}, errors.New("视频不能为空")
 	}
 
 	// 重设超时：.Context(ctx) 会替换掉 NewPublishVideoAction 里 Timeout(300s) 的 deadline
 	page := p.page.Context(ctx).Timeout(300 * time.Second)
 
 	if err := uploadVideo(page, content.VideoPath); err != nil {
-		return errors.Wrap(err, "小红书上传视频失败")
+		return PublishedNote{}, errors.Wrap(err, "小红书上传视频失败")
 	}
 
-	if err := submitPublishVideo(ctx, page, content.Title, content.Content, content.Tags, content.ScheduleTime, content.IsOriginal, content.Visibility, content.Products); err != nil {
-		return errors.Wrap(err, "小红书发布失败")
+	note, err := submitPublishVideo(ctx, page, content.Title, content.Content, content.Tags, content.ScheduleTime, content.IsOriginal, content.Visibility, content.Products)
+	if err != nil {
+		return PublishedNote{}, errors.Wrap(err, "小红书发布失败")
 	}
-	return nil
+	return note, nil
 }
 
 // uploadVideo 上传单个本地视频
@@ -96,33 +97,33 @@ func uploadVideo(page *rod.Page, videoPath string) error {
 }
 
 // submitPublishVideo 填写标题、正文、标签并点击发布（等待按钮可点击后再提交）
-func submitPublishVideo(ctx context.Context, page *rod.Page, title, content string, tags []string, scheduleTime *time.Time, isOriginal bool, visibility string, products []string) error {
+func submitPublishVideo(ctx context.Context, page *rod.Page, title, content string, tags []string, scheduleTime *time.Time, isOriginal bool, visibility string, products []string) (PublishedNote, error) {
 	// 标题
 	titleElem, err := page.Element("div.d-input input")
 	if err != nil {
-		return errors.Wrap(err, "查找标题输入框失败")
+		return PublishedNote{}, errors.Wrap(err, "查找标题输入框失败")
 	}
 	if err := humanize.Type(ctx, titleElem, title); err != nil {
-		return errors.Wrap(err, "输入标题失败")
+		return PublishedNote{}, errors.Wrap(err, "输入标题失败")
 	}
 	humanize.Delay(ctx, humanize.AfterType)
 
 	// 正文 + 标签
 	contentElem, err := getContentElement(page, contentElemTimeout)
 	if err != nil {
-		return err
+		return PublishedNote{}, err
 	}
 	if err := humanize.Type(ctx, contentElem, content); err != nil {
-		return errors.Wrap(err, "输入正文失败")
+		return PublishedNote{}, errors.Wrap(err, "输入正文失败")
 	}
 	tryRefocusTitle(page)
 	if len(tags) > 0 {
 		if err := startEditorTail(contentElem); err != nil {
-			return err
+			return PublishedNote{}, err
 		}
 	}
 	if err := inputTags(ctx, contentElem, tags); err != nil {
-		return err
+		return PublishedNote{}, err
 	}
 
 	humanize.Delay(ctx, humanize.AfterType)
@@ -130,33 +131,28 @@ func submitPublishVideo(ctx context.Context, page *rod.Page, title, content stri
 	// 处理定时发布
 	if scheduleTime != nil {
 		if err := setSchedulePublish(ctx, page, *scheduleTime); err != nil {
-			return errors.Wrap(err, "设置定时发布失败")
+			return PublishedNote{}, errors.Wrap(err, "设置定时发布失败")
 		}
 		slog.Info("定时发布设置完成", "schedule_time", scheduleTime.Format("2006-01-02 15:04"))
 	}
 
 	// 设置可见范围
 	if err := setVisibility(page, visibility); err != nil {
-		return errors.Wrap(err, "设置可见范围失败")
+		return PublishedNote{}, errors.Wrap(err, "设置可见范围失败")
 	}
 
 	// 处理原创声明：显式请求了原创但设置失败 → 报错中止，不静默发成非原创（避免"以为原创其实不是"）
 	if isOriginal {
 		if err := setOriginal(page); err != nil {
-			return errors.Wrap(err, "设置原创声明失败（已请求原创，中止发布）")
+			return PublishedNote{}, errors.Wrap(err, "设置原创声明失败（已请求原创，中止发布）")
 		}
 		slog.Info("已声明原创")
 	}
 
 	// 绑定商品
 	if err := bindProducts(ctx, page, products); err != nil {
-		return errors.Wrap(err, "绑定商品失败")
+		return PublishedNote{}, errors.Wrap(err, "绑定商品失败")
 	}
 
-	if err := clickPublishButton(page); err != nil {
-		return err
-	}
-
-	// 校验发布真的成功（成功跳转离开发布页），未跳转判失败——消除假成功
-	return waitPublishSuccess(page, 15*time.Second)
+	return clickAndConfirmPublish(page)
 }
