@@ -181,3 +181,8 @@ ALTER TABLE scheduled_jobs DROP COLUMN reference_count;
 -- schema version 5
 -- 创作要求可选，已有关键词任务默认留空。
 ALTER TABLE scheduled_jobs ADD COLUMN instructions TEXT NOT NULL DEFAULT '';
+
+-- schema version 6
+-- 安全验证独立于最近明确的登录结果，已有账号默认无需验证。
+ALTER TABLE accounts ADD COLUMN verification_required INTEGER NOT NULL DEFAULT 0
+  CHECK (verification_required IN (0, 1));

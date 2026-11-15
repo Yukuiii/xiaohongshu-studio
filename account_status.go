@@ -81,13 +81,17 @@ func (r *accountRuntime) refreshLoginStatus(ctx context.Context) error {
 	return r.cacheLoginFailure(r.manager.checkIdentity(ctx, r, b.accountBrowser))
 }
 
-// cacheLoginFailure 仅持久化明确失效的结果，检查异常保留上次状态。
+// cacheLoginFailure 保存明确失效或安全验证状态，普通检查异常保留上次结果。
 func (r *accountRuntime) cacheLoginFailure(err error) error {
 	failure := accountFailure(err)
 	if failure == nil {
 		return err
 	}
 	switch failure.Code {
+	case "XHS_VERIFICATION_REQUIRED":
+		if saveErr := r.manager.store.SetVerificationRequired(r.id); saveErr != nil {
+			return fmt.Errorf("保存账号安全验证状态失败: %w", saveErr)
+		}
 	case "XHS_LOGIN_REQUIRED", "ACCOUNT_IDENTITY_MISMATCH", "ACCOUNT_ALREADY_EXISTS":
 		if saveErr := r.manager.store.SetLoginStatus(r.id, false); saveErr != nil {
 			return fmt.Errorf("保存账号登录状态失败: %w", saveErr)

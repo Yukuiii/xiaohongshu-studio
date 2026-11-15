@@ -17,7 +17,7 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
-const schemaVersion = 5
+const schemaVersion = 6
 
 // Open 创建目录、打开 SQLite 并应用 schema；同一数据库只保留一个连接。
 func Open(path string) (*sql.DB, error) {
@@ -104,6 +104,8 @@ func schemaStatements(afterVersion int) []string {
 			version = 4
 		case "-- schema version 5":
 			version = 5
+		case "-- schema version 6":
+			version = 6
 		}
 		if version <= afterVersion || strings.HasPrefix(strings.TrimSpace(line), "--") {
 			continue

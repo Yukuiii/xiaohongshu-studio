@@ -4,7 +4,7 @@ import Settings from "./Settings.jsx";
 import Accounts from "./accounts/Accounts.jsx";
 import Tasks from "./Tasks.jsx";
 import Schedules from "./Schedules.jsx";
-import { canStartLogin, useAccount } from "./accounts/useAccount.js";
+import { canStartLogin, isVerificationRequired, useAccount } from "./accounts/useAccount.js";
 import { useWorkbench } from "./useWorkbench.js";
 import logo from "./assets/logo-128.png";
 import { NotificationHost, ToastNotice } from "./notifications.jsx";
@@ -102,13 +102,17 @@ export default function App() {
     activeLogin,
     onStatus: (data, scope) => {
       if (latest.current.wb.context !== scope) return;
-      if (data.is_logged_in || data.status === "not_logged_in") {
+      const verificationRequired = isVerificationRequired(data);
+      if (verificationRequired || data.is_logged_in || data.status === "not_logged_in") {
         setAccounts((items) =>
           items.map((item) =>
             item.id === scope.accountId
               ? {
                   ...item,
-                  is_logged_in: data.is_logged_in === true,
+                  is_logged_in: verificationRequired
+                    ? item.is_logged_in
+                    : data.is_logged_in === true,
+                  verification_required: verificationRequired,
                   nickname: data.username || item.nickname,
                   user_id: data.user_id || item.user_id,
                 }
@@ -332,7 +336,7 @@ export default function App() {
         activeLogin?.account_id === id ||
         (selectedId === id &&
           account.browserSession &&
-          item?.is_logged_in !== true);
+          (isVerificationRequired(item) || item?.is_logged_in !== true));
       if (
         !mutation.current &&
         item &&
@@ -490,7 +494,7 @@ export default function App() {
         <div className="topbar-meta">
           <span className="current-account" aria-label="当前账号">
             <span
-              className={`status-dot${selectedAccount?.is_logged_in ? " connected" : ""}`}
+              className={`status-dot${account.loggedIn ? " connected" : ""}`}
               aria-hidden="true"
             />
             {selectedAccount

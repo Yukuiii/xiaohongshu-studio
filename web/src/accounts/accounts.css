@@ -104,6 +104,12 @@
   margin-top: 6px;
 }
 
+.accounts-info .accounts-verification {
+  margin-top: 8px;
+  color: var(--amber);
+  line-height: 1.7;
+}
+
 .accounts-user-id {
   font-size: 12px;
   overflow-wrap: anywhere;

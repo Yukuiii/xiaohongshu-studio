@@ -30,19 +30,20 @@ var (
 
 // Account 是账号元数据；profiles/downloads 仍保存在数据目录。
 type Account struct {
-	ID                  string     `json:"id"`
-	Name                string     `json:"name"`
-	UserID              string     `json:"user_id"`
-	Nickname            string     `json:"nickname"`
-	Avatar              string     `json:"avatar,omitempty"`
-	IsLoggedIn          bool       `json:"is_logged_in"`
-	LoginCheckedAt      *time.Time `json:"login_checked_at"`
-	Seed                int        `json:"seed"`
-	ActiveProfile       string     `json:"active_profile"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
-	Deleted             bool       `json:"deleted"`
-	LegacyImportPending bool       `json:"-"`
+	ID                   string     `json:"id"`
+	Name                 string     `json:"name"`
+	UserID               string     `json:"user_id"`
+	Nickname             string     `json:"nickname"`
+	Avatar               string     `json:"avatar,omitempty"`
+	IsLoggedIn           bool       `json:"is_logged_in"`
+	VerificationRequired bool       `json:"verification_required"`
+	LoginCheckedAt       *time.Time `json:"login_checked_at"`
+	Seed                 int        `json:"seed"`
+	ActiveProfile        string     `json:"active_profile"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	Deleted              bool       `json:"deleted"`
+	LegacyImportPending  bool       `json:"-"`
 }
 
 // Store 负责账号元数据和 profile 目录，元数据保存在 SQLite。
@@ -55,7 +56,7 @@ type Store struct {
 	closed   bool
 }
 
-const accountColumns = `id, name, user_id, nickname, avatar, is_logged_in, login_checked_at, seed, active_profile, created_at, updated_at, deleted`
+const accountColumns = `id, name, user_id, nickname, avatar, is_logged_in, verification_required, login_checked_at, seed, active_profile, created_at, updated_at, deleted`
 
 // Open 持有数据根进程锁并加载账号缓存；数据库由调用方打开和关闭。
 func Open(root string, database *sql.DB) (*Store, error) {
@@ -236,7 +237,7 @@ func (s *Store) Delete(id string) error {
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		_, err = tx.Exec(
 			`UPDATE accounts SET name = '', user_id = '', nickname = '', avatar = '',
-			 is_logged_in = 0, login_checked_at = NULL, seed = 0, active_profile = '',
+			 is_logged_in = 0, verification_required = 0, login_checked_at = NULL, seed = 0, active_profile = '',
 			 updated_at = ?, deleted = 1 WHERE id = ?`,
 			now.UnixMilli(), id,
 		)
@@ -376,9 +377,24 @@ func (s *Store) SetLoginStatus(id string, loggedIn bool) error {
 	return s.save(a)
 }
 
+// SetVerificationRequired 记录安全验证，保留最近明确的登录结果和账号资料。
+func (s *Store) SetVerificationRequired(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.get(id)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	a.VerificationRequired = true
+	a.LoginCheckedAt = &now
+	return s.save(a)
+}
+
 func (a *Account) setLoginStatus(loggedIn bool) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	a.IsLoggedIn = loggedIn
+	a.VerificationRequired = false
 	a.LoginCheckedAt = &now
 }
 
@@ -404,9 +420,9 @@ func (s *Store) save(a Account) error {
 	a.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
 	result, err := s.db.Exec(
 		`UPDATE accounts SET name = ?, user_id = ?, nickname = ?, avatar = ?,
-		 is_logged_in = ?, login_checked_at = ?, seed = ?, active_profile = ?,
+		 is_logged_in = ?, verification_required = ?, login_checked_at = ?, seed = ?, active_profile = ?,
 		 created_at = ?, updated_at = ?, deleted = ? WHERE id = ?`,
-		a.Name, a.UserID, a.Nickname, a.Avatar, boolInt(a.IsLoggedIn), nullableTime(a.LoginCheckedAt),
+		a.Name, a.UserID, a.Nickname, a.Avatar, boolInt(a.IsLoggedIn), boolInt(a.VerificationRequired), nullableTime(a.LoginCheckedAt),
 		a.Seed, a.ActiveProfile, a.CreatedAt.UnixMilli(), a.UpdatedAt.UnixMilli(), boolInt(a.Deleted), a.ID,
 	)
 	if err != nil {
@@ -473,20 +489,22 @@ func (s *Store) load() error {
 
 func scanAccount(scanner interface{ Scan(...any) error }) (Account, error) {
 	var (
-		a            Account
-		loggedIn     int
-		deleted      int
-		loginChecked sql.NullInt64
-		created      int64
-		updated      int64
+		a                    Account
+		loggedIn             int
+		verificationRequired int
+		deleted              int
+		loginChecked         sql.NullInt64
+		created              int64
+		updated              int64
 	)
 	if err := scanner.Scan(
-		&a.ID, &a.Name, &a.UserID, &a.Nickname, &a.Avatar, &loggedIn, &loginChecked,
+		&a.ID, &a.Name, &a.UserID, &a.Nickname, &a.Avatar, &loggedIn, &verificationRequired, &loginChecked,
 		&a.Seed, &a.ActiveProfile, &created, &updated, &deleted,
 	); err != nil {
 		return Account{}, err
 	}
 	a.IsLoggedIn = loggedIn != 0
+	a.VerificationRequired = verificationRequired != 0
 	a.Deleted = deleted != 0
 	a.CreatedAt = time.UnixMilli(created).UTC()
 	a.UpdatedAt = time.UnixMilli(updated).UTC()
@@ -575,8 +593,8 @@ func (s *Store) createAccount(a Account) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`INSERT INTO accounts (`+accountColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, a.Name, a.UserID, a.Nickname, a.Avatar, boolInt(a.IsLoggedIn), nullableTime(a.LoginCheckedAt),
+		`INSERT INTO accounts (`+accountColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.Name, a.UserID, a.Nickname, a.Avatar, boolInt(a.IsLoggedIn), boolInt(a.VerificationRequired), nullableTime(a.LoginCheckedAt),
 		a.Seed, a.ActiveProfile, a.CreatedAt.UnixMilli(), a.UpdatedAt.UnixMilli(), boolInt(a.Deleted),
 	)
 	if err != nil {

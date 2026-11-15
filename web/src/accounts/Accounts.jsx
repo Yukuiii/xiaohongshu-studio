@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Dialog } from "../components.jsx";
-import { canStartLogin } from "./useAccount.js";
+import { canStartLogin, isVerificationRequired } from "./useAccount.js";
 import { ToastNotice } from "../notifications.jsx";
 import "./accounts.css";
 
@@ -8,7 +8,7 @@ function AccountAvatar({ account }) {
   const [failed, setFailed] = useState(false);
   return (
     <div
-      className={`accounts-avatar${account.is_logged_in ? " connected" : ""}`}
+      className={`accounts-avatar${account.is_logged_in && !isVerificationRequired(account) ? " connected" : ""}`}
       aria-hidden="true"
     >
       {account.avatar && !failed ? (
@@ -159,9 +159,11 @@ export default function Accounts({ account, manager, busy }) {
       <div aria-label="账号列表">
         {manager.accounts.map((item) => {
           const selected = manager.selectedId === item.id;
+          const verificationRequired = isVerificationRequired(item);
           const continuing =
             manager.activeLogin?.account_id === item.id ||
-            (selected && account.browserSession && item.is_logged_in !== true);
+            (selected && account.browserSession &&
+              (verificationRequired || item.is_logged_in !== true));
           const unchecked =
             !item.is_logged_in && item.user_id && !item.login_checked_at;
           const browser =
@@ -190,15 +192,28 @@ export default function Accounts({ account, manager, busy }) {
                   {item.user_id ? ` · ${item.user_id}` : ""}
                 </p>
                 <p className="helper">
-                  {item.is_logged_in
-                    ? "已登录"
-                    : unchecked
-                      ? "登录状态待检查"
-                      : "未登录"}
+                  {verificationRequired
+                    ? "需要安全验证"
+                    : item.is_logged_in
+                      ? "已登录"
+                      : unchecked
+                        ? "登录状态待检查"
+                        : "未登录"}
                   {` · ${browser}`}
                   {item.busy ? " · 任务进行中" : ""}
                   {selected && progress ? ` · ${progress}` : ""}
                 </p>
+                {verificationRequired && (
+                  <p className="accounts-verification" role="status">
+                    {selected && isVerificationRequired(account.status) &&
+                      account.status.message
+                      ? `${account.status.message} `
+                      : "小红书要求完成账号安全验证。"}
+                    {continuing
+                      ? "请点击「继续登录」，在登录网页中完成验证。"
+                      : "请点击「安全验证」，在登录网页中完成验证后再使用账号。"}
+                  </p>
+                )}
               </div>
               <div className="accounts-card-actions">
                 <button
@@ -223,9 +238,11 @@ export default function Accounts({ account, manager, busy }) {
                   >
                     {continuing
                       ? "继续登录"
-                      : item.user_id
-                        ? "重新登录"
-                        : "登录"}
+                      : verificationRequired
+                        ? "安全验证"
+                        : item.user_id
+                          ? "重新登录"
+                          : "登录"}
                   </button>
                 )}
                 {selected && (

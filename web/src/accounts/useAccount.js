@@ -24,14 +24,26 @@ const messages = {
   not_logged_in: "尚未登录，请点击「添加账号」打开真实登录网页。",
 };
 
+export function isVerificationRequired(data) {
+  return (
+    data?.verification_required === true ||
+    data?.status === "verification_required" ||
+    data?.error_code === "XHS_VERIFICATION_REQUIRED"
+  );
+}
+
 function isLoggedIn(data) {
   return (
-    data?.is_logged_in === true && (!data.status || data.status === "logged_in")
+    data?.is_logged_in === true &&
+    !isVerificationRequired(data) &&
+    (!data.status || data.status === "logged_in")
   );
 }
 
 export function canStartLogin(account) {
-  if (!account || account.is_logged_in === true) return false;
+  if (!account) return false;
+  if (isVerificationRequired(account)) return true;
+  if (account.is_logged_in === true) return false;
   return (
     !account.user_id ||
     (account.is_logged_in === false && Boolean(account.login_checked_at))
@@ -165,17 +177,23 @@ export function useAccount({
         throw new Error("登录响应与当前账号不一致，请刷新状态。");
       appliedSequence.current = version;
       const loggedIn = isLoggedIn(data);
-      const wasLoggedIn = stateRef.current.status
-        ? isLoggedIn(stateRef.current.status)
-        : inputs.current.summary?.id === scope.accountId &&
-          inputs.current.summary.is_logged_in === true;
+      const verificationRequired = isVerificationRequired(data);
+      const previous = stateRef.current.status ||
+        (inputs.current.summary?.id === scope.accountId
+          ? inputs.current.summary
+          : null);
+      const wasLoggedIn = isLoggedIn(previous);
+      const verificationChanged =
+        verificationRequired !== isVerificationRequired(previous);
       const summaryMismatch =
         inputs.current.summary?.id === scope.accountId &&
-        loggedIn !== (inputs.current.summary.is_logged_in === true);
+        (loggedIn !== isLoggedIn(inputs.current.summary) ||
+          verificationRequired !== isVerificationRequired(inputs.current.summary));
       const completedLogin = loggedIn && stateRef.current.browserSession;
-      const pending = pendingStatuses.has(data?.status);
+      const pending = pendingStatuses.has(data?.status) && Boolean(data.session_id);
       const ended =
         loggedIn ||
+        (verificationRequired && !data.session_id) ||
         ["expired", "failed", "not_logged_in"].includes(data?.status);
       const successMessage = stateRef.current.browserSession
         ? "小红书登录成功，登录信息已保存，登录网页已自动收起。"
@@ -190,7 +208,9 @@ export function useAccount({
           message: loggedIn
             ? successMessage
             : data?.message ||
-              messages[data?.status] ||
+              (verificationRequired && !data.session_id
+                ? "小红书要求安全验证，请点击「安全验证」打开登录网页完成验证。"
+                : messages[data?.status]) ||
               "请按登录网页中的提示完成登录。",
           type: loggedIn ? "" : data?.status === "failed" ? "error" : "warning",
         },
@@ -219,11 +239,13 @@ export function useAccount({
           scope.accountId,
         );
       else if (ended) inputs.current.onLoginSession?.(null, scope.accountId);
-      if (loggedIn) patch.loginVisible = false;
+      if (loggedIn || (verificationRequired && !data.session_id))
+        patch.loginVisible = false;
       update(patch);
       if (
         manual ||
         completedLogin ||
+        verificationChanged ||
         (!pending && (loggedIn !== wasLoggedIn || summaryMismatch))
       )
         inputs.current.onStatus?.(data, scope);
@@ -288,6 +310,22 @@ export function useAccount({
           applyStatus(data, current.version, current.scope, manual);
       } catch (error) {
         if (!currentRequest(current)) return;
+        if (error.code === "XHS_VERIFICATION_REQUIRED") {
+          applyStatus(
+            {
+              account_id: current.scope.accountId,
+              status: "verification_required",
+              verification_required: true,
+              is_logged_in: false,
+              error_code: error.code,
+              message: error.message,
+            },
+            current.version,
+            current.scope,
+            manual,
+          );
+          return;
+        }
         const canceled =
           error.name === "AbortError" ||
           error.message?.includes("context canceled");
@@ -335,7 +373,7 @@ export function useAccount({
     const continuing =
       inputs.current.activeLogin?.account_id ===
         inputs.current.context.accountId ||
-      (stateRef.current.browserSession && summary?.is_logged_in !== true);
+      (stateRef.current.browserSession && !isLoggedIn(summary));
     if (!continuing && summary && !canStartLogin(summary)) return;
     if (!continuing && !summary && isLoggedIn(stateRef.current.status)) return;
     const current = startRequest("open");
@@ -613,7 +651,7 @@ export function useAccount({
 
   const cached = summary?.id === context?.accountId ? summary : null;
   const loggedIn = cached
-    ? cached.is_logged_in === true
+    ? isLoggedIn(cached)
     : isLoggedIn(state.status);
 
   return {

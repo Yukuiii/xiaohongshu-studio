@@ -131,6 +131,7 @@ SQLite 数据库包含 `accounts`、`settings`、`drafts`、`publish_protection`
       "avatar": "https://sns-avatar-qc.xhscdn.com/avatar/example.webp",
       "is_logged_in": true,
       "login_checked_at": "2026-11-13T00:00:00Z",
+      "verification_required": false,
       "created_at": "2026-11-13T00:00:00Z",
       "updated_at": "2026-11-13T00:00:00Z",
       "browser_status": "stopped",
@@ -144,7 +145,7 @@ SQLite 数据库包含 `accounts`、`settings`、`drafts`、`publish_protection`
 
 `avatar` 来自最近一次身份核验的头像地址，缺失时前端使用昵称首字占位。`browser_status` 为 `stopped`、`running` 或 `login`；`active_login` 有值时包含当前可视化登录的 `account_id` 和 `session_id`。`legacy_account_id` 为旧图片路径兼容字段，当前返回最早创建的存活账号 ID，无账号时为空字符串；不表示会自动导入旧账号、Cookie 或草稿。
 
-`login_checked_at` 为 `null` 表示尚无明确检查结果，不能据此认为旧账号登录已失效。工作台对已登录账号隐藏重新登录入口；已绑定账号只有在 `is_logged_in=false` 且检查时间非空时才显示“重新登录”，未知状态可先点击“刷新状态”。新账号保留首次登录入口，已有登录窗口通过“继续登录”复用原会话。
+`login_checked_at` 为 `null` 表示尚无明确检查结果，不能据此认为旧账号登录已失效。`verification_required=true` 表示最近检查遇到小红书安全验证，优先于缓存的 `is_logged_in` 展示；原登录结果、身份和 profile 保留，账号卡显示「安全验证」入口。正常已登录账号隐藏重新登录入口；已绑定账号在 `is_logged_in=false` 且检查时间非空时显示「重新登录」，未知状态可先点击「刷新状态」。新账号保留首次登录入口，已有登录窗口通过「继续登录」复用原会话。成功核验、明确失效、清除 Cookie 或重置 profile 会清除验证标记。
 
 创建账号和修改备注名：
 
@@ -199,7 +200,7 @@ GET /health
 
 #### 2.1 手动核验登录状态
 
-实时核验所选账号的登录态与身份，并把结果写入 `is_logged_in` 和 `login_checked_at`。核验使用账号浏览器会话的 Cookie 和 UA 发起 HTTP 页面请求，不渲染 explore 页面；账号页“刷新状态”和发布前检查使用该接口。
+实时核验所选账号的登录态与身份，并更新 `is_logged_in`、`verification_required` 和 `login_checked_at`。核验使用账号浏览器会话的 Cookie 和 UA 发起 HTTP 页面请求，不渲染 explore 页面；账号页「刷新状态」和发布前检查使用该接口。安全验证要求独立保存，不覆盖最近明确的登录结果；普通网络异常保留已有状态。
 
 **请求**
 ```
@@ -212,6 +213,7 @@ GET /api/v1/account/verify
   "success": true,
   "data": {
     "is_logged_in": true,
+    "verification_required": false,
     "status": "logged_in",
     "message": "登录成功",
     "username": "用户名",
@@ -223,9 +225,11 @@ GET /api/v1/account/verify
 
 `logged_in` 表示本次核验确认会话有效。页面初始化、切换账号和切换页面使用 `/accounts` 的缓存，不触发实时核验。它不表示刚刚发生了一次扫码登录；前端仅在活动登录会话完成时显示登录成功提示。
 
+需要安全验证时仍返回 HTTP 200，`data.status` 为 `verification_required`、`data.verification_required` 为 `true`、`data.is_logged_in` 为 `false`，并提供 `error_code: "XHS_VERIFICATION_REQUIRED"` 和具体处理说明。此时本次检查未确认账号可用，不能只根据账号列表中保留的旧登录结果继续操作。没有活动窗口时不返回 `session_id`，验证要求本身不表示已经打开登录浏览器；可调用 `/login/browser` 打开验证窗口，沿用候选 profile 和身份核对流程。
+
 #### 2.2 读取登录会话进度
 
-返回登录弹窗的扫码、手机确认、安全验证和保存进度。存在活动登录会话时读取内存快照，不启动浏览器；没有活动会话时读取账号缓存中的最近登录结果。
+返回登录弹窗的扫码、手机确认、安全验证和保存进度。存在活动登录会话时读取内存快照，不启动浏览器；没有活动会话时读取账号缓存中的最近登录结果或安全验证要求，后者同样返回 `status: "verification_required"`，但没有 `session_id`。
 
 **请求**
 ```

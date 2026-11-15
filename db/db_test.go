@@ -143,17 +143,18 @@ func TestUpgradeVersionOnePreservesWorkspace(t *testing.T) {
 	database, err := Open(path)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, database.Close()) })
-	var version, loggedIn, seed int
+	var version, loggedIn, seed, verificationRequired int
 	var name, userID, profile, payload, textModel, imageModel, lastPublished string
 	var draftRevision, protectionRevision, reviewed, uncertain, updated int64
 	require.NoError(t, database.QueryRow(`PRAGMA user_version`).Scan(&version))
 	require.Equal(t, schemaVersion, version)
-	require.NoError(t, database.QueryRow(`SELECT name, user_id, is_logged_in, seed, active_profile FROM accounts WHERE id = 'legacy'`).Scan(&name, &userID, &loggedIn, &seed, &profile))
+	require.NoError(t, database.QueryRow(`SELECT name, user_id, is_logged_in, seed, active_profile, verification_required FROM accounts WHERE id = 'legacy'`).Scan(&name, &userID, &loggedIn, &seed, &profile, &verificationRequired))
 	require.Equal(t, "迁移账号", name)
 	require.Equal(t, "legacy-user", userID)
 	require.Equal(t, 1, loggedIn)
 	require.Equal(t, 123, seed)
 	require.Equal(t, "profile", profile)
+	require.Zero(t, verificationRequired)
 	require.NoError(t, database.QueryRow(`SELECT text_model, image_model FROM settings WHERE id = 1`).Scan(&textModel, &imageModel))
 	require.Equal(t, "text-v1", textModel)
 	require.Equal(t, "image-v1", imageModel)
@@ -376,7 +377,7 @@ func TestUpgradeVersionThreePreservesSchedulesAndHistory(t *testing.T) {
 
 	// 比较所有保留列，历史快照和 sources 按原始文本检查。
 	queries := []string{
-		`SELECT * FROM accounts ORDER BY id`,
+		`SELECT id, name, user_id, nickname, avatar, is_logged_in, login_checked_at, seed, active_profile, created_at, updated_at, deleted FROM accounts ORDER BY id`,
 		`SELECT * FROM settings ORDER BY id`,
 		`SELECT * FROM drafts ORDER BY account_id`,
 		`SELECT * FROM publish_protection ORDER BY account_id`,
@@ -467,4 +468,66 @@ func TestUpgradeVersionFourAddsOptionalInstructions(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	require.NoError(t, reopened.QueryRow(`SELECT instructions FROM scheduled_jobs WHERE id = 'job'`).Scan(&instructions))
 	require.Equal(t, "面向新手\n不要营销口吻", instructions)
+}
+
+func TestUpgradeVersionFivePreservesAccountState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "studio.db")
+	legacy, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = legacy.Close() })
+	legacySchema, _, found := strings.Cut(schemaSQL, "-- schema version 6")
+	require.True(t, found)
+	_, err = legacy.Exec(legacySchema)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`
+	 PRAGMA user_version = 5;
+	 INSERT INTO accounts
+	 (id, name, user_id, nickname, avatar, is_logged_in, login_checked_at, seed, active_profile, created_at, updated_at, deleted)
+	 VALUES ('active', '已登录账号', 'user-a', '昵称 A', 'https://sns-avatar-qc.xhscdn.com/a.jpg', 1, 1500, 123, 'profile-a', 1000, 2000, 0),
+	 ('expired', '已失效账号', 'user-b', '昵称 B', '', 0, 1600, 456, 'profile-b', 1100, 2100, 0),
+	 ('new', '未检查账号', '', '', '', 0, NULL, 789, 'profile-new', 1200, 2200, 0),
+	 ('deleted', '', '', '', '', 0, NULL, 0, '', 1300, 2300, 1);
+	 INSERT INTO drafts (account_id, payload, revision, updated_at)
+	 VALUES ('active', '{"title":"已有草稿"}', 3, 2000);
+	`)
+	require.NoError(t, err)
+	const accountSnapshot = `SELECT json_group_array(json_array(id, name, user_id, nickname, avatar, is_logged_in, login_checked_at, seed, active_profile, created_at, updated_at, deleted)) FROM (SELECT * FROM accounts ORDER BY id)`
+	var before string
+	require.NoError(t, legacy.QueryRow(accountSnapshot).Scan(&before))
+	require.NoError(t, legacy.Close())
+
+	for range 2 {
+		database, err := Open(path)
+		require.NoError(t, err)
+		var after, payload string
+		var version, accountCount, markedCount, revision int
+		require.NoError(t, database.QueryRow(`PRAGMA user_version`).Scan(&version))
+		require.Equal(t, schemaVersion, version)
+		require.NoError(t, database.QueryRow(accountSnapshot).Scan(&after))
+		require.Equal(t, before, after)
+		require.NoError(t, database.QueryRow(`SELECT count(*), sum(verification_required) FROM accounts`).Scan(&accountCount, &markedCount))
+		require.Equal(t, 4, accountCount)
+		require.Zero(t, markedCount)
+		require.NoError(t, database.QueryRow(`SELECT payload, revision FROM drafts WHERE account_id = 'active'`).Scan(&payload, &revision))
+		require.JSONEq(t, `{"title":"已有草稿"}`, payload)
+		require.Equal(t, 3, revision)
+		require.NoError(t, database.Close())
+	}
+}
+
+func TestVerificationRequiredDatabaseConstraint(t *testing.T) {
+	database := openTestDB(t)
+	_, err := database.Exec(`INSERT INTO accounts (id, name, seed, created_at, updated_at) VALUES ('account', '账号', 1, 1, 1)`)
+	require.NoError(t, err)
+	var required int
+	require.NoError(t, database.QueryRow(`SELECT verification_required FROM accounts WHERE id = 'account'`).Scan(&required))
+	require.Zero(t, required)
+	for _, value := range []int{1, 0} {
+		_, err = database.Exec(`UPDATE accounts SET verification_required = ? WHERE id = 'account'`, value)
+		require.NoError(t, err)
+	}
+	for _, value := range []any{-1, 2, nil} {
+		_, err = database.Exec(`UPDATE accounts SET verification_required = ? WHERE id = 'account'`, value)
+		require.Error(t, err)
+	}
 }

@@ -20,6 +20,13 @@ const login = (session = "session-A") =>
     mode: "desktop",
     desktop_url: `/desktop/${session}/vnc.html?autoconnect=1&resize=scale&path=desktop%2F${session}%2Fwebsockify`,
   });
+const verification = (extra = {}) => status("A", {
+  status: "verification_required",
+  verification_required: true,
+  error_code: "XHS_VERIFICATION_REQUIRED",
+  message: "请使用绑定账号的手机完成安全验证。",
+  ...extra,
+});
 const deferred = () => {
   let resolve;
   const promise = new Promise((done) => {
@@ -115,6 +122,67 @@ describe("登录请求隔离", () => {
     expect(api).toHaveBeenCalledTimes(1);
     expect(result.current.sessionId).toBe("session-A");
     expect(result.current.desktopURL).toContain("/desktop/session-A/");
+  });
+
+  it("安全验证缓存允许复用登录流程，即使最近检查仍为已登录", async () => {
+    const api = vi.fn().mockResolvedValue(login());
+    const { result } = renderHook(() => useAccount({
+      api,
+      active: true,
+      busy: false,
+      context: fixed,
+      summary: { id: "A", user_id: "user-A", is_logged_in: true, verification_required: true },
+    }));
+    expect(result.current.loggedIn).toBe(false);
+    await act(async () => result.current.openLogin());
+    expect(api).toHaveBeenCalledWith("/login/browser", expect.objectContaining({ method: "POST", accountId: "A" }));
+    expect(result.current.browserConnected).toBe(true);
+  });
+
+  it.each([false, true])("验证阶段只为真实会话保留桌面和轮询（有会话：%s）", async (withSession) => {
+    vi.useFakeTimers();
+    const data = verification(withSession ? { session_id: "session-A" } : {});
+    const onStatus = vi.fn();
+    const onLoginSession = vi.fn();
+    const api = vi.fn().mockResolvedValueOnce(login()).mockResolvedValue(data);
+    const { result } = renderHook(() => useAccount({
+      api, active: true, busy: false, context: fixed, onStatus, onLoginSession,
+    }));
+    await act(async () => result.current.openLogin());
+    await act(async () => vi.advanceTimersByTime(2000));
+    expect(result.current.notice).toEqual({ message: data.message, type: "warning" });
+    expect(result.current.loggedIn).toBe(false);
+    expect(result.current.browserSession).toBe(withSession);
+    expect(result.current.browserConnected).toBe(withSession);
+    expect(result.current.loginVisible).toBe(withSession);
+    expect(result.current.sessionId).toBe(withSession ? "session-A" : "");
+    expect(result.current.desktopURL).toBe(withSession ? login().desktop_url : "");
+    expect(onStatus).toHaveBeenCalledWith(data, fixed);
+    expect(onLoginSession).toHaveBeenLastCalledWith(withSession ? { account_id: "A", session_id: "session-A" } : null, "A");
+    await act(async () => vi.advanceTimersByTime(2000));
+    expect(api).toHaveBeenCalledTimes(withSession ? 3 : 2);
+  });
+
+  it.each([false, true])("切换账号后忽略晚到的验证挑战（错误响应：%s）", async (asError) => {
+    const late = deferred();
+    const api = vi.fn(() => late.promise.then(() => {
+      if (asError) throw Object.assign(new Error(verification().message), { code: "XHS_VERIFICATION_REQUIRED" });
+      return verification();
+    }));
+    const onStatus = vi.fn();
+    const { result, rerender } = renderHook((props) => useAccount({
+      api, active: true, busy: false, onStatus, ...props,
+    }), { initialProps: { context: fixed } });
+    let pending;
+    act(() => { pending = result.current.checkStatus(); });
+    const signal = api.mock.calls[0][1].signal;
+    rerender({ context: context("B", 2) });
+    await act(async () => { late.resolve(); await pending; });
+    expect(signal.aborted).toBe(true);
+    expect(result.current.status).toBeNull();
+    expect(result.current.notice.message).toBe("");
+    expect(result.current.browserSession).toBe(false);
+    expect(onStatus).not.toHaveBeenCalled();
   });
 
   it("服务端确认账号已登录时静默收起陈旧窗口并同步缓存", async () => {

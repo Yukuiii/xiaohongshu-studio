@@ -20,6 +20,15 @@ const A = {
   login_checked_at: "2026-11-13T08:00:00Z",
 };
 const expiredA = { ...A, is_logged_in: false };
+const challengedA = { ...A, verification_required: true };
+const verification = {
+  account_id: "A",
+  status: "verification_required",
+  verification_required: true,
+  is_logged_in: false,
+  error_code: "XHS_VERIFICATION_REQUIRED",
+  message: "小红书要求验证身份，请使用绑定账号的手机完成安全验证。",
+};
 const B = {
   id: "B",
   name: "账号B",
@@ -442,6 +451,74 @@ describe("账号选择界面", () => {
     expect(
       fetch.mock.calls.some(([path]) => path.endsWith("/login/browser")),
     ).toBe(false);
+  });
+
+  it("巡检安全验证优先于登录缓存，完成验证后移除警告和入口", async () => {
+    vi.useFakeTimers();
+    accountsPage();
+    let cached = A;
+    const fetch = service([A], "desktop");
+    const original = fetch.getMockImplementation();
+    fetch.mockImplementation((path, options) => {
+      if (path === "/api/v1/accounts")
+        return Promise.resolve(ok({ accounts: [cached], legacy_account_id: "A" }));
+      if (path.endsWith("/login/session")) {
+        cached = A;
+        return Promise.resolve(ok({ account_id: "A", status: "logged_in", is_logged_in: true }));
+      }
+      return original(path, options);
+    });
+    render(<App />);
+    await act(async () => {});
+    const row = screen.getByRole("region", { name: "账号 账号A" });
+    cached = challengedA;
+    await act(async () => vi.advanceTimersByTime(60000));
+    expect(within(row).getByText(/需要安全验证/)).toBeVisible();
+    expect(within(row).getByRole("status")).toHaveTextContent("请点击「安全验证」");
+    expect(within(row).queryByText(/^已登录/)).not.toBeInTheDocument();
+    expect(row.querySelector(".accounts-avatar")).not.toHaveClass("connected");
+    expect(screen.getByLabelText("当前账号").querySelector(".status-dot")).not.toHaveClass("connected");
+    expect(document.querySelector('[data-page="accounts"] .status-dot')).not.toHaveClass("connected");
+    expect(fetch.mock.calls.some(([path]) => path.endsWith("/account/verify"))).toBe(false);
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "安全验证" }));
+    });
+    expect(screen.getByRole("dialog", { name: "扫码登录 · 账号A" })).toBeVisible();
+    await act(async () => vi.advanceTimersByTime(2000));
+    expect(within(row).getByText(/^已登录/)).toBeVisible();
+    expect(within(row).queryByRole("status")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "安全验证" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "扫码登录 · 账号A" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("当前账号").querySelector(".status-dot")).toHaveClass("connected");
+  });
+
+  it.each([false, true])("手动检查保留具体验证提示，无会话时只提供安全验证入口（错误响应：%s）", async (asError) => {
+    accountsPage();
+    const fetch = service([A]);
+    const original = fetch.getMockImplementation();
+    const refresh = deferred();
+    let checked = false;
+    fetch.mockImplementation((path, options) => {
+      if (path === "/api/v1/accounts" && checked) return refresh.promise;
+      if (path.endsWith("/account/verify")) {
+        checked = true;
+        return Promise.resolve(asError
+          ? { ok: false, status: 409, json: async () => ({ success: false, code: verification.error_code, error: verification.message }) }
+          : ok(verification));
+      }
+      return original(path, options);
+    });
+    render(<App />);
+    const row = await screen.findByRole("region", { name: "账号 账号A" });
+    fireEvent.click(within(row).getByRole("button", { name: "刷新状态" }));
+    await within(row).findByRole("button", { name: "安全验证" });
+    expect(within(row).getByRole("status")).toHaveTextContent(verification.message);
+    expect(screen.queryByText("暂时无法检查登录状态，请稍后重试。")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /继续登录|结束登录窗口/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "扫码登录 · 账号A" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("当前账号").querySelector(".status-dot")).not.toHaveClass("connected");
+    await act(async () => refresh.resolve(ok({ accounts: [challengedA], legacy_account_id: "A" })));
+    expect(within(row).getByRole("status")).toHaveTextContent(verification.message);
   });
 
   it("账号卡片优先显示头像，缺少头像时使用昵称首字", async () => {

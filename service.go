@@ -77,14 +77,15 @@ func (r *PublishRequest) validate() error {
 
 // LoginStatusResponse 登录状态响应
 type LoginStatusResponse struct {
-	AccountID  string                 `json:"account_id,omitempty"`
-	SessionID  string                 `json:"session_id,omitempty"`
-	ErrorCode  string                 `json:"error_code,omitempty"`
-	IsLoggedIn bool                   `json:"is_logged_in"`
-	Username   string                 `json:"username,omitempty"` // 当前登录账号的昵称
-	UserID     string                 `json:"user_id,omitempty"`  // 用户唯一标识（个人主页 URL 中的 ID）
-	Status     xiaohongshu.LoginPhase `json:"status"`
-	Message    string                 `json:"message"`
+	AccountID            string                 `json:"account_id,omitempty"`
+	SessionID            string                 `json:"session_id,omitempty"`
+	ErrorCode            string                 `json:"error_code,omitempty"`
+	IsLoggedIn           bool                   `json:"is_logged_in"`
+	VerificationRequired bool                   `json:"verification_required"`
+	Username             string                 `json:"username,omitempty"` // 当前登录账号的昵称
+	UserID               string                 `json:"user_id,omitempty"`  // 用户唯一标识（个人主页 URL 中的 ID）
+	Status               xiaohongshu.LoginPhase `json:"status"`
+	Message              string                 `json:"message"`
 }
 
 // LoginBrowserResponse 可视化登录浏览器及当前会话进度。
@@ -191,6 +192,9 @@ func (s *XiaohongshuService) VerifyLoginStatus(ctx context.Context) (*LoginStatu
 	loginAction := xiaohongshu.NewLogin(page)
 	isLoggedIn, err := loginAction.CheckLoginStatus(ctx)
 	if err != nil {
+		if failure := accountFailure(err); failure != nil && failure.Code == "XHS_VERIFICATION_REQUIRED" {
+			return loginProgressResponse(xiaohongshu.LoginVerificationRequired), nil
+		}
 		return nil, err
 	}
 
@@ -214,11 +218,16 @@ func (s *XiaohongshuService) VerifyLoginStatus(ctx context.Context) (*LoginStatu
 }
 
 func loginProgressResponse(phase xiaohongshu.LoginPhase) *LoginStatusResponse {
-	return &LoginStatusResponse{
-		IsLoggedIn: phase == xiaohongshu.LoginLoggedIn,
-		Status:     phase,
-		Message:    loginPhaseMessage(phase),
+	response := &LoginStatusResponse{
+		IsLoggedIn:           phase == xiaohongshu.LoginLoggedIn,
+		VerificationRequired: phase == xiaohongshu.LoginVerificationRequired,
+		Status:               phase,
+		Message:              loginPhaseMessage(phase),
 	}
+	if response.VerificationRequired {
+		response.ErrorCode = "XHS_VERIFICATION_REQUIRED"
+	}
+	return response
 }
 
 func loginSessionResponse(state loginSessionSnapshot) *LoginStatusResponse {

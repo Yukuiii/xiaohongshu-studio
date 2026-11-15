@@ -44,6 +44,8 @@ func accountFailure(err error) *accountError {
 		return failure
 	}
 	switch {
+	case errors.Is(err, xhsErrors.ErrVerificationRequired):
+		return &accountError{http.StatusConflict, "XHS_VERIFICATION_REQUIRED", "小红书要求安全验证，请前往账号页打开验证窗口，按页面提示完成手机验证"}
 	case errors.Is(err, accounts.ErrTaskNotFound):
 		return &accountError{http.StatusNotFound, "TASK_NOT_FOUND", "任务不存在"}
 	case errors.Is(err, accounts.ErrTaskActive):
@@ -460,13 +462,20 @@ func (r *accountRuntime) loginSessionStatus() (*LoginStatusResponse, error) {
 		r.mu.Lock()
 		response.AccountID = r.id
 		response.SessionID = r.loginID
-		response.ErrorCode = r.loginCode
+		if r.loginCode != "" {
+			response.ErrorCode = r.loginCode
+		}
 		r.mu.Unlock()
 		return response, nil
 	}
 	record, err := r.manager.store.Get(r.id)
 	if err != nil {
 		return nil, err
+	}
+	if record.VerificationRequired {
+		response := loginProgressResponse(xiaohongshu.LoginVerificationRequired)
+		response.AccountID, response.Username, response.UserID = r.id, record.Nickname, record.UserID
+		return response, nil
 	}
 	response := &LoginStatusResponse{AccountID: r.id}
 	if record.IsLoggedIn {
@@ -491,8 +500,13 @@ func (r *accountRuntime) verifyLoginStatus(ctx context.Context) (*LoginStatusRes
 	defer b.Close()
 	if err := r.manager.checkIdentity(ctx, r, b.accountBrowser); err != nil {
 		err = r.cacheLoginFailure(err)
-		var failure *accountError
-		if errors.As(err, &failure) && failure.Code == "XHS_LOGIN_REQUIRED" {
+		failure := accountFailure(err)
+		if failure != nil && failure.Code == "XHS_VERIFICATION_REQUIRED" {
+			response := loginProgressResponse(xiaohongshu.LoginVerificationRequired)
+			response.AccountID = r.id
+			return response, nil
+		}
+		if failure != nil && failure.Code == "XHS_LOGIN_REQUIRED" {
 			response := loginProgressResponse(xiaohongshu.LoginNotLoggedIn)
 			r.mu.Lock()
 			response.AccountID = r.id
@@ -577,9 +591,9 @@ func (r *accountRuntime) openLogin(ctx context.Context) (response *LoginBrowserR
 		r.manager.releaseVisual(r.id, session)
 		return nil, accountBusy()
 	}
-	// 活动会话已复用；旧页面不能为已登录账号再复制候选。
+	// 活动会话已复用；需要安全验证时允许打开候选窗口，保留原 profile。
 	record, recordErr := r.manager.store.Get(r.id)
-	if recordErr != nil || (record.IsLoggedIn && record.LoginCheckedAt != nil) {
+	if recordErr != nil || (record.IsLoggedIn && record.LoginCheckedAt != nil && !record.VerificationRequired) {
 		r.mu.Unlock()
 		r.manager.releaseVisual(r.id, session)
 		if recordErr != nil {
