@@ -279,7 +279,7 @@ export function PublishResult({ result, images, api, token, accountId, active = 
   const hasContent = typeof result.content === "string" && result.content.length > 0;
   const hasMeta = meta.length > 0 || showImages;
 
-  if (!hasMeta && !hasContent && !result.note_url && !result.note_id && !result.note_link_error) {
+  if (!hasMeta && !hasContent) {
     return (
       <div className="publish-result">
         <pre className="publish-result-raw">{JSON.stringify(result, null, 2)}</pre>
@@ -311,7 +311,6 @@ export function PublishResult({ result, images, api, token, accountId, active = 
           <div className="publish-result-prose">{result.content}</div>
         </div>
       )}
-      <PublishedNoteLink result={result} active={active} />
       {lightboxDialog}
     </div>
   );

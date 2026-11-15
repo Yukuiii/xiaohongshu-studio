@@ -1,4 +1,4 @@
-import { act, fireEvent, render as renderUI, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render as renderUI, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import Tasks from "./Tasks.jsx";
 import { NotificationHost } from "./notifications.jsx";
@@ -63,17 +63,18 @@ describe("全账号任务页", () => {
     render(<Tasks api={api} token="" active />);
     await act(async () => {});
     expect(screen.getByText("执行中")).toBeVisible();
-    expect(screen.getByText("创作账号A · 图文")).toBeVisible();
+    expect(screen.getByText("创作账号A")).toBeVisible();
+    expect(screen.getByText("图文")).toBeVisible();
     await act(async () => vi.advanceTimersByTimeAsync(3000));
     expect(screen.getByText("已完成")).toBeVisible();
-    expect(screen.getByText("已完成").closest("article")?.querySelector(":scope > p")).toBeNull();
-    expect(screen.getByText("视频账号 · 视频")).toBeVisible();
+    expect(screen.getByText("视频账号")).toBeVisible();
+    expect(screen.getByText("视频")).toBeVisible();
     expect(screen.getByText("失败原因：视频文件不存在")).toBeVisible();
     expect(screen.getByText("结果未知")).toBeVisible();
     expect(screen.getByText(/请先在小红书账号核对实际发布结果/)).toBeVisible();
-    const summary = screen.getByText("查看发布结果");
+    const summary = within(screen.getByRole("article", { name: "发布任务：早餐记录" })).getByRole("button", { name: "任务详情" });
     fireEvent.click(summary);
-    const details = summary.closest("details");
+    const details = screen.getByRole("region", { name: "发布结果" });
     expect(details).toHaveTextContent("发布状态");
     expect(details).toHaveTextContent("2 张");
     expect(details).toHaveTextContent("第一段 第二段");
@@ -143,14 +144,14 @@ describe("全账号任务页", () => {
       });
       render(<Tasks api={api} token="secret-token" active />);
       await screen.findByRole("heading", { name: "早餐记录" });
-      expect(screen.getByText("账号编码：acc-img")).toBeVisible();
+      expect(screen.queryByText("账号编码")).not.toBeInTheDocument();
       expect(api.mock.calls.some(([path]) => path.startsWith("/images/"))).toBe(false);
 
-      const summary = screen.getByText("查看发布结果");
+      const summary = screen.getByRole("button", { name: "任务详情" });
       fireEvent.click(summary);
       const img = await screen.findByRole("img", { name: "任务配图 1" });
       expect(img).toHaveAttribute("src", "blob:task-image");
-      expect(summary.closest("details")).not.toHaveTextContent("账号编号");
+      expect(within(screen.getByRole("region", { name: "任务信息" })).getByText("acc-img")).toBeVisible();
       expect(api.mock.calls.find(([path]) => path.startsWith("/images/"))).toEqual([
         "/images/0123456789abcdef0123456789abcdef.png",
         expect.objectContaining({ accountId: "acc-img", token: "secret-token", blob: true }),
@@ -180,7 +181,7 @@ describe("全账号任务页", () => {
     try {
       const api = vi.fn().mockResolvedValue(list([task({ status: "succeeded", result: { note_id: "abc123", note_url: url } })]));
       render(<Tasks api={api} token="token" active />);
-      fireEvent.click(await screen.findByText("查看发布结果"));
+      await screen.findByRole("link", { name: "打开笔记" });
       expect(screen.getByRole("link", { name: "打开笔记" })).toHaveAttribute("href", url);
       expect(screen.getByRole("link", { name: "打开笔记" })).toHaveAttribute("target", "_blank");
       await waitFor(() => expect(screen.getByRole("button", { name: "复制链接" })).toBeEnabled());
@@ -203,7 +204,7 @@ describe("全账号任务页", () => {
   ])("历史、缺失或不安全链接不提供操作：%j", async (fields) => {
     const api = vi.fn().mockResolvedValue(list([task({ status: "succeeded", result: { content: "历史正文", ...fields } })]));
     render(<Tasks api={api} token="token" active />);
-    fireEvent.click(await screen.findByText("查看发布结果"));
+    fireEvent.click(await screen.findByRole("button", { name: "任务详情" }));
     expect(screen.getByText("历史正文")).toBeVisible();
     expect(screen.getByText("已完成")).toBeVisible();
     expect(screen.queryByRole("link", { name: "打开笔记" })).not.toBeInTheDocument();
@@ -218,7 +219,7 @@ describe("全账号任务页", () => {
     try {
       const api = vi.fn().mockResolvedValue(list([task({ status: "succeeded", result: { note_url: "https://www.xiaohongshu.com/explore/abc123" } })]));
       const view = render(<Tasks api={api} token="token" active />);
-      fireEvent.click(await screen.findByText("查看发布结果"));
+      await screen.findByRole("button", { name: "复制链接" });
       await waitFor(() => expect(screen.getByRole("button", { name: "复制链接" })).toBeEnabled());
       fireEvent.click(screen.getByRole("button", { name: "复制链接" }));
       expect(writeText).toHaveBeenCalledTimes(1);

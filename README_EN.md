@@ -56,6 +56,8 @@ Use the tabs to return to earlier steps without losing your work. The preview st
 
 Each account accepts one unfinished publication task at a time; different accounts run independently. Tasks retain the submitted content snapshot, so later draft edits do not change them. Records are saved in server-side SQLite. Queued tasks resume on restart; records still marked as running become uncertain and are never automatically resubmitted.
 
+Task cards highlight the title, account, type, status, and execution timing. When a note link is available, open the note or copy its link directly from the card. Expand Task details (任务详情) for the body, images, full timestamps, and task and account IDs; images load only while details are expanded. Failure reasons and guidance for uncertain results remain visible on the card.
+
 Routine reads such as task lists, account lists, and model settings do not show loading toasts. Active operations use upper-right toasts for progress and results; result toasts dismiss after about two seconds and have no close button.
 
 Select controls use consistent light menus, with arrow-key navigation, Enter to confirm, and Escape to cancel. Menus stay within the viewport on narrow screens.
