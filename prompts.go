@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/xpzouying/xiaohongshu-mcp/accounts"
 )
 
 //go:embed prompt/compose-system.md
@@ -80,7 +83,7 @@ func composeDraft(ctx context.Context, cfg LLMConfig, topic, instructions string
 }
 
 // composeKeywordDraft 让定时任务围绕关键词自主选择主题并创作。
-func composeKeywordDraft(ctx context.Context, cfg LLMConfig, keyword, instructions, publicationType string) (composedDraft, error) {
+func composeKeywordDraft(ctx context.Context, cfg LLMConfig, keyword, instructions, publicationType string, recentNotes []accounts.PublishedNote) (composedDraft, error) {
 	if strings.TrimSpace(keyword) == "" {
 		return composedDraft{}, fmt.Errorf("请填写创作关键词")
 	}
@@ -97,7 +100,13 @@ func composeKeywordDraft(ctx context.Context, cfg LLMConfig, keyword, instructio
 	}
 	encodedKeyword, _ := json.Marshal(keyword)
 	encodedInstructions, _ := json.Marshal(instructions)
-	user, err := renderPrompt(scheduleUserTemplate, map[string]string{"keyword": string(encodedKeyword), "instructions": string(encodedInstructions)})
+	encodedRecentNotes, err := json.Marshal(prepareRecentNotes(recentNotes))
+	if err != nil {
+		return composedDraft{}, err
+	}
+	user, err := renderPrompt(scheduleUserTemplate, map[string]string{
+		"keyword": string(encodedKeyword), "instructions": string(encodedInstructions), "recent_notes": string(encodedRecentNotes),
+	})
 	if err != nil {
 		return composedDraft{}, err
 	}
@@ -106,4 +115,58 @@ func composeKeywordDraft(ctx context.Context, cfg LLMConfig, keyword, instructio
 		return composedDraft{}, err
 	}
 	return parseComposedDraft(text)
+}
+
+type recentPromptNote struct {
+	Title     string `json:"title"`
+	Content   string `json:"content"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+func prepareRecentNotes(notes []accounts.PublishedNote) []recentPromptNote {
+	count := len(notes)
+	if count > 5 {
+		count = 5
+	}
+	prepared := make([]recentPromptNote, count)
+	for i, note := range notes[:count] {
+		title, titleTruncated := truncateRecentNoteText(note.Title, 80, false)
+		content, contentTruncated := truncateRecentNoteText(note.Content, 1200, true)
+		prepared[i] = recentPromptNote{Title: title, Content: content, Truncated: titleTruncated || contentTruncated}
+	}
+	return prepared
+}
+
+// truncateRecentNoteText 按字符截断；正文给省略标记留出预算并保留结尾。
+func truncateRecentNoteText(text string, limit int, keepTail bool) (string, bool) {
+	const marker = "\n……（省略）……\n"
+	headBudget, tailBudget := limit, 0
+	if keepTail {
+		available := limit - utf8.RuneCountInString(marker)
+		headBudget = available * 3 / 4
+		tailBudget = available - headBudget
+	}
+	headEnd, count, truncated := len(text), 0, false
+	for index := range text {
+		if count == headBudget {
+			headEnd = index
+		}
+		if count == limit {
+			truncated = true
+			break
+		}
+		count++
+	}
+	if !truncated {
+		return text, false
+	}
+	if !keepTail {
+		return text[:headEnd], true
+	}
+	tailStart := len(text)
+	for range tailBudget {
+		_, size := utf8.DecodeLastRuneInString(text[:tailStart])
+		tailStart -= size
+	}
+	return text[:headEnd] + marker + text[tailStart:], true
 }

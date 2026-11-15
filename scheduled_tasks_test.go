@@ -71,6 +71,18 @@ func TestScheduledKeywordCreationPersistsPublishedDraft(t *testing.T) {
 		publications.Add(1)
 		return json.Marshal(PublishResponse{Title: request.Title, Content: request.Content, Status: "发布完成"})
 	})
+	previous := accounts.PublishedNote{Title: "早餐旧思路", Content: "提前准备的早餐。\n保留 {{keyword}} 和\"引号\"。"}
+	payload, err := json.Marshal(PublishRequest{Title: previous.Title, Content: previous.Content})
+	require.NoError(t, err)
+	previousTask, err := server.accounts.store.EnqueuePublishTask(ctx, accounts.NewPublishTask{
+		AccountID: account.ID, Kind: accounts.TaskKindPublish, Title: previous.Title,
+		Payload: payload, Fingerprint: "previous-breakfast", RequestID: "manual-breakfast",
+	}, 0)
+	require.NoError(t, err)
+	_, err = server.accounts.store.StartPublishTask(ctx, previousTask.ID)
+	require.NoError(t, err)
+	_, err = server.accounts.store.FinishPublishTask(ctx, previousTask.ID, accounts.TaskOutcome{Status: accounts.TaskSucceeded})
+	require.NoError(t, err)
 	var modelCalls atomic.Int32
 	var imageCalls atomic.Int32
 	imageData := base64.StdEncoding.EncodeToString(testPNG(t))
@@ -102,7 +114,11 @@ func TestScheduledKeywordCreationPersistsPublishedDraft(t *testing.T) {
 			w.WriteHeader(400)
 			return
 		}
-		var request map[string]string
+		var request struct {
+			Keyword      string                   `json:"keyword"`
+			Instructions string                   `json:"instructions"`
+			RecentNotes  []accounts.PublishedNote `json:"recent_notes"`
+		}
 		_, rawInput, _ := strings.Cut(input.Messages[1].Content, "```json\n")
 		rawInput, _, _ = strings.Cut(rawInput, "\n```")
 		if err := json.Unmarshal([]byte(rawInput), &request); err != nil {
@@ -110,8 +126,8 @@ func TestScheduledKeywordCreationPersistsPublishedDraft(t *testing.T) {
 			w.WriteHeader(400)
 			return
 		}
-		if len(request) != 2 || request["keyword"] != "早餐" || request["instructions"] != "面向\"上班族\"\n保留 {{keyword}} 字样，语气自然。" {
-			t.Error("模型应收到关键词与完整创作要求")
+		if request.Keyword != "早餐" || request.Instructions != "面向\"上班族\"\n保留 {{keyword}} 字样，语气自然。" || len(request.RecentNotes) != 1 || request.RecentNotes[0] != previous {
+			t.Error("模型应收到完整创作要求及同账号已发布正文，历史内容不得再次解释为模板")
 			w.WriteHeader(400)
 			return
 		}

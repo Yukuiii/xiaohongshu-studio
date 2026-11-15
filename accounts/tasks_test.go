@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -479,4 +480,147 @@ func TestPublishTaskPageSizeLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 105, total)
 	require.Len(t, tasks, 5)
+}
+
+func insertPublishedNoteHistory(t *testing.T, s *Store, a Account, task PublishTask) {
+	t.Helper()
+	if task.Kind == "" {
+		task.Kind = TaskKindPublish
+	}
+	if task.Status == "" {
+		task.Status = TaskSucceeded
+	}
+	if task.RequestID == "" {
+		task.RequestID = task.ID
+	}
+	_, err := s.db.Exec(`INSERT INTO publish_tasks
+	 (id, account_id, account_name, user_id, kind, title, payload, fingerprint, request_id,
+	  protection_revision, status, created_at, updated_at, finished_at)
+	 VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, 1, ?, 1, 1, ?)`,
+		task.ID, a.ID, a.Name, task.UserID, task.Kind, task.Title, string(task.Payload),
+		task.RequestID, task.Status, nullableTime(task.FinishedAt))
+	require.NoError(t, err)
+}
+
+func TestRecentPublishedNotesOrderAndLimit(t *testing.T) {
+	s, a := publishTaskStore(t)
+	ctx := context.Background()
+	for _, item := range []struct {
+		id         string
+		kind       TaskKind
+		payload    string
+		requestID  string
+		finishedAt int64
+	}{
+		{"01", TaskKindPublish, `{"content":"最早正文"}`, "manual-01", 1000},
+		{"02", TaskKindPublish, `{"content":"次早正文"}`, "manual-02", 2000},
+		{"03", TaskKindPublish, `{"content":"手动图文正文","images":["/images/3.png"]}`, "manual-03", 3000},
+		{"04", TaskKindPublish, `{"content":"定时图文正文","images":["/images/4.png"]}`, "schedule-04", 4000},
+		{"05", TaskKindPublish, `{"content":"最新中文正文\n保留换行和标点。"}`, "schedule-05", 6000},
+		{"06", TaskKindPublish, `{"content":"长文正文","publication_type":"long_text"}`, "manual-06", 5000},
+		{"07", TaskKindPublishVideo, `{"content":"视频介绍正文","video":"/videos/7.mp4"}`, "manual-07", 5000},
+	} {
+		finished := time.UnixMilli(item.finishedAt)
+		insertPublishedNoteHistory(t, s, a, PublishTask{
+			ID: item.id, UserID: "test-user", Title: "标题" + item.id, Kind: item.kind,
+			Payload: json.RawMessage(item.payload), RequestID: item.requestID, FinishedAt: &finished,
+		})
+	}
+	want := []PublishedNote{
+		{Title: "标题05", Content: "最新中文正文\n保留换行和标点。"},
+		{Title: "标题07", Content: "视频介绍正文"},
+		{Title: "标题06", Content: "长文正文"},
+		{Title: "标题04", Content: "定时图文正文"},
+		{Title: "标题03", Content: "手动图文正文"},
+	}
+	for range 2 {
+		notes, err := s.RecentPublishedNotes(ctx, a.ID)
+		require.NoError(t, err)
+		require.Equal(t, want, notes)
+	}
+}
+
+func TestRecentPublishedNotesFiltersBeforeLimit(t *testing.T) {
+	s, a := publishTaskStore(t)
+	ctx := context.Background()
+	finished := time.UnixMilli(1000)
+	insertPublishedNoteHistory(t, s, a, PublishTask{
+		ID: "valid", UserID: "test-user", Title: "有效标题",
+		Payload: json.RawMessage(`{"content":"  中文正文\n"}`), FinishedAt: &finished,
+	})
+	finished = time.UnixMilli(2000)
+	for i, payload := range []string{
+		`{}`, `{"content":null}`, `{"content":123}`, `{"content":false}`,
+		`{"content":[]}`, `{"content":{}}`, `{"content":""}`,
+		`{"content":" \t\n\r\u000b\u000c\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"}`,
+		`invalid json`,
+	} {
+		insertPublishedNoteHistory(t, s, a, PublishTask{
+			ID: fmt.Sprintf("empty-%d", i), UserID: "test-user",
+			Payload: json.RawMessage(payload), FinishedAt: &finished,
+		})
+	}
+	for _, status := range []TaskStatus{TaskFailed, TaskUncertain, TaskQueued, TaskRunning, TaskSucceeded} {
+		t.Run(string(status), func(t *testing.T) {
+			task := PublishTask{
+				ID: string(status), UserID: "test-user", Status: status,
+				Payload: json.RawMessage(`{"content":"尚未成功完成"}`),
+			}
+			if status == TaskFailed || status == TaskUncertain {
+				task.FinishedAt = &finished
+			}
+			insertPublishedNoteHistory(t, s, a, task)
+			notes, err := s.RecentPublishedNotes(ctx, a.ID)
+			require.NoError(t, err)
+			require.Equal(t, []PublishedNote{{Title: "有效标题", Content: "  中文正文\n"}}, notes)
+			_, err = s.db.Exec(`DELETE FROM publish_tasks WHERE id = ?`, task.ID)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestRecentPublishedNotesAccountIdentityAndClosedStore(t *testing.T) {
+	s, a := publishTaskStore(t)
+	ctx := context.Background()
+	other, err := s.Create("另一个账号")
+	require.NoError(t, err)
+	require.NoError(t, s.BindIdentity(other.ID, "other-user", "其他用户"))
+	finished := time.UnixMilli(1000)
+	for i, item := range []struct {
+		account Account
+		userID  string
+	}{
+		{a, "test-user"}, {a, "old-user"}, {a, ""}, {other, "other-user"},
+	} {
+		insertPublishedNoteHistory(t, s, item.account, PublishTask{
+			ID: fmt.Sprintf("identity-%d", i), UserID: item.userID, Title: item.userID,
+			Payload: json.RawMessage(`{"content":"身份专属正文"}`), FinishedAt: &finished,
+		})
+	}
+	for _, item := range []struct {
+		accountID string
+		title     string
+	}{
+		{a.ID, "test-user"}, {other.ID, "other-user"},
+	} {
+		notes, err := s.RecentPublishedNotes(ctx, item.accountID)
+		require.NoError(t, err)
+		require.Equal(t, []PublishedNote{{Title: item.title, Content: "身份专属正文"}}, notes)
+	}
+	for _, statement := range []string{
+		`UPDATE accounts SET user_id = '' WHERE id = ?`,
+		`UPDATE accounts SET user_id = 'test-user', deleted = 1 WHERE id = ?`,
+	} {
+		_, err := s.db.Exec(statement, a.ID)
+		require.NoError(t, err)
+		notes, err := s.RecentPublishedNotes(ctx, a.ID)
+		require.NoError(t, err)
+		require.Empty(t, notes)
+	}
+	notes, err := s.RecentPublishedNotes(ctx, "missing-account")
+	require.NoError(t, err)
+	require.Empty(t, notes)
+	require.NoError(t, s.Close())
+	_, err = s.RecentPublishedNotes(ctx, other.ID)
+	require.ErrorIs(t, err, os.ErrClosed)
 }

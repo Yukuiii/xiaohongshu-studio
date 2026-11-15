@@ -39,6 +39,12 @@ const (
 	TaskUncertain TaskStatus = "uncertain"
 )
 
+// PublishedNote 是连续创作参考的已发布标题和正文。
+type PublishedNote struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
 // PublishTask 保存提交时的账号、内容和保护版本快照。
 type PublishTask struct {
 	ID                 string          `json:"id"`
@@ -208,6 +214,41 @@ func (s *Store) ActivePublishTask(ctx context.Context, accountID string) (Publis
 	return scanPublishTask(s.db.QueryRowContext(ctx,
 		`SELECT `+taskColumns+` FROM publish_tasks WHERE account_id = ? AND status IN ('queued', 'running')`, accountID,
 	))
+}
+
+// RecentPublishedNotes 返回当前绑定身份最近五篇成功发布的非空文本笔记。
+func (s *Store) RecentPublishedNotes(ctx context.Context, accountID string) ([]PublishedNote, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.closed {
+		return nil, os.ErrClosed
+	}
+	// 在数据库内过滤 Unicode 空白正文，避免加载完整历史或图片等 payload 字段。
+	rows, err := s.db.QueryContext(ctx, `SELECT t.title, json_extract(t.payload, '$.content')
+	 FROM publish_tasks AS t JOIN accounts AS a ON a.id = t.account_id
+	 WHERE t.account_id = ? AND a.deleted = 0 AND a.user_id <> '' AND t.user_id = a.user_id
+	 AND t.status = 'succeeded' AND t.finished_at IS NOT NULL
+	 AND CASE WHEN json_valid(t.payload) THEN
+	   CASE WHEN json_type(t.payload, '$.content') = 'text' THEN
+	     trim(json_extract(t.payload, '$.content'),
+	       char(9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195,
+	            8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288)) <> ''
+	   ELSE 0 END
+	 ELSE 0 END
+	 ORDER BY t.finished_at DESC, t.id DESC LIMIT 5`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	notes := make([]PublishedNote, 0, 5)
+	for rows.Next() {
+		var note PublishedNote
+		if err := rows.Scan(&note.Title, &note.Content); err != nil {
+			return nil, err
+		}
+		notes = append(notes, note)
+	}
+	return notes, rows.Err()
 }
 
 // ListPublishTasks 返回全账号历史，页码从 1 开始，每页最多 100 条。

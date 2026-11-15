@@ -239,7 +239,11 @@ func (m *ScheduleManager) createPublication(ctx context.Context, run *accounts.S
 	if err := store.UpdateScheduleRun(ctx, run.ID, runProgress(*run, "composing")); err != nil {
 		return err
 	}
-	draft, err := composeKeywordDraft(ctx, cfg, job.Keyword, job.Instructions, job.PublicationType)
+	recentNotes, err := store.RecentPublishedNotes(ctx, run.AccountID)
+	if err != nil {
+		return fmt.Errorf("读取近期发布内容失败: %w", err)
+	}
+	draft, err := composeKeywordDraft(ctx, cfg, job.Keyword, job.Instructions, job.PublicationType, recentNotes)
 	if err != nil {
 		return fmt.Errorf("生成笔记失败: %w", err)
 	}
