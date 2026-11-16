@@ -1039,8 +1039,9 @@ describe("账号选择界面", () => {
       name: "扫码登录 · 新账号",
     });
     expect(dialog).toHaveAttribute("open");
+    // 提示经吐司异步渲染，需等待出现。
     expect(
-      within(dialog).getByText(/登录浏览器已在运行本服务的电脑上打开/),
+      await within(dialog).findByText(/登录浏览器已在运行本服务的电脑上打开/),
     ).toBeVisible();
   });
 
