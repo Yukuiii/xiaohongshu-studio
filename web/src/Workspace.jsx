@@ -78,17 +78,13 @@ export default function Workspace({
     <>
       <header className="intro workspace-intro">
         <div>
-          <p className="eyebrow">从一个灵感，到一篇好笔记</p>
           <h1 id="workspace-title" tabIndex={-1}>
-            今天，想分享什么<span>？</span>
+            今天，想分享什么？
           </h1>
           <p className="muted">
             寻找真实参考，整理你的表达。每一次发布，都由你决定。
           </p>
         </div>
-        <span className="desk-label">
-          创作工作台 <span> / 01</span>
-        </span>
       </header>
       {!(
         account.loggedIn &&
@@ -186,7 +182,6 @@ export default function Workspace({
           >
             <div className="section-heading">
               <div>
-                <span className="section-kicker">01 / RESEARCH</span>
                 <h2 id="research-title">给灵感一个起点</h2>
               </div>
               <span className="pill">真实笔记参考</span>
@@ -323,7 +318,6 @@ export default function Workspace({
           >
             <div className="section-heading">
               <div>
-                <span className="section-kicker">02 / WRITE</span>
                 <h2 id="draft-title">把表达，变成你的</h2>
               </div>
               <span className="pill">{selectedCount} 篇参考</span>
@@ -431,7 +425,6 @@ export default function Workspace({
           >
             <div className="section-heading">
               <div>
-                <span className="section-kicker">03 / VISUALS</span>
                 <h2 id="images-title">让笔记有画面</h2>
               </div>
               <span id="image-count" className="pill">
@@ -533,7 +526,6 @@ export default function Workspace({
           >
             <div className="section-heading">
               <div>
-                <span className="section-kicker">04 / PUBLISH</span>
                 <h2>最后，再检查一遍</h2>
               </div>
             </div>

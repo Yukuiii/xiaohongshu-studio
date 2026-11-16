@@ -20,13 +20,13 @@
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 38px;
-  padding: 8px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
+  min-height: 46px;
+  padding: 11px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   background: var(--surface-input);
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   text-align: left;
   transition:
@@ -35,15 +35,15 @@
     background 0.15s var(--ease);
 }
 .select-trigger:hover:not(:disabled) {
-  border-color: #9ca3af;
-  background: var(--white);
+  border-color: var(--line-strong);
+  background: var(--surface-raised);
 }
 .select-trigger:focus-visible,
 .select-trigger[data-open] {
   outline: none;
-  border-color: var(--red);
-  background: var(--white);
-  box-shadow: 0 0 0 3px rgba(255, 36, 66, 0.12);
+  border-color: var(--accent);
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 4px var(--focus-ring);
 }
 .select-trigger[aria-invalid="true"] {
   border-color: var(--red);
@@ -69,7 +69,7 @@
   transition: transform 0.16s var(--ease), color 0.16s var(--ease);
 }
 .select-trigger[data-open] .select-chevron {
-  color: var(--red);
+  color: var(--accent);
   transform: rotate(180deg);
 }
 .select-menu {
@@ -78,13 +78,13 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   max-height: 280px;
-  padding: 5px;
+  padding: 6px;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--white);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
   box-shadow: var(--shadow-float);
   scrollbar-width: thin;
-  scrollbar-color: #d1d5db transparent;
+  scrollbar-color: var(--line-strong) transparent;
   animation: select-appear 0.14s var(--ease);
 }
 .select-option {
@@ -92,11 +92,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 36px;
-  padding: 7px 10px;
-  border-radius: 7px;
+  min-height: 40px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
   color: var(--ink);
-  font-size: 13px;
+  font-size: 13.5px;
   line-height: 1.5;
   cursor: pointer;
   user-select: none;
@@ -110,12 +110,12 @@
   background: var(--paper);
 }
 .select-option[aria-selected="true"] {
-  background: var(--red-soft);
-  color: var(--red-dark);
-  font-weight: 600;
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 500;
 }
 .select-option[aria-selected="true"][data-active] {
-  background: #ffe4e8;
+  background: var(--line);
 }
 .select-option[aria-disabled="true"] {
   color: var(--muted);
@@ -126,7 +126,7 @@
   flex: 0 0 18px;
   width: 18px;
   height: 18px;
-  stroke: var(--red);
+  stroke: var(--accent);
   stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;

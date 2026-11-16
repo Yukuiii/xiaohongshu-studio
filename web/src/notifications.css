@@ -4,7 +4,7 @@
   z-index: 1000;
   pointer-events: none;
   --toastify-font-family: inherit;
-  --toastify-color-light: var(--white);
+  --toastify-color-light: var(--surface-raised);
   --toastify-text-color-light: var(--ink);
   --toastify-color-success: var(--green);
   --toastify-color-warning: var(--amber);
@@ -18,10 +18,10 @@
   pointer-events: auto;
   font-size: 13px;
   line-height: 1.6;
-  padding: 13px 15px;
+  padding: 16px 18px;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
   overflow-wrap: anywhere;
 }
@@ -46,6 +46,6 @@
   }
   .toast-portal .Toastify__toast {
     margin-bottom: 10px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
   }
 }

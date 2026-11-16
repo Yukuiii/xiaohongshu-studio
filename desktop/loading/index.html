@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
       content="红薯创作台正在启动本地创作服务与浏览器环境。"
@@ -12,188 +12,110 @@
     <style>
       :root {
         color-scheme: light;
-        --ink: #2e1a14;
-        --ink-soft: #5e4a40;
-        --muted: #9a8272;
-        --red: #c4503a;
-        --red-bright: #df4b37;
-        --line: rgba(196, 80, 58, 0.22);
-        --serif: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC",
-          "SimSun", serif;
-        --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
-          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-        font-family: var(--sans);
+        --canvas: #fcfcfc;
+        --paper: #efeff0;
+        --ink: #111112;
+        --muted: #686a6e;
+        --accent: #0064d4;
+        --accent-hover: #0057b8;
+        --on-accent: #ffffff;
+        --line: #e5e5e7;
+        --error-ink: #b42336;
+        --error-bg: #fff1f3;
+        --error-line: #f5c9d0;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+          "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --canvas: #181819;
+          --paper: #303032;
+          --ink: #ffffff;
+          --muted: #a3a6ac;
+          --accent: #1793ff;
+          --accent-hover: #6bbcff;
+          --on-accent: #071b2d;
+          --line: #ffffff1f;
+          --error-ink: #ff98a2;
+          --error-bg: #3c252b;
+          --error-line: #654049;
+        }
       }
       * {
         box-sizing: border-box;
       }
-      html,
-      body {
-        height: 100%;
-      }
       body {
         margin: 0;
-        min-height: 100vh;
         min-height: 100dvh;
-        overflow: hidden;
         color: var(--ink);
-        background:
-          radial-gradient(
-            120% 92% at 50% 38%,
-            #fbf4e9 0%,
-            #f7eee1 48%,
-            #efe0ce 100%
-          );
+        background: var(--canvas);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
-
-      /* 背景：光晕、轨道、纸屑与颗粒 */
-      .halo {
-        position: fixed;
-        left: 50%;
-        top: 45%;
-        width: min(760px, 82vw);
-        aspect-ratio: 1;
-        transform: translate(-50%, -50%);
-        border-radius: 50%;
-        background: radial-gradient(
-          circle,
-          rgba(226, 96, 66, 0.17),
-          rgba(226, 96, 66, 0.055) 55%,
-          rgba(226, 96, 66, 0) 74%
-        );
-        filter: blur(8px);
-        pointer-events: none;
-      }
-      .orbits {
-        position: fixed;
-        left: 50%;
-        top: 45%;
-        width: min(1180px, 96vw);
-        height: auto;
-        transform: translate(-50%, -50%);
-        opacity: 0.7;
-        pointer-events: none;
-      }
-      .specks {
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        opacity: 0.6;
-      }
-      .specks i {
-        position: absolute;
-        width: 2px;
-        height: 2px;
-        border-radius: 50%;
-        background: rgba(190, 80, 55, 0.2);
-      }
-      .grain {
-        position: fixed;
-        inset: 0;
-        z-index: 1;
-        pointer-events: none;
-        opacity: 0.05;
-        mix-blend-mode: multiply;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
-      }
-
       .page {
-        position: relative;
-        z-index: 2;
-        min-height: 100vh;
         min-height: 100dvh;
         display: grid;
         place-items: center;
-        padding: 56px 24px 128px;
+        padding: 64px 24px 120px;
       }
-
       .brand {
-        position: relative;
-        max-width: 760px;
+        width: 100%;
+        max-width: 560px;
         text-align: center;
-        transform: translateY(-1.5vh);
       }
       .logo {
         display: block;
-        width: clamp(96px, 9.2vw, 120px);
-        height: auto;
+        width: 80px;
+        height: 80px;
         margin: 0 auto 28px;
-        border-radius: 26%;
-        box-shadow:
-          0 24px 52px -18px rgba(120, 45, 30, 0.42),
-          0 7px 18px rgba(120, 45, 30, 0.14);
+        border-radius: 24px;
       }
       h1 {
         margin: 0;
-        font-family: var(--serif);
-        font-weight: 600;
-        font-size: clamp(52px, 6.4vw, 76px);
-        line-height: 1.16;
-        letter-spacing: 0.14em;
-        text-indent: 0.14em;
-        color: var(--ink);
+        font-size: clamp(36px, 4vw, 48px);
+        font-weight: 500;
+        line-height: 1.3;
+        letter-spacing: -0.035em;
       }
       .en {
-        margin-top: 12px;
-        font-size: 12.5px;
-        font-weight: 500;
-        letter-spacing: 0.5em;
-        text-indent: 0.5em;
-        color: #b44a35;
-      }
-      .rule {
-        width: min(220px, 48vw);
-        height: 2px;
-        margin: 24px auto 0;
-        background: linear-gradient(
-          90deg,
-          rgba(196, 80, 58, 0),
-          rgba(196, 80, 58, 0.9),
-          rgba(196, 80, 58, 0)
-        );
+        margin-top: 10px;
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        color: var(--muted);
       }
       .tagline {
-        margin: 18px 0 0;
-        font-family: var(--serif);
-        font-size: clamp(19px, 1.9vw, 24px);
-        letter-spacing: 0.08em;
-        color: #574137;
+        margin: 24px 0 0;
+        font-size: 17px;
+        line-height: 1.7;
+        color: var(--muted);
       }
       .badge {
         display: inline-flex;
         align-items: center;
-        gap: 9px;
-        margin-top: 38px;
-        padding: 10px 19px;
-        border: 1px solid var(--line);
+        gap: 10px;
+        margin-top: 28px;
+        padding: 10px 18px;
+        border: 1px solid transparent;
         border-radius: 999px;
-        background: rgba(255, 251, 244, 0.68);
-        box-shadow: 0 8px 24px -18px rgba(120, 45, 30, 0.3);
-        color: #96624f;
-        font-size: 13px;
-        letter-spacing: 0.12em;
-        white-space: nowrap;
+        background: var(--paper);
+        color: var(--muted);
+        font-size: 12px;
       }
       .badge i {
         width: 6px;
         height: 6px;
         flex: none;
         border-radius: 50%;
-        background: var(--red-bright);
-        box-shadow: 0 0 0 3px rgba(223, 75, 55, 0.1);
+        background: var(--accent);
       }
-
-      /* 启动状态与错误兜底 */
+      /* 启动状态与错误提示 */
       .footer {
         position: fixed;
         left: 0;
         right: 0;
-        bottom: 30px;
-        z-index: 3;
+        bottom: 28px;
         display: flex;
-        flex-direction: row;
         align-items: center;
         justify-content: center;
         gap: 10px;
@@ -201,11 +123,11 @@
         pointer-events: none;
       }
       .spinner {
-        width: 15px;
-        height: 15px;
+        width: 16px;
+        height: 16px;
         flex: none;
-        border: 2px solid rgba(196, 80, 58, 0.22);
-        border-top-color: var(--red);
+        border: 2px solid var(--line);
+        border-top-color: var(--accent);
         border-radius: 50%;
         animation: spin 0.9s linear infinite;
       }
@@ -217,139 +139,73 @@
       .status {
         margin: 0;
         font-size: 12.5px;
-        letter-spacing: 0.08em;
-        color: #83695b;
+        line-height: 1.6;
+        color: var(--muted);
         text-align: center;
       }
       .error {
         display: none;
-        max-width: 560px;
         max-height: 150px;
         overflow: auto;
-        margin: 26px auto 0;
-        padding: 14px 18px;
-        border: 1px solid rgba(190, 18, 60, 0.18);
-        border-radius: 14px;
-        background: rgba(255, 248, 242, 0.86);
-        box-shadow: 0 12px 32px -22px rgba(120, 45, 30, 0.4);
-        color: #9f2d2d;
+        margin: 28px auto 0;
+        padding: 16px 20px;
+        border: 1px solid var(--error-line);
+        border-radius: 20px;
+        background: var(--error-bg);
+        color: var(--error-ink);
         font-size: 13px;
         line-height: 1.7;
         text-align: left;
-        word-break: break-word;
+        overflow-wrap: anywhere;
       }
       .actions {
         display: none;
         justify-content: center;
-        margin-top: 14px;
+        margin-top: 18px;
       }
       button {
         appearance: none;
-        border: 1px solid var(--red-bright);
+        min-height: 42px;
+        border: 1px solid var(--accent);
         border-radius: 999px;
-        padding: 9px 22px;
-        background: var(--red-bright);
-        color: #fff;
+        padding: 10px 22px;
+        background: var(--accent);
+        color: var(--on-accent);
         font: inherit;
         font-size: 13px;
+        font-weight: 600;
         cursor: pointer;
       }
       button:hover {
-        background: #c93d2b;
-        border-color: #c93d2b;
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
       }
       button:focus-visible {
-        outline: 2px solid rgba(223, 75, 55, 0.45);
-        outline-offset: 2px;
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
       }
-
-      @media (max-height: 720px) {
+      @media (max-height: 600px) {
         .page {
-          padding: 32px 20px 104px;
+          padding: 32px 20px 88px;
         }
         .logo {
-          width: 86px;
-          margin-bottom: 20px;
-        }
-        h1 {
-          font-size: clamp(46px, 6vw, 62px);
-        }
-        .rule {
-          margin-top: 18px;
-        }
-        .tagline {
-          margin-top: 14px;
-        }
-        .badge {
-          margin-top: 26px;
+          width: 60px;
+          height: 60px;
+          margin-bottom: 18px;
         }
         .footer {
-          bottom: 22px;
-          gap: 8px;
-        }
-      }
-      @media (max-width: 720px) {
-        h1 {
-          font-size: 46px;
-          letter-spacing: 0.1em;
-          text-indent: 0.1em;
-        }
-        .en {
-          letter-spacing: 0.34em;
-          text-indent: 0.34em;
-        }
-        .tagline {
-          font-size: 18px;
-        }
-        .orbits {
-          opacity: 0.4;
+          position: static;
+          padding: 0 20px 24px;
         }
       }
       @media (prefers-reduced-motion: reduce) {
         .spinner {
-          animation-duration: 2.4s;
+          animation: none;
         }
       }
     </style>
   </head>
   <body>
-    <div class="halo" aria-hidden="true"></div>
-    <svg
-      class="orbits"
-      viewBox="0 0 1200 700"
-      fill="none"
-      aria-hidden="true"
-    >
-      <ellipse
-        cx="600"
-        cy="350"
-        rx="470"
-        ry="215"
-        stroke="#D65A42"
-        stroke-opacity="0.16"
-        stroke-width="1.4"
-        stroke-dasharray="2 10"
-      />
-      <ellipse
-        cx="600"
-        cy="350"
-        rx="390"
-        ry="300"
-        stroke="#D65A42"
-        stroke-opacity="0.10"
-        stroke-width="1.2"
-        stroke-dasharray="1 12"
-        transform="rotate(-16 600 350)"
-      />
-    </svg>
-    <div class="specks" aria-hidden="true">
-      <i style="left: 7%; top: 26%"></i>
-      <i style="left: 92%; top: 22%"></i>
-      <i style="left: 13%; top: 74%"></i>
-      <i style="left: 86%; top: 68%"></i>
-      <i style="left: 50%; top: 11%"></i>
-    </div>
-    <div class="grain" aria-hidden="true"></div>
 
     <main class="page">
       <section class="brand">
@@ -362,7 +218,6 @@
         />
         <h1>红薯创作台</h1>
         <div class="en">XIAOHONGSHU STUDIO</div>
-        <div class="rule" aria-hidden="true"></div>
         <p class="tagline">从一个灵感，到一篇好笔记。</p>
         <div class="badge"><i aria-hidden="true"></i><span>自部署 · 多账号 · AI 创作</span></div>
         <div id="error" class="error" role="alert"></div>

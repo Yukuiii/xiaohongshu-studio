@@ -54,6 +54,8 @@ For running from source and development, see [CONTRIBUTING.md](./CONTRIBUTING.md
 
 Use the tabs to return to earlier steps without losing your work. The preview stays on the right on desktop and appears below the controls on narrow screens.
 
+The interface takes its visual cues from [Muse](https://muse.ai/): neutral backgrounds, a centered creation heading, soft gray inputs, pill-shaped controls, and lists with subtle dividers. Tasks, schedules, accounts, settings, menus, and dialogs share the same style and follow the system's light or dark appearance. Green, amber, and red distinguish success, warnings, and errors; on narrow screens, the current account and draft save status appear on separate lines.
+
 Each account accepts one unfinished publication task at a time; different accounts run independently. Tasks retain the submitted content snapshot, so later draft edits do not change them. Records are saved in server-side SQLite. Queued tasks resume on restart; records still marked as running become uncertain and are never automatically resubmitted.
 
 Task cards highlight the title, account, type, status, and execution timing. When a note link is available, open the note or copy its link directly from the card. Expand Task details (任务详情) for the body, images, full timestamps, and task and account IDs; images load only while details are expanded. Failure reasons and guidance for uncertain results remain visible on the card.

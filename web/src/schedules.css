@@ -21,34 +21,43 @@
   min-width: 0;
 }
 .schedule-heading h2 {
-  font-size: 16px;
-  font-weight: 650;
+  font-size: 18px;
+  font-weight: 500;
   letter-spacing: -0.015em;
 }
 .schedule-list {
   display: grid;
-  gap: 12px;
-  margin-top: 16px;
+  gap: 0;
+  margin-top: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
 }
 .schedule-item,
 .schedule-run,
 .schedule-editor {
-  padding: 20px 22px;
+  padding: 24px 26px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--white);
+  background: var(--surface);
   box-shadow: var(--shadow-card);
   min-width: 0;
   transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
+.schedule-list .schedule-item {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.schedule-item + .schedule-item {
+  border-top: 1px solid var(--line);
+}
 .schedule-item:hover {
-  border-color: var(--line-strong);
+  background: var(--paper-subtle);
 }
 .schedule-item.selected {
-  border-color: #d1d5db;
-  box-shadow:
-    0 1px 3px rgba(15, 23, 42, 0.05),
-    0 8px 22px rgba(15, 23, 42, 0.05);
+  background: var(--paper-subtle);
 }
 .schedule-item > p,
 .schedule-meta dd,
@@ -56,7 +65,7 @@
   overflow-wrap: anywhere;
 }
 .schedule-status {
-  padding: 3px 10px;
+  padding: 5px 12px;
   border-radius: 999px;
   background: var(--paper);
   border: 1px solid var(--line);
@@ -74,7 +83,7 @@
 .schedule-status.running,
 .schedule-status.publishing {
   background: var(--blue-soft);
-  border-color: #bfdbfe;
+  border-color: var(--accent-border);
   color: var(--blue);
 }
 .schedule-status.failed,
@@ -87,10 +96,10 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 20px;
-  margin: 14px 0;
-  padding: 12px 14px;
+  margin: 18px 0;
+  padding: 16px 18px;
   background: var(--paper-subtle);
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   font-size: 13px;
 }
@@ -108,7 +117,7 @@
 }
 .schedule-editor {
   margin: 20px 0;
-  background: var(--white);
+  background: var(--surface);
 }
 .schedule-fields {
   margin: 0;
@@ -136,7 +145,7 @@
 .schedule-checkbox input {
   width: 17px;
   height: 17px;
-  accent-color: var(--red);
+  accent-color: var(--accent);
 }
 .schedule-consent,
 .schedule-warning,
@@ -176,7 +185,7 @@
   padding: 26px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--white);
+  background: var(--surface);
   box-shadow: var(--shadow-card);
 }
 .schedule-config {
@@ -215,7 +224,7 @@
   margin: 0 0 8px;
 }
 .schedule-tags {
-  color: var(--red-dark);
+  color: var(--accent-hover);
   font-weight: 500;
   overflow-wrap: anywhere;
 }

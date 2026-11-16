@@ -14,8 +14,6 @@
         "label": "main",
         "create": false,
         "title": "红薯创作台",
-        "theme": "Light",
-        "backgroundColor": "#f8f1e7",
         "width": 1280,
         "height": 840,
         "minWidth": 960,

@@ -2,8 +2,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 16px 22px;
-  margin-top: 12px;
+  gap: 20px 24px;
+  margin-top: 18px;
   transition:
     border-color 0.16s var(--ease),
     box-shadow 0.16s var(--ease);
@@ -14,10 +14,8 @@
 }
 
 .accounts-card.selected {
-  border-color: #d1d5db;
-  box-shadow:
-    0 1px 3px rgba(15, 23, 42, 0.05),
-    0 8px 22px rgba(15, 23, 42, 0.05);
+  border-color: var(--line-strong);
+  box-shadow: none;
 }
 
 .current-account {
@@ -25,10 +23,10 @@
   align-items: center;
   gap: 7px;
   min-width: 0;
-  height: 30px;
+  height: 32px;
   padding: 0 12px;
   border-radius: 999px;
-  background: var(--paper);
+  background: var(--paper-subtle);
   border: 1px solid var(--line);
   color: var(--ink-secondary);
   font-size: 12px;
@@ -47,14 +45,14 @@
 
 .accounts-avatar {
   display: grid;
-  flex: 0 0 54px;
-  width: 54px;
-  height: 54px;
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
   place-items: center;
-  border-radius: 14px;
-  background: var(--red-soft);
-  border: 1px solid var(--red-border);
-  color: var(--red-dark);
+  border-radius: 50%;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  color: var(--ink-secondary);
   font-size: 21px;
   font-weight: 650;
 }
@@ -84,10 +82,10 @@
 .accounts-card.selected .accounts-info .section-kicker {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 999px;
-  background: var(--red-soft);
-  color: var(--red-dark);
+  background: var(--paper);
+  color: var(--ink-secondary);
   margin-bottom: 6px;
 }
 
@@ -214,7 +212,7 @@
   height: 100%;
   min-height: 240px;
   border: 0;
-  background: var(--white);
+  background: var(--surface);
 }
 
 .accounts-browser-busy .accounts-browser-frame {
@@ -228,7 +226,7 @@
   place-items: center;
   padding: 24px;
   text-align: center;
-  background: rgba(250, 249, 247, 0.85);
+  background: var(--surface);
 }
 
 .accounts-browser-help {
