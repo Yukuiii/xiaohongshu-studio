@@ -12,6 +12,7 @@ A self-hosted workspace for creating Xiaohongshu image posts. Research topics, s
 
 - **Research**: Search Xiaohongshu posts, read their content, and choose references for your draft.
 - **Draft and edit**: Connect your own text model to generate titles, body text, tags, and image descriptions, then edit them with a live preview.
+- **Custom prompts**: Edit the system and user templates for manual and scheduled writing under Prompts; the image prompt stays built in.
 - **Upload and generate images**: Upload local pictures or generate illustrations through a separately configured image model.
 - **Manage accounts**: Add, rename, and switch accounts. Each account has its own browser environment and persistent site data.
 - **Confirm publication**: Review and confirm before creating a background publication task. Protection state is kept per account, with coordination across tabs using the same account.
@@ -81,7 +82,9 @@ Run details retain the title, complete body, tags, generated image, configuratio
 
 After publication, the service captures the note ID from that creation request and obtains the required access parameters from the account profile by ID, then saves the complete URL. Open the note or copy its link from Tasks or scheduled run details. If publication is confirmed but the link is unavailable, the result explains why while remaining successful; a missing link never triggers republication. Older results without saved links are not backfilled.
 
-Maintain model prompts as Markdown in [`prompt/`](./prompt/) using `{{variable}}` placeholders. Templates are embedded at build time; rebuild after editing them. See the [prompt maintenance guide](./CONTRIBUTING.md#提示词维护--prompt-templates).
+Edit the system and user prompts for manual and scheduled writing under Prompts in the sidebar. Overrides are stored in the server SQLite database, shared by every browser, and apply to the next composition. Keep every `{{variable}}` listed on the card; Reset restores the built-in template. The image prompt stays built in and cannot be edited from the workspace.
+
+Built-in defaults live in [`prompt/`](./prompt/) as Markdown and are embedded at build time; rebuild after changing the defaults. See the [prompt maintenance guide](./CONTRIBUTING.md#提示词维护--prompt-templates).
 
 
 ## Accounts and sign-in
@@ -131,7 +134,7 @@ Then open **http://127.0.0.1:18060/**. When using a reverse proxy, keep the page
 | Data | Docker deployment | Running from source |
 | --- | --- | --- |
 | Accounts, complete browser profiles, and downloads | `xiaohongshu-studio-data/accounts/` | `data/accounts/` |
-| Account metadata, model settings, drafts, publication protection, task history, and scheduled runs | `xiaohongshu-studio-data/studio.db` (SQLite) | `data/studio.db` |
+| Account metadata, model settings, prompt overrides, drafts, publication protection, task history, and scheduled runs | `xiaohongshu-studio-data/studio.db` (SQLite) | `data/studio.db` |
 | Uploaded and generated images | `xiaohongshu-studio-data/uploads/`, separated by account | `data/uploads/`, separated by account |
 | Service access token | The visiting browser's localStorage | Same |
 

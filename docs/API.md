@@ -79,6 +79,8 @@ SQLite 数据库包含 `accounts`、`settings`、`drafts`、`publish_protection`
 |------|------|------|
 | GET | `/health` | 健康检查 |
 | GET/PUT/DELETE | `/api/v1/settings` | 读取、保存或清空全局模型配置 |
+| GET | `/api/v1/prompts` | 读取手动与定时写稿提示词 |
+| PUT/DELETE | `/api/v1/prompts/:key` | 保存或恢复默认提示词 |
 | GET/POST | `/api/v1/accounts` | 列出或创建账号 |
 | PATCH/DELETE | `/api/v1/accounts/:id` | 修改备注名或移除账号 |
 | POST | `/api/v1/accounts/:id/reset-profile` | 重置所选账号的完整浏览器数据 |
@@ -1251,7 +1253,48 @@ Content-Type: application/json
 {"models": ["your-text-model", "your-image-model"]}
 ```
 
-#### 8.2 根据素材写稿
+#### 8.2 提示词模板
+
+`GET /api/v1/prompts` 读取手动创作与定时创作的四段模板;`PUT /api/v1/prompts/:key` 保存指定模板;`DELETE /api/v1/prompts/:key` 删除覆盖并恢复内置默认。模板全局共享,不需要 `X-XHS-Account-ID`。
+
+`key` 与必需变量:
+
+| key | 用途 | 必需变量 |
+| --- | --- | --- |
+| `compose_system` | 手动创作系统提示词 | `publication_type`、`title_limit`、`content_limit` |
+| `compose_user` | 手动创作用户提示词 | `topic`、`instructions`、`sources` |
+| `schedule_system` | 定时创作系统提示词 | `publication_type`、`title_limit`、`content_limit` |
+| `schedule_user` | 定时创作用户提示词 | `keyword`、`instructions`、`recent_notes` |
+
+读取成功时 `data.prompts` 返回四段模板:
+
+```json
+{
+  "key": "compose_system",
+  "content": "当前生效的模板内容",
+  "default_content": "程序内置默认模板",
+  "customized": true,
+  "variables": ["publication_type", "title_limit", "content_limit"],
+  "updated_at": "2026-11-19T12:00:00Z"
+}
+```
+
+保存请求:
+
+```http
+PUT /api/v1/prompts/compose_system
+Content-Type: application/json
+```
+
+```json
+{"content": "必须包含全部必需变量的模板内容"}
+```
+
+- 每段模板必须非空、包含该 `key` 的全部必需变量,不能使用未知变量;最长 64 KiB。
+- 保存后在下一次写稿或定时执行时生效;删除覆盖后回退到编译时默认模板。
+- 生图提示词不在此接口开放,继续使用程序内置模板。
+
+#### 8.3 根据素材写稿
 
 ```http
 POST /api/v1/ai/compose
@@ -1294,7 +1337,7 @@ Content-Type: application/json
 
 模型应返回包含标题和正文的 JSON；支持 JSON 代码围栏，格式不正确则报错。超长文章保留原文供编辑，不截断、不自动重试。页面在发布前校验标题、正文和图片，最终通过 `POST /api/v1/publish` 创建后台发布任务。
 
-#### 8.3 上传与读取图片
+#### 8.4 上传与读取图片
 
 ```http
 POST /api/v1/images/upload
@@ -1318,7 +1361,7 @@ Content-Type: multipart/form-data
 
 `path` 是服务端该账号目录中的绝对路径，原样传入同一账号发布接口的 `images` 数组。`url` 用于预览：启用鉴权时须携带服务 Token 和相同的 `X-XHS-Account-ID` 获取图片，前端使用 Blob URL 展示，不在链接中附带 Token。跨账号读取返回不存在，发布其他账号托管图片返回 `400 IMAGE_ACCOUNT_MISMATCH`。图片响应为 `private, no-store`。外部本地素材与 URL 仍按发布接口规则使用。图片固定保存在数据根的 `uploads/web/<account-id>/`，源码运行时为当前工作目录下的 `data/uploads/web/<account-id>/`，Docker 中为 `/app/data/uploads/web/<account-id>/`；旧临时图片不会自动迁入。
 
-#### 8.4 AI 配图
+#### 8.5 AI 配图
 
 `POST /api/v1/ai/image` 接受图片描述，省略 `config` 时使用已保存的生图配置；也可显式传入配置：
 
@@ -1339,7 +1382,7 @@ Content-Type: multipart/form-data
 
 ---
 
-#### 8.5 服务端草稿
+#### 8.6 服务端草稿
 
 草稿按账号保存在 SQLite 中，多个浏览器共享同一份内容。所有请求携带 `X-XHS-Account-ID`。
 
@@ -1358,7 +1401,7 @@ Content-Type: application/json
 
 保存成功返回新 `revision`。`base_revision` 与当前版本不一致时返回 `409 DRAFT_REVISION_CONFLICT`，客户端应保留当前编辑并提示用户载入最新草稿。`DELETE /api/v1/draft` 清空当前账号草稿。
 
-#### 8.6 发布防重保护
+#### 8.7 发布防重保护
 
 ```http
 GET /api/v1/publish-protection

@@ -25,7 +25,7 @@ func TestOpenAppliesSchemaAndPragmas(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, database.Close()) })
 
-	for _, table := range []string{"accounts", "settings", "drafts", "publish_protection", "publish_tasks", "scheduled_jobs", "schedule_runs"} {
+	for _, table := range []string{"accounts", "settings", "drafts", "publish_protection", "publish_tasks", "scheduled_jobs", "schedule_runs", "prompt_templates"} {
 		var count int
 		require.NoError(t, database.QueryRow(
 			`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table,
@@ -513,6 +513,45 @@ func TestUpgradeVersionFivePreservesAccountState(t *testing.T) {
 		require.Equal(t, 3, revision)
 		require.NoError(t, database.Close())
 	}
+}
+
+func TestUpgradeVersionSixAddsPromptTemplates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "studio.db")
+	legacy, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = legacy.Close() })
+	legacySchema, _, found := strings.Cut(schemaSQL, "-- schema version 7")
+	require.True(t, found)
+	_, err = legacy.Exec(legacySchema)
+	require.NoError(t, err)
+	_, err = legacy.Exec(`
+	 PRAGMA user_version = 6;
+	 INSERT INTO accounts (id, name, user_id, seed, active_profile, created_at, updated_at)
+	 VALUES ('account', '账号', 'user-a', 123, 'profile', 1, 1);
+	 INSERT INTO settings (id, initialized, text_model, image_model, updated_at)
+	 VALUES (1, 1, 'text-v6', 'image-v6', 2000);
+	`)
+	require.NoError(t, err)
+	require.NoError(t, legacy.Close())
+
+	database, err := Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	var version int
+	require.NoError(t, database.QueryRow(`PRAGMA user_version`).Scan(&version))
+	require.Equal(t, schemaVersion, version)
+	var textModel, accountName string
+	require.NoError(t, database.QueryRow(`SELECT text_model FROM settings WHERE id = 1`).Scan(&textModel))
+	require.Equal(t, "text-v6", textModel)
+	require.NoError(t, database.QueryRow(`SELECT name FROM accounts WHERE id = 'account'`).Scan(&accountName))
+	require.Equal(t, "账号", accountName)
+	var prompts int
+	require.NoError(t, database.QueryRow(`SELECT count(*) FROM prompt_templates`).Scan(&prompts))
+	require.Zero(t, prompts)
+	_, err = database.Exec(
+		`INSERT INTO prompt_templates (name, content, updated_at) VALUES ('compose_system', '自定义 {{topic}}', 3000)`,
+	)
+	require.NoError(t, err)
 }
 
 func TestVerificationRequiredDatabaseConstraint(t *testing.T) {

@@ -27,7 +27,24 @@ var scheduleUserTemplate string
 //go:embed prompt/image.md
 var imagePromptTemplate string
 
-var promptVariable = regexp.MustCompile(`\{\{\s*([a-z_]+)\s*\}\}`)
+// promptSet 是一次写稿使用的四段模板；生图模板固定使用内置内容。
+type promptSet struct {
+	ComposeSystem  string
+	ComposeUser    string
+	ScheduleSystem string
+	ScheduleUser   string
+}
+
+func defaultPromptSet() promptSet {
+	return promptSet{
+		ComposeSystem:  composeSystemTemplate,
+		ComposeUser:    composeUserTemplate,
+		ScheduleSystem: scheduleSystemTemplate,
+		ScheduleUser:   scheduleUserTemplate,
+	}
+}
+
+var promptVariable = regexp.MustCompile(`\{\{\s*([^{}]+?)\s*\}\}`)
 
 // renderPrompt 只替换模板变量，不再次解释资料中出现的双花括号。
 func renderPrompt(template string, values map[string]string) (string, error) {
@@ -47,7 +64,7 @@ func renderPrompt(template string, values map[string]string) (string, error) {
 }
 
 // composeDraft 根据手动选取的完整参考创作。
-func composeDraft(ctx context.Context, cfg LLMConfig, topic, instructions string, sources []composeSource) (composedDraft, error) {
+func composeDraft(ctx context.Context, cfg LLMConfig, topic, instructions string, sources []composeSource, prompts promptSet) (composedDraft, error) {
 	if strings.TrimSpace(topic) == "" || len(sources) < 1 || len(sources) > 5 {
 		return composedDraft{}, fmt.Errorf("请填写选题并提供 1 至 5 篇完整参考")
 	}
@@ -59,7 +76,7 @@ func composeDraft(ctx context.Context, cfg LLMConfig, topic, instructions string
 	if err := cfg.validate(true); err != nil {
 		return composedDraft{}, err
 	}
-	system, err := renderPrompt(composeSystemTemplate, map[string]string{"publication_type": "图文", "title_limit": "20", "content_limit": "1000"})
+	system, err := renderPrompt(prompts.ComposeSystem, map[string]string{"publication_type": "图文", "title_limit": "20", "content_limit": "1000"})
 	if err != nil {
 		return composedDraft{}, err
 	}
@@ -69,7 +86,7 @@ func composeDraft(ctx context.Context, cfg LLMConfig, topic, instructions string
 	if err != nil {
 		return composedDraft{}, err
 	}
-	user, err := renderPrompt(composeUserTemplate, map[string]string{
+	user, err := renderPrompt(prompts.ComposeUser, map[string]string{
 		"topic": string(encodedTopic), "instructions": string(encodedInstructions), "sources": string(encodedSources),
 	})
 	if err != nil {
@@ -83,7 +100,7 @@ func composeDraft(ctx context.Context, cfg LLMConfig, topic, instructions string
 }
 
 // composeKeywordDraft 让定时任务围绕关键词自主选择主题并创作。
-func composeKeywordDraft(ctx context.Context, cfg LLMConfig, keyword, instructions, publicationType string, recentNotes []accounts.PublishedNote) (composedDraft, error) {
+func composeKeywordDraft(ctx context.Context, cfg LLMConfig, keyword, instructions, publicationType string, recentNotes []accounts.PublishedNote, prompts promptSet) (composedDraft, error) {
 	if strings.TrimSpace(keyword) == "" {
 		return composedDraft{}, fmt.Errorf("请填写创作关键词")
 	}
@@ -94,7 +111,7 @@ func composeKeywordDraft(ctx context.Context, cfg LLMConfig, keyword, instructio
 	if publicationType == "long_text" {
 		publicationName, contentLimit = "长文", "10000"
 	}
-	system, err := renderPrompt(scheduleSystemTemplate, map[string]string{"publication_type": publicationName, "title_limit": "20", "content_limit": contentLimit})
+	system, err := renderPrompt(prompts.ScheduleSystem, map[string]string{"publication_type": publicationName, "title_limit": "20", "content_limit": contentLimit})
 	if err != nil {
 		return composedDraft{}, err
 	}
@@ -104,7 +121,7 @@ func composeKeywordDraft(ctx context.Context, cfg LLMConfig, keyword, instructio
 	if err != nil {
 		return composedDraft{}, err
 	}
-	user, err := renderPrompt(scheduleUserTemplate, map[string]string{
+	user, err := renderPrompt(prompts.ScheduleUser, map[string]string{
 		"keyword": string(encodedKeyword), "instructions": string(encodedInstructions), "recent_notes": string(encodedRecentNotes),
 	})
 	if err != nil {

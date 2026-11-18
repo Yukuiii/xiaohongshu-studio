@@ -268,7 +268,7 @@
 }
 @media (max-width: 760px) {
   .sidebar-nav.schedules-navigation {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
   .schedules-navigation .nav-item {
     flex-direction: column;

@@ -4,6 +4,7 @@ import Settings from "./Settings.jsx";
 import Accounts from "./accounts/Accounts.jsx";
 import Tasks from "./Tasks.jsx";
 import Schedules from "./Schedules.jsx";
+import Prompts from "./Prompts.jsx";
 import { canStartLogin, isVerificationRequired, useAccount } from "./accounts/useAccount.js";
 import { useWorkbench } from "./useWorkbench.js";
 import logo from "./assets/logo-128.png";
@@ -24,7 +25,7 @@ function savedAccount() {
   }
 }
 
-const pages = { workspace: "工作台", tasks: "任务", schedules: "定时任务", accounts: "账号", settings: "设置" };
+const pages = { workspace: "工作台", tasks: "任务", schedules: "定时任务", prompts: "提示词", accounts: "账号", settings: "设置" };
 const currentPage = () =>
   Object.hasOwn(pages, location.hash.slice(1))
     ? location.hash.slice(1)
@@ -62,6 +63,11 @@ function NavIcon({ page }) {
         <>
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
+        </>
+      ) : page === "prompts" ? (
+        <>
+          <path d="M6 3h9l4 4v14H6z" />
+          <path d="M15 3v5h4M9 12h6M9 16h6" />
         </>
       ) : (
         <>
@@ -568,6 +574,14 @@ export default function App() {
           hidden={page !== "schedules"}
         >
           <Schedules api={wb.api} token={wb.settings.token} active={page === "schedules"} accounts={accounts} />
+        </section>
+        <section
+          className="page-view"
+          data-view="prompts"
+          aria-labelledby="prompts-title"
+          hidden={page !== "prompts"}
+        >
+          <Prompts api={wb.api} token={wb.settings.token} active={page === "prompts"} />
         </section>
         <section
           className="page-view"

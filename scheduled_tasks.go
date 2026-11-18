@@ -243,7 +243,7 @@ func (m *ScheduleManager) createPublication(ctx context.Context, run *accounts.S
 	if err != nil {
 		return fmt.Errorf("读取近期发布内容失败: %w", err)
 	}
-	draft, err := composeKeywordDraft(ctx, cfg, job.Keyword, job.Instructions, job.PublicationType, recentNotes)
+	draft, err := composeKeywordDraft(ctx, cfg, job.Keyword, job.Instructions, job.PublicationType, recentNotes, m.server.promptTemplates())
 	if err != nil {
 		return fmt.Errorf("生成笔记失败: %w", err)
 	}

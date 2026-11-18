@@ -1743,7 +1743,7 @@ fieldset label:first-of-type {
     border-bottom: 1px solid var(--line);
   }
   .sidebar-nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     margin-top: 0;
     gap: 4px;
   }

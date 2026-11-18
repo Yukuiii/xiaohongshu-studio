@@ -44,7 +44,8 @@ export function createAPI(getSettings, getFormSettings = getSettings) {
       /^\/tasks(?:[/?]|$)/.test(path) ||
       /^\/schedules(?:[/?]|$)/.test(path) ||
       path === "/ai/models" ||
-      path === "/settings";
+      path === "/settings" ||
+      /^\/prompts(?:\/|$)/.test(path);
     if (!shared && accountId) headers["X-XHS-Account-ID"] = accountId;
     if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
     if (body && !(body instanceof FormData))

@@ -186,3 +186,12 @@ ALTER TABLE scheduled_jobs ADD COLUMN instructions TEXT NOT NULL DEFAULT '';
 -- 安全验证独立于最近明确的登录结果，已有账号默认无需验证。
 ALTER TABLE accounts ADD COLUMN verification_required INTEGER NOT NULL DEFAULT 0
   CHECK (verification_required IN (0, 1));
+
+-- schema version 7
+-- 用户可维护的写稿提示词；没有记录时回退到编译时默认模板。
+CREATE TABLE IF NOT EXISTS prompt_templates (
+  name TEXT PRIMARY KEY
+    CHECK (name IN ('compose_system', 'compose_user', 'schedule_system', 'schedule_user')),
+  content TEXT NOT NULL CHECK (length(trim(content)) > 0),
+  updated_at INTEGER NOT NULL
+);

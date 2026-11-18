@@ -22,6 +22,7 @@ type AppServer struct {
 	httpServer         *http.Server
 	authToken          string
 	settings           *settingsStore
+	prompts            *promptStore
 	desktop            *desktopGateway
 	tasks              *PublishTaskManager
 	schedules          *ScheduleManager
@@ -45,6 +46,14 @@ func NewAccountAppServer(manager *AccountManager, token string) *AppServer {
 	s.desktop.sessionActive = manager.visualActive
 	manager.onLoginEnd = s.desktop.revoke
 	return s
+}
+
+// promptTemplates 返回当前生效的写稿模板；未装配存储时使用内置默认值。
+func (s *AppServer) promptTemplates() promptSet {
+	if s == nil || s.prompts == nil {
+		return defaultPromptSet()
+	}
+	return s.prompts.snapshot()
 }
 
 // Start 启动服务器

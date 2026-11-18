@@ -37,6 +37,23 @@ const B = {
   is_logged_in: false,
   login_checked_at: null,
 };
+const promptFixtures = [
+  ["compose_system", "默认手动系统", "publication_type title_limit content_limit"],
+  ["compose_user", "默认手动用户", "topic instructions sources"],
+  ["schedule_system", "默认定时系统", "publication_type title_limit content_limit"],
+  ["schedule_user", "默认定时用户", "keyword instructions recent_notes"],
+].map(([key, prefix, names]) => {
+  const variables = names.split(" ");
+  const content = `${prefix} ${variables.map((name) => `{{${name}}}`).join(" ")}`;
+  return {
+    key,
+    content,
+    default_content: content,
+    customized: false,
+    variables,
+  };
+});
+
 const ok = (data) => ({
   ok: true,
   status: 200,
@@ -173,6 +190,7 @@ function service(accounts = [A, B], mode = "native") {
     }
     if (url === "/api/v1/accounts")
       return ok({ accounts, legacy_account_id: "A" });
+    if (url === "/api/v1/prompts") return ok({ prompts: promptFixtures });
     if (url.endsWith("/login/browser"))
       return ok({
         account_id: options.headers["X-XHS-Account-ID"],
@@ -1326,5 +1344,31 @@ describe("账号选择界面", () => {
           url === "/api/v1/accounts/A" && options.method === "DELETE",
       ),
     ).toBe(true);
+  });
+});
+
+describe("提示词页面", () => {
+  it("从侧边栏打开提示词页并读取全局模板", async () => {
+    const fetch = service([A]);
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "提示词", exact: true }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "提示词", level: 1 }),
+    ).toBeVisible();
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(([path]) => path === "/api/v1/prompts"),
+      ).toBe(true),
+    );
+    expect(
+      await screen.findByDisplayValue(promptFixtures[0].content),
+    ).toBeVisible();
+    const request = fetch.mock.calls.find(
+      ([path]) => path === "/api/v1/prompts",
+    );
+    expect(request[1].headers).not.toHaveProperty("X-XHS-Account-ID");
+    expect(request[1].headers.Authorization).toBeUndefined();
   });
 });
