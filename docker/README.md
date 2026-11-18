@@ -68,7 +68,7 @@ Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix 
 - 草稿和发布防重记录按账号保存在 `studio.db`，使用 revision 协调并发更新；工作台访问令牌仍保存在浏览器 localStorage。换浏览器后填写访问令牌即可读取服务端草稿和发布防重记录。
 - 账号页可添加、选择、重命名、重新登录、重置浏览器数据和移除账号。重置保留账号 ID、绑定身份、seed、草稿和素材；移除会清理该账号的浏览器数据、下载、托管图片、草稿和发布记录。服务令牌允许访问整个工作台，多个账号槽位不构成访问者权限隔离。
 - 页面可上传图片；已有图片、视频可放入 `docker/images/`，对应容器内只读素材目录 `/app/images/`。桌面文件窗口也有 images 书签。数据与上传目录保持可写。
-- 切换已有部署前，先在旧配置所在目录执行 `docker compose down`，再使用新配置启动；Docker 数据根仍为 `/app/data`，无需迁移。从 `v0.1.0` 升级且沿用旧文档默认路径时，旧挂载的宿主机目录 `xiaohongshu-studio-data/uploads` 继续作为新布局的 `/app/data/uploads` 使用，图片无需迁移；换用新命令并去掉旧的 `uploads:/tmp/xiaohongshu_images` 挂载即可。保留原数据目录，不要让两个实例同时操作同一账号。
+- 切换已有部署前，先在旧配置所在目录执行 `docker compose down`，再使用新配置启动；Docker 数据根仍为 `/app/data`，无需迁移。从 `v0.1.0` 升级且沿用旧文档默认路径时，旧挂载的宿主机目录 `xiaohongshu-studio-data/uploads` 继续作为 `v1.0.0` 的 `/app/data/uploads` 使用，图片无需迁移；换用新命令并去掉旧的 `uploads:/tmp/xiaohongshu_images` 挂载即可。保留原数据目录，不要让两个实例同时操作同一账号。
 - 镜像内浏览器缓存仍使用 `/app/cache/xiaohongshu-mcp/browser` 这一历史存储身份，与应用探测路径一致，无需因改名重新下载。不要将数据卷覆盖到 `/app/cache`。
 
 ## 日常管理
