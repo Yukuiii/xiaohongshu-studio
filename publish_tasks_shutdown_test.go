@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
+	xhsErrors "github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 func TestPublishTaskShutdownClosesBrowserBeforeWaiting(t *testing.T) {

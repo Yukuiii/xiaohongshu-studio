@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/xiaohongshu"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
 func TestRunFeedBodyBatchLimitsConcurrencyAndKeepsOrder(t *testing.T) {

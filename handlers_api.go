@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xpzouying/xiaohongshu-mcp/cookies"
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
+	"github.com/Yukuiii/xiaohongshu-studio/cookies"
+	"github.com/Yukuiii/xiaohongshu-studio/xiaohongshu"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"

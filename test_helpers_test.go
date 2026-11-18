@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/xpzouying/xiaohongshu-mcp/internal/testutil"
+	"github.com/Yukuiii/xiaohongshu-studio/internal/testutil"
 )
 
 // isolateDataRoot 让当前测试使用独立的固定数据目录。

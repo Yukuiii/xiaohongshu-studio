@@ -1,4 +1,4 @@
-module github.com/xpzouying/xiaohongshu-mcp
+module github.com/Yukuiii/xiaohongshu-studio
 
 go 1.27.4
 

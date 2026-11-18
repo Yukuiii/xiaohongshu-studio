@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/errors"
+	"github.com/Yukuiii/xiaohongshu-studio/humanize"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/cdp"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/errors"
-	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
 // 本地页面全部拦截，不加载登录态，也不访问小红书。

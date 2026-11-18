@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
+	xhsErrors "github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 // PublishTaskManager 持有任务执行和账号租约，不依赖提交请求的生命周期。

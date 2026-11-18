@@ -11,13 +11,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	xhsErrors "github.com/Yukuiii/xiaohongshu-studio/errors"
+	"github.com/Yukuiii/xiaohongshu-studio/humanize"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
-	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
 // PublishImageContent 发布图文内容

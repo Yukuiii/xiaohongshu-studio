@@ -3,7 +3,7 @@ package downloader
 import (
 	"fmt"
 
-	"github.com/xpzouying/xiaohongshu-mcp/configs"
+	"github.com/Yukuiii/xiaohongshu-studio/configs"
 )
 
 // ImageProcessor 图片处理器

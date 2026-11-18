@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xpzouying/xiaohongshu-mcp/internal/testutil"
+	"github.com/Yukuiii/xiaohongshu-studio/internal/testutil"
 )
 
 func TestGetImagesPath(t *testing.T) {

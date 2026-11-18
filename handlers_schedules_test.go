@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
 )
 
 func scheduleListResponse(t *testing.T, router http.Handler) []scheduledJobView {

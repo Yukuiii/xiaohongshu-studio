@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/datadir"
 	"github.com/sirupsen/logrus"
 	"github.com/ulikunitz/xz"
-	"github.com/xpzouying/xiaohongshu-mcp/datadir"
 )
 
 // 内置浏览器默认从上游 GitHub release 下载，可配置相同目录结构的镜像。

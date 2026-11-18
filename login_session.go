@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
+	"github.com/Yukuiii/xiaohongshu-studio/xiaohongshu"
 )
 
 // loginSessions 只保留一个可视化登录浏览器，关闭后保留最终状态和已保存的 cookie。

@@ -3,8 +3,8 @@ package xiaohongshu
 import (
 	"testing"
 
+	"github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 // TestClassifyBlockedPath 覆盖按路径判定的边界，重点是查询串不得参与判定。

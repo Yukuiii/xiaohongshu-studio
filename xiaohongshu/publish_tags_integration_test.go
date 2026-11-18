@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/browser"
+	"github.com/Yukuiii/xiaohongshu-studio/humanize"
 	"github.com/go-rod/rod"
-	"github.com/xpzouying/xiaohongshu-mcp/browser"
-	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

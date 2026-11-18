@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xpzouying/xiaohongshu-mcp/internal/testutil"
+	"github.com/Yukuiii/xiaohongshu-studio/internal/testutil"
 )
 
 type browserDownloadTransport func(*http.Request) (*http.Response, error)

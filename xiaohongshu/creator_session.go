@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	xhserrors "github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/go-rod/rod"
 	"github.com/pkg/errors"
-	xhserrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 const creatorPageTimeout = 30 * time.Second

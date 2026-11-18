@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/errors"
+	"github.com/Yukuiii/xiaohongshu-studio/humanize"
 	"github.com/avast/retry-go/v4"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/sirupsen/logrus"
-	"github.com/xpzouying/xiaohongshu-mcp/errors"
-	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
 // ========== 配置常量 ==========

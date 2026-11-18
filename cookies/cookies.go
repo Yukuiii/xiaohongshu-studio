@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/datadir"
 	"github.com/pkg/errors"
-	"github.com/xpzouying/xiaohongshu-mcp/datadir"
 )
 
 // sessionFile 是 v2 的文件结构。v1 是一个裸 cookie 数组，没有外层对象。

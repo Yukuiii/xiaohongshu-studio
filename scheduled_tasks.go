@@ -11,9 +11,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
+	"github.com/Yukuiii/xiaohongshu-studio/pkg/xhsutil"
 	"github.com/sirupsen/logrus"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	"github.com/xpzouying/xiaohongshu-mcp/pkg/xhsutil"
 )
 
 // ScheduleManager 调度创作，实际发布复用持久任务和防重保护。

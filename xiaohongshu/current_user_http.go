@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	xhserrors "github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/go-rod/rod/lib/proto"
-	xhserrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 type userInfo struct {

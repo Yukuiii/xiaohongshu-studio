@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/go-rod/rod"
-	"github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 type FeedsListAction struct {

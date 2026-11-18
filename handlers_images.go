@@ -17,8 +17,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Yukuiii/xiaohongshu-studio/configs"
 	"github.com/gin-gonic/gin"
-	"github.com/xpzouying/xiaohongshu-mcp/configs"
 )
 
 const maxImageBytes = 10 << 20

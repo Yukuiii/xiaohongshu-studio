@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
 	"github.com/gin-gonic/gin"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
 )
 
 const (

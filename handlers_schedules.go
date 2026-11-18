@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
 	"github.com/gin-gonic/gin"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
 )
 
 type scheduledJobView struct {

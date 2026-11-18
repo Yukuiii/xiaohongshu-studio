@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/humanize"
 	"github.com/go-rod/rod"
-	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
 type NavigateAction struct {

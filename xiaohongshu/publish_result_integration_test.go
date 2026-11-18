@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
+	xhsErrors "github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/stretchr/testify/require"
-	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 // 所有域名只解析到本地 HTTPS 夹具，保留真实 Network 事件，不连接实际账号。

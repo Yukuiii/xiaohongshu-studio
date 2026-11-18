@@ -8,12 +8,12 @@ import (
 	"net"
 	"os"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
+	"github.com/Yukuiii/xiaohongshu-studio/browser"
+	"github.com/Yukuiii/xiaohongshu-studio/configs"
+	"github.com/Yukuiii/xiaohongshu-studio/datadir"
+	"github.com/Yukuiii/xiaohongshu-studio/db"
 	"github.com/sirupsen/logrus"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	"github.com/xpzouying/xiaohongshu-mcp/browser"
-	"github.com/xpzouying/xiaohongshu-mcp/configs"
-	"github.com/xpzouying/xiaohongshu-mcp/datadir"
-	"github.com/xpzouying/xiaohongshu-mcp/db"
 )
 
 // version 构建版本号，发布时通过 -ldflags "-X main.version=vX.Y.Z" 注入。

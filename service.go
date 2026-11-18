@@ -12,15 +12,15 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Yukuiii/xiaohongshu-studio/browser"
+	"github.com/Yukuiii/xiaohongshu-studio/configs"
+	"github.com/Yukuiii/xiaohongshu-studio/cookies"
+	"github.com/Yukuiii/xiaohongshu-studio/pkg/downloader"
+	"github.com/Yukuiii/xiaohongshu-studio/pkg/xhsutil"
+	"github.com/Yukuiii/xiaohongshu-studio/xiaohongshu"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/sirupsen/logrus"
-	"github.com/xpzouying/xiaohongshu-mcp/browser"
-	"github.com/xpzouying/xiaohongshu-mcp/configs"
-	"github.com/xpzouying/xiaohongshu-mcp/cookies"
-	"github.com/xpzouying/xiaohongshu-mcp/pkg/downloader"
-	"github.com/xpzouying/xiaohongshu-mcp/pkg/xhsutil"
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
 // XiaohongshuService 小红书业务服务

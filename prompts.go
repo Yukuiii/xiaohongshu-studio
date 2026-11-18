@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
 )
 
 //go:embed prompt/compose-system.md

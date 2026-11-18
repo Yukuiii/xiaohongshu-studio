@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/humanize"
 	"github.com/go-rod/rod"
 	"github.com/sirupsen/logrus"
-	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
 // NotificationReplyResult 通知回复的结果。

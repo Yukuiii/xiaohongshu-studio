@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/errors"
+	"github.com/Yukuiii/xiaohongshu-studio/humanize"
 	"github.com/go-rod/rod"
 	"github.com/sirupsen/logrus"
-	"github.com/xpzouying/xiaohongshu-mcp/errors"
-	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
 type SearchResult struct {

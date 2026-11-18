@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Yukuiii/xiaohongshu-studio/db"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/db"
 )
 
 func testSettingsDB(t *testing.T) *sql.DB {

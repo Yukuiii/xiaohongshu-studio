@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
+	"github.com/Yukuiii/xiaohongshu-studio/db"
+	"github.com/Yukuiii/xiaohongshu-studio/xiaohongshu"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	"github.com/xpzouying/xiaohongshu-mcp/db"
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
 func openTestStore(t *testing.T, root string) *accounts.Store {

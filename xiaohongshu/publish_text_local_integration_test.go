@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	xhsErrors "github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/stretchr/testify/require"
-	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 // 选择器来自真实长文入口；本地拦截所有请求，发布按钮只写断言数据。

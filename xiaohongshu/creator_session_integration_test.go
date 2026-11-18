@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	xhserrors "github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
-	xhserrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 const creatorUploadFixture = `<div class="upload-content">上传图文</div>`

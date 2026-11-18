@@ -8,7 +8,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/xpzouying/xiaohongshu-mcp/browser"
+	"github.com/Yukuiii/xiaohongshu-studio/browser"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

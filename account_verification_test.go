@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
+	xhsErrors "github.com/Yukuiii/xiaohongshu-studio/errors"
+	"github.com/Yukuiii/xiaohongshu-studio/xiaohongshu"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
 func TestAccountVerificationSurvivesChecksAndClearsOnSuccess(t *testing.T) {

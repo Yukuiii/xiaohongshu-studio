@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/humanize"
 	"github.com/go-rod/rod"
 	"github.com/sirupsen/logrus"
-	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
 // CommentFeedAction 表示 Feed 评论动作

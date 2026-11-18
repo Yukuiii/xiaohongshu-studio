@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
+	"github.com/Yukuiii/xiaohongshu-studio/db"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	"github.com/xpzouying/xiaohongshu-mcp/db"
 )
 
 func TestAccountIdentityIsCheckedForEveryTask(t *testing.T) {

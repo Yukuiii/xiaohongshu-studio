@@ -12,8 +12,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Yukuiii/xiaohongshu-studio/db"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/db"
 )
 
 func storeDBPath(root string) string {

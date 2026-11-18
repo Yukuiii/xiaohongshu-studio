@@ -12,15 +12,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
+	"github.com/Yukuiii/xiaohongshu-studio/browser"
+	"github.com/Yukuiii/xiaohongshu-studio/configs"
+	"github.com/Yukuiii/xiaohongshu-studio/datadir"
+	xhsErrors "github.com/Yukuiii/xiaohongshu-studio/errors"
+	"github.com/Yukuiii/xiaohongshu-studio/xiaohongshu"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/sirupsen/logrus"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	"github.com/xpzouying/xiaohongshu-mcp/browser"
-	"github.com/xpzouying/xiaohongshu-mcp/configs"
-	"github.com/xpzouying/xiaohongshu-mcp/datadir"
-	xhsErrors "github.com/xpzouying/xiaohongshu-mcp/errors"
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
 const accountHeader = "X-XHS-Account-ID"

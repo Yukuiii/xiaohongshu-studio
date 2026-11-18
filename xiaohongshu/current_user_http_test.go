@@ -3,8 +3,8 @@ package xiaohongshu
 import (
 	"testing"
 
+	xhserrors "github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/stretchr/testify/require"
-	xhserrors "github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 func TestParseCurrentUser(t *testing.T) {

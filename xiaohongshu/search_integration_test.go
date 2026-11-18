@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/Yukuiii/xiaohongshu-studio/browser"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/browser"
 )
 
 func TestSearch(t *testing.T) {

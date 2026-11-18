@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/Yukuiii/xiaohongshu-studio/internal/testutil"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/internal/testutil"
 )
 
 // 使用真实 Linux 浏览器验证指纹补丁，防止普通 Chromium 静默忽略专用参数。

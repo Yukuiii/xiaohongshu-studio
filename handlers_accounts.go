@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
+	"github.com/Yukuiii/xiaohongshu-studio/pkg/downloader"
 	"github.com/gin-gonic/gin"
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
-	"github.com/xpzouying/xiaohongshu-mcp/pkg/downloader"
 )
 
 const accountContextKey = "xhs-account"

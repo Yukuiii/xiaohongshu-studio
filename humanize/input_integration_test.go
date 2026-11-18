@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/browser"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
-	"github.com/xpzouying/xiaohongshu-mcp/browser"
 )
 
 const typeProbeBody = `<input id="a"><div id="b" contenteditable="true"></div>`

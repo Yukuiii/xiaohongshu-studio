@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/go-rod/rod"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/errors"
 )
 
 // TestCheckPageBlockedLocal 直接验证 CheckPageBlocked 这条 CDP 读取路径。

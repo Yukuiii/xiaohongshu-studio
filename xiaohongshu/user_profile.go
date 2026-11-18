@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/humanize"
 	"github.com/go-rod/rod"
-	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
 // ProfileTab 个人主页的子 tab。

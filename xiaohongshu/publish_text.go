@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/humanize"
 	"github.com/go-rod/rod"
 	"github.com/pkg/errors"
-	"github.com/xpzouying/xiaohongshu-mcp/humanize"
 )
 
 // PublishTextAction 使用创作平台原生长文排版，不上传额外配图。

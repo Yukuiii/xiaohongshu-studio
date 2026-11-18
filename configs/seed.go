@@ -4,8 +4,8 @@ import (
 	"crypto/rand"
 	"math/big"
 
+	"github.com/Yukuiii/xiaohongshu-studio/cookies"
 	"github.com/sirupsen/logrus"
-	"github.com/xpzouying/xiaohongshu-mcp/cookies"
 )
 
 // maxSeed seed 的取值上限，够大以避免碰撞，又不至于溢出。

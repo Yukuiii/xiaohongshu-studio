@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Yukuiii/xiaohongshu-studio/cookies"
 	"github.com/stretchr/testify/assert"
-	"github.com/xpzouying/xiaohongshu-mcp/cookies"
 )
 
 // TestResolveFingerprintSeed 校验 seed 取值优先级：环境变量 > 会话文件 > 新生成并写回。

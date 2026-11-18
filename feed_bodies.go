@@ -11,8 +11,8 @@ import (
 
 	xproxy "golang.org/x/net/proxy"
 
-	"github.com/xpzouying/xiaohongshu-mcp/configs"
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
+	"github.com/Yukuiii/xiaohongshu-studio/configs"
+	"github.com/Yukuiii/xiaohongshu-studio/xiaohongshu"
 )
 
 // feedBodyConcurrency 控制一批正文请求的并发数，兼顾等待时长和请求集中度。

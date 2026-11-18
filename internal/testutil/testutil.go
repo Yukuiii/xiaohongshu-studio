@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xpzouying/xiaohongshu-mcp/datadir"
+	"github.com/Yukuiii/xiaohongshu-studio/datadir"
 )
 
 // IsolateDataRoot 在临时工作目录中使用固定数据布局。

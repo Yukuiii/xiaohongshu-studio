@@ -14,16 +14,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Yukuiii/xiaohongshu-studio/browser"
+	"github.com/Yukuiii/xiaohongshu-studio/configs"
+	"github.com/Yukuiii/xiaohongshu-studio/cookies"
+	"github.com/Yukuiii/xiaohongshu-studio/xiaohongshu"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/cdp"
 	"github.com/go-rod/rod/lib/defaults"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/stretchr/testify/require"
-	"github.com/xpzouying/xiaohongshu-mcp/browser"
-	"github.com/xpzouying/xiaohongshu-mcp/configs"
-	"github.com/xpzouying/xiaohongshu-mcp/cookies"
-	"github.com/xpzouying/xiaohongshu-mcp/xiaohongshu"
 )
 
 const sessionFixtureLoggedIn = `<main class="main-container"><div class="user"><div class="link-wrapper"><a class="channel">我</a></div></div></main><script>window.__INITIAL_STATE__ = {user: {userInfo: {value: {nickname: "本地账号", userId: "local-user"}}}};</script>`

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Yukuiii/xiaohongshu-studio/internal/testutil"
 	"github.com/stretchr/testify/assert"
-	"github.com/xpzouying/xiaohongshu-mcp/internal/testutil"
 )
 
 // TestGetCookiesFilePath 校验 cookies 文件固定在数据根下。

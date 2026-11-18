@@ -7,7 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/xpzouying/xiaohongshu-mcp/accounts"
+	"github.com/Yukuiii/xiaohongshu-studio/accounts"
 )
 
 func TestPrepareRecentNotesUnicodeBoundaries(t *testing.T) {
