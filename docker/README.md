@@ -25,15 +25,15 @@ docker run -d \
   ghcr.io/yukuiii/xiaohongshu-studio:latest
 ```
 
-默认使用 `ghcr.io/yukuiii/xiaohongshu-studio:latest`。固定发布版本时，把最后的 `:latest` 换成 `:v0.1.0`。固定数据布局尚待发版；当前 `latest`（`v0.1.0`）还需在镜像名前追加 `-v "$PWD/xiaohongshu-studio-data/uploads:/tmp/xiaohongshu_images"` 以持久化图片。
+默认使用 `ghcr.io/yukuiii/xiaohongshu-studio:latest`。固定发布版本时，把最后的 `:latest` 换成 `:v1.0.0`。
 
-新布局将账号、数据库和上传图片统一保存在容器内 `/app/data`，对应宿主机的 `xiaohongshu-studio-data/`，只需一个数据挂载。后续请在同一目录运行，或把挂载源改成固定的绝对路径。已有图片素材可追加 `-v /绝对路径/images:/app/images:ro`，需要 API 令牌时追加 `-e AUTH_TOKEN=...`，需要代理时追加 `-e XHS_PROXY=...`。更新镜像时执行 `docker pull ghcr.io/yukuiii/xiaohongshu-studio:latest`，再 `docker rm -f xiaohongshu-studio` 并重新执行上面的 `docker run`；数据目录会保留。
+`v1.0.0` 起，账号、数据库和上传图片统一保存在容器内 `/app/data`，对应宿主机的 `xiaohongshu-studio-data/`，只需一个数据挂载。后续请在同一目录运行，或把挂载源改成固定的绝对路径。已有图片素材可追加 `-v /绝对路径/images:/app/images:ro`，需要 API 令牌时追加 `-e AUTH_TOKEN=...`，需要代理时追加 `-e XHS_PROXY=...`。更新镜像时执行 `docker pull ghcr.io/yukuiii/xiaohongshu-studio:latest`，再 `docker rm -f xiaohongshu-studio` 并重新执行上面的 `docker run`；数据目录会保留。
 
 打开 [红薯创作台](http://127.0.0.1:18060/)，在左侧「账号」点击「添加账号」直接扫码并完成账号安全验证，在「设置」配置模型，再回「工作台」编辑草稿和确认发布。
 
 ### 已有源码时使用 Compose
 
-当前 Compose 配置采用新的单数据挂载布局，配套镜像尚待发版；发版前请使用下方 `./up.sh` 从源码构建。支持新布局的发布镜像可在 `docker/` 目录执行：
+当前 Compose 配置采用单数据挂载布局，可直接使用 `v1.0.0` 及更新的发布镜像。在 `docker/` 目录执行：
 
 ```bash
 docker compose up -d --pull always --no-build
@@ -57,7 +57,7 @@ Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix 
 
 ## 数据与素材
 
-以下为当前源码的数据布局，尚待发版。
+以下为 `v1.0.0` 起的数据布局。
 
 - `docker/data/` 保存账号、完整浏览器数据、上传图片及运行配置，Compose 固定挂载到 `/app/data`；直接运行镜像时对应宿主机的 `xiaohongshu-studio-data/`。更新时保留整个数据目录。
 - 每个账号在 `accounts/<account-id>/` 下保存独立 `profiles/<profile-id>/` 和 `downloads/`；整个 Chromium user-data-dir（包括 `Local State`、`Default/`、Cookie、localStorage、IndexedDB、Service Worker 和站点配置）都是持久数据。账号元数据、模型配置、草稿和发布防重记录保存在 `studio.db` 的 `accounts`、`settings`、`drafts`、`publish_protection` 四张表中。浏览器正常退出和服务启动时会删除 Cache、Code Cache、GPU/Shader Cache 等可重建缓存，保留登录态和站点存储。浏览器空闲 10 分钟后关闭，正常关闭、切换账号和重建容器均保留 profile；备份时先停止服务，再保留整个数据目录。
@@ -68,7 +68,7 @@ Dockerfile 先用 **Node.js 24** 执行 `npm --prefix web ci` 与 `npm --prefix 
 - 草稿和发布防重记录按账号保存在 `studio.db`，使用 revision 协调并发更新；工作台访问令牌仍保存在浏览器 localStorage。换浏览器后填写访问令牌即可读取服务端草稿和发布防重记录。
 - 账号页可添加、选择、重命名、重新登录、重置浏览器数据和移除账号。重置保留账号 ID、绑定身份、seed、草稿和素材；移除会清理该账号的浏览器数据、下载、托管图片、草稿和发布记录。服务令牌允许访问整个工作台，多个账号槽位不构成访问者权限隔离。
 - 页面可上传图片；已有图片、视频可放入 `docker/images/`，对应容器内只读素材目录 `/app/images/`。桌面文件窗口也有 images 书签。数据与上传目录保持可写。
-- 切换已有部署前，先在旧配置所在目录执行 `docker compose down`，再使用新配置启动；Docker 数据根仍为 `/app/data`，无需迁移。保留原数据目录，不要让两个实例同时操作同一账号。
+- 切换已有部署前，先在旧配置所在目录执行 `docker compose down`，再使用新配置启动；Docker 数据根仍为 `/app/data`，无需迁移。从 `v0.1.0` 升级且沿用旧文档默认路径时，旧挂载的宿主机目录 `xiaohongshu-studio-data/uploads` 继续作为 `v1.0.0` 的 `/app/data/uploads` 使用，图片无需迁移；换用新命令并去掉旧的 `uploads:/tmp/xiaohongshu_images` 挂载即可。保留原数据目录，不要让两个实例同时操作同一账号。
 - 镜像内浏览器缓存仍使用 `/app/cache/xiaohongshu-mcp/browser` 这一历史存储身份，与应用探测路径一致，无需因改名重新下载。不要将数据卷覆盖到 `/app/cache`。
 
 ## 日常管理
