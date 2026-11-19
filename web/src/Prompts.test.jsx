@@ -113,6 +113,25 @@ describe("提示词编辑页", () => {
     expect(within(card).getByDisplayValue(initial[0].content)).toBeVisible();
   });
 
+  it("只显示当前模板,可切换创作类型和系统/用户", async () => {
+    const api = vi.fn(async (path) => {
+      if (path === "/prompts") return { prompts: initial };
+      throw new Error(`unexpected request: ${path}`);
+    });
+    render(<Prompts api={api} token="token" active />);
+    expect(await screen.findByDisplayValue(initial[0].content)).toBeVisible();
+    expect(
+      screen.queryByDisplayValue(initial[1].content),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /定时任务/ }));
+    expect(await screen.findByDisplayValue(initial[2].content)).toBeVisible();
+    expect(
+      screen.queryByDisplayValue(initial[0].content),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "用户提示词" }));
+    expect(await screen.findByDisplayValue(initial[3].content)).toBeVisible();
+  });
+
   it("读取失败后保留错误并可重试", async () => {
     let calls = 0;
     const api = vi.fn(async (path) => {
