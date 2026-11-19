@@ -99,12 +99,51 @@ func Open(headless bool, options ...Option) (*Browser, error) {
 	// 不允许 Rod 自动查找或下载普通 Chromium，避免指纹参数静默失效。
 	binPath, err := EnsureBrowser()
 	if err != nil {
-		return nil, fmt.Errorf("内置浏览器不可用，拒绝启动: %w", err)
+		return nil, fmt.Errorf("内置浏览器不可用,拒绝启动: %w", err)
+	}
+	if !validBrowserBinary(binPath) {
+		return nil, fmt.Errorf("浏览器可执行文件名称不受支持: %s", filepath.Base(binPath))
 	}
 	return openBrowser(binPath, headless, cfg)
 }
 
+// validBrowserBinary 只允许当前平台预置浏览器的文件名,拒绝任意可执行文件。
+func validBrowserBinary(path string) bool {
+	_, binName, ok := platformAsset()
+	return ok && filepath.Base(path) == binName
+}
+
+// resolveBrowserExecutable 只接受真实可执行文件,避免把带参数的命令字符串交给 exec.Command。
+func resolveBrowserExecutable(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", errors.New("浏览器可执行文件为空")
+	}
+	resolved, err := exec.LookPath(path)
+	if err != nil {
+		return "", fmt.Errorf("浏览器可执行文件不可用: %w", err)
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return "", fmt.Errorf("解析浏览器可执行文件路径: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("读取浏览器可执行文件: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("浏览器路径不是普通文件: %s", resolved)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
+		return "", fmt.Errorf("浏览器文件不可执行: %s", resolved)
+	}
+	return resolved, nil
+}
+
 func openBrowser(binPath string, headless bool, cfg *browserConfig) (_ *Browser, err error) {
+	binPath, err = resolveBrowserExecutable(binPath)
+	if err != nil {
+		return nil, err
+	}
 	importCookies, err := cfg.loadCookies()
 	if err != nil {
 		return nil, err

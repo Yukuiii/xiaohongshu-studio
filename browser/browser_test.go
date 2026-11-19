@@ -184,6 +184,23 @@ func TestProfileRejectsConcurrentAndSymlinkReuse(t *testing.T) {
 	require.ErrorIs(t, err, ErrProfileInUse)
 }
 
+func TestResolveBrowserExecutableRejectsUntrustedPaths(t *testing.T) {
+	root := t.TempDir()
+	for _, path := range []string{"", root, filepath.Join(root, "missing-browser")} {
+		_, err := resolveBrowserExecutable(path)
+		require.Error(t, err)
+	}
+	if runtime.GOOS != "windows" {
+		file := filepath.Join(root, "not-executable")
+		require.NoError(t, os.WriteFile(file, []byte("#!/bin/sh\n"), 0o600))
+		_, err := resolveBrowserExecutable(file)
+		require.Error(t, err)
+	}
+	resolved, err := resolveBrowserExecutable(os.Args[0])
+	require.NoError(t, err)
+	require.True(t, filepath.IsAbs(resolved))
+}
+
 func TestFailedStartPreservesOnlyPersistentProfile(t *testing.T) {
 	root := t.TempDir()
 	// 限定临时 profile 的创建目录，断言失败启动没有遗留文件。
