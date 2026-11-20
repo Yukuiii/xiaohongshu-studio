@@ -37,7 +37,7 @@ docker run -d \
   ghcr.io/yukuiii/xiaohongshu-studio:latest
 ```
 
-Open **http://127.0.0.1:18060/**. Data is stored in `xiaohongshu-studio-data/` in the current directory; replace the final `:latest` with `:v1.0.0` to pin a release. See the [Docker guide](./docker/README.md) for access tokens, proxies, media directories, and other configuration.
+Open **http://127.0.0.1:18060/**. Data is stored in `xiaohongshu-studio-data/` in the current directory; replace the final `:latest` with `:v1.0.1` to pin a release. See the [Docker guide](./docker/README.md) for access tokens, proxies, media directories, and other configuration.
 
 The image includes the workspace, Chromium, and the noVNC sign-in desktop; the host does not need Go, Node.js, or a browser. The image targets `linux/amd64`; Apple Silicon requires Docker's amd64 emulation support.
 

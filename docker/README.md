@@ -25,7 +25,7 @@ docker run -d \
   ghcr.io/yukuiii/xiaohongshu-studio:latest
 ```
 
-默认使用 `ghcr.io/yukuiii/xiaohongshu-studio:latest`。固定发布版本时，把最后的 `:latest` 换成 `:v1.0.0`。
+默认使用 `ghcr.io/yukuiii/xiaohongshu-studio:latest`。固定发布版本时，把最后的 `:latest` 换成 `:v1.0.1`。
 
 `v1.0.0` 起，账号、数据库和上传图片统一保存在容器内 `/app/data`，对应宿主机的 `xiaohongshu-studio-data/`，只需一个数据挂载。后续请在同一目录运行，或把挂载源改成固定的绝对路径。已有图片素材可追加 `-v /绝对路径/images:/app/images:ro`，需要 API 令牌时追加 `-e AUTH_TOKEN=...`，需要代理时追加 `-e XHS_PROXY=...`。更新镜像时执行 `docker pull ghcr.io/yukuiii/xiaohongshu-studio:latest`，再 `docker rm -f xiaohongshu-studio` 并重新执行上面的 `docker run`；数据目录会保留。
 
