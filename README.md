@@ -37,7 +37,7 @@ docker run -d \
   ghcr.io/yukuiii/xiaohongshu-studio:latest
 ```
 
-打开 **http://127.0.0.1:18060/**。数据保存在当前目录的 `xiaohongshu-studio-data/`；固定版本时把 `:latest` 换成 `:v1.0.1`。访问令牌、代理、素材目录等配置见 [Docker 文档](./docker/README.md)。
+打开 **http://127.0.0.1:18060/**。数据保存在当前目录的 `xiaohongshu-studio-data/`；固定版本时把 `:latest` 换成 `:v1.0.2`。访问令牌、代理、素材目录等配置见 [Docker 文档](./docker/README.md)。
 
 镜像包含工作台、Chromium 和 noVNC 登录桌面，宿主机无需安装 Go、Node.js 或浏览器。当前镜像为 `linux/amd64`，Apple Silicon 需要 Docker 的 amd64 模拟支持。
 
