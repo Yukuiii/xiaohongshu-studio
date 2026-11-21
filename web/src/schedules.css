@@ -25,10 +25,19 @@
   font-weight: 500;
   letter-spacing: -0.015em;
 }
+.schedule-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+  margin-top: 24px;
+}
+.schedule-layout.has-detail {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+}
 .schedule-list {
   display: grid;
   gap: 0;
-  margin-top: 24px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
@@ -181,12 +190,58 @@
   font-size: 13px;
 }
 .schedule-detail {
-  margin-top: 24px;
-  padding: 26px;
+  position: sticky;
+  top: 84px;
+  max-height: calc(100dvh - 108px);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow-card);
+}
+.schedule-detail,
+.dialog.schedule-detail-drawer[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.schedule-detail-heading,
+.schedule-detail-drawer .dialog-header {
+  flex: none;
+  margin: 0;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.schedule-detail-drawer .dialog-header h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.schedule-detail-drawer .icon-button {
+  flex: none;
+}
+.schedule-history {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 0 20px 20px;
+}
+.schedule-detail-drawer .schedule-history {
+  overscroll-behavior: contain;
+}
+.dialog.schedule-detail-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(calc(100% - 16px), 540px);
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+.dialog.schedule-detail-drawer[open] {
+  animation: schedule-drawer-appear 0.18s var(--ease);
+}
+@keyframes schedule-drawer-appear {
+  from { transform: translateX(100%); }
 }
 .schedule-config {
   padding: 4px 0 8px;
@@ -285,8 +340,7 @@
   }
   .schedule-item,
   .schedule-run,
-  .schedule-editor,
-  .schedule-detail {
+  .schedule-editor {
     padding: 18px;
   }
   .schedules-page .button {

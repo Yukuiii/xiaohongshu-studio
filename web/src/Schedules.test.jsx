@@ -225,12 +225,16 @@ describe("定时任务用户操作", () => {
       return runs([run({ account_id: "B", images: ["image-1", "image-2"] })]);
     });
     render(<Schedules api={api} token="private-token" active accounts={accounts} />);
-    fireEvent.click(await screen.findByRole("button", { name: "详情与执行记录" }));
+    const trigger = await screen.findByRole("button", { name: "详情与执行记录" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("heading", { name: "早餐计划 · 执行记录" })).toHaveFocus();
     const image = await screen.findByRole("img", { name: "本次生成图片 1" });
     expect(image).toHaveAttribute("src", "blob:preview");
     expect(api.mock.calls.find(([path]) => path === "/images/image-1")?.[1]).toMatchObject({ accountId: "B", token: "private-token", blob: true });
     const pending = api.mock.calls.find(([path]) => path === "/images/image-2")[1];
     fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+    expect(screen.queryByRole("region", { name: "早餐计划 · 执行记录" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
     expect(pending.signal.aborted).toBe(true);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview");
     await act(async () => late.resolve(new Blob(["late"], { type: "image/png" })));

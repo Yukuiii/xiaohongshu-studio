@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { PublishedNoteLink, StoredImage } from "./components.jsx";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Dialog, PublishedNoteLink, StoredImage } from "./components.jsx";
 import { ToastNotice } from "./notifications.jsx";
 import { useSchedules } from "./useSchedules.js";
 import Select from "./Select.jsx";
@@ -11,6 +11,13 @@ const stages = { searching: "准备创作", reading: "准备创作", composing: 
 const publicationLabel = (type) => type === "long_text" ? "长文" : "图文";
 const canRetry = (schedule) => schedule.retry_allowed === true && Boolean(schedule.last_run_id) &&
   ["failed", "skipped"].includes(schedule.last_run_status) && !schedule.active_run_id;
+const detailDrawerQuery = "(width < 960px)";
+const getDetailDrawer = () => window.matchMedia?.(detailDrawerQuery).matches ?? false;
+const subscribeDetailDrawer = (onChange) => {
+  const media = window.matchMedia?.(detailDrawerQuery);
+  media?.addEventListener("change", onChange);
+  return () => media?.removeEventListener("change", onChange);
+};
 const time = (value) => {
   if (!value) return "—";
   const date = new Date(value);
@@ -126,7 +133,7 @@ function RunImage({ id, api, token, accountId, alt }) {
   );
 }
 
-function RunRecord({ run, api, token, active }) {
+function RunRecord({ run, api, token }) {
   return (
     <article className="schedule-run" aria-label={`执行记录：${run.title || time(run.scheduled_at)}`}>
       <div className="schedule-heading"><h3>{run.title || "尚未生成标题"}</h3><span className={`schedule-status ${run.status}`}>{statuses[run.status] || run.status}</span></div>
@@ -139,12 +146,12 @@ function RunRecord({ run, api, token, active }) {
       {run.content && <div className="schedule-prose" aria-label="笔记正文">{run.content}</div>}
       {run.tags?.length > 0 && <p className="schedule-tags" aria-label="笔记话题">{run.tags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ")}</p>}
       {run.image_prompt && <details className="schedule-reference"><summary>生图提示词</summary><p className="schedule-prose">{run.image_prompt}</p></details>}
-      {run.images?.length > 0 && <div className="schedule-images" aria-label="本次生成图片">{active && run.images.map((id, index) => <RunImage key={id} id={id} api={api} token={token} accountId={run.account_id} alt={`本次生成图片 ${index + 1}`} />)}</div>}
+      {run.images?.length > 0 && <div className="schedule-images" aria-label="本次生成图片">{run.images.map((id, index) => <RunImage key={id} id={id} api={api} token={token} accountId={run.account_id} alt={`本次生成图片 ${index + 1}`} />)}</div>}
       {run.retry_of_id && <p className="schedule-identifiers muted">重试来源：{run.retry_of_id}</p>}
       {run.error && <p className="schedule-error">执行说明：{run.error}</p>}
       {run.status === "uncertain" && <p className="schedule-warning">发布结果尚未确定，请在小红书账号核对实际结果。此条记录不会自动重试。</p>}
       {run.status === "succeeded" && <p>本次笔记已发布。</p>}
-      <PublishedNoteLink result={run.result} active={active} />
+      <PublishedNoteLink result={run.result} />
       {run.sources?.length > 0 && <details className="schedule-reference"><summary>完整参考（{run.sources.length} 篇）</summary>
         {run.sources.map((source, index) => <article key={index} className="schedule-source">
           <h4>{source.title || `参考 ${index + 1}`}</h4>
@@ -165,11 +172,74 @@ function RunRecord({ run, api, token, active }) {
   );
 }
 
+function ScheduleDetails({ schedules, schedule, api, token, drawer, onClose }) {
+  const heading = useRef(null);
+  const { selectedId, busy, page } = schedules;
+  useLayoutEffect(() => {
+    heading.current?.focus({ preventScroll: true });
+  }, [selectedId, drawer]);
+
+  const title = `${schedule?.name || "已删除的定时任务"} · 执行记录`;
+  const history = (
+    <div className="schedule-history" key={`${selectedId}:${page}`}>
+      {schedule && <div className="schedule-config">
+        <dl className="schedule-meta">
+          <div><dt>创作关键词</dt><dd>{schedule.keyword}</dd></div>
+          <div><dt>Cron / 时区</dt><dd>{schedule.cron} · {schedule.timezone}</dd></div>
+        </dl>
+        <h3>创作要求</h3>
+        <p className="schedule-prose">{schedule.instructions || "未设置，由模型自由发挥。"}</p>
+      </div>}
+      <p className="helper">以下时间按浏览器本地时区显示，计划按任务设置的时区执行。</p>
+      {schedules.runsLoading && <p className="muted">正在读取执行记录…</p>}
+      {!schedules.runsLoading && !schedules.runsError && !schedules.total && <p className="muted">暂无执行记录，启用后将按计划执行。</p>}
+      {schedules.runs.map((run) => <RunRecord key={run.id} run={run} api={api} token={token} />)}
+      {schedules.total > 0 && <nav className="schedule-pagination" aria-label="执行记录分页">
+        <button className="button" type="button" disabled={schedules.runsLoading || Boolean(busy) || page <= 1} onClick={() => schedules.setPage(page - 1)}>上一页</button>
+        <span>第 {page} / {schedules.pages} 页 · 共 {schedules.total} 次</span>
+        <button className="button" type="button" disabled={schedules.runsLoading || Boolean(busy) || page >= schedules.pages} onClick={() => schedules.setPage(page + 1)}>下一页</button>
+      </nav>}
+    </div>
+  );
+
+  if (drawer) {
+    return (
+      <Dialog id="schedule-detail" className="schedule-detail-drawer" open busy={busy} title={title} closeLabel="关闭详情" closeOnBackdrop onClose={onClose}>
+        {history}
+      </Dialog>
+    );
+  }
+  return (
+    <section id="schedule-detail" className="schedule-detail" aria-labelledby="schedule-detail-title" onKeyDown={(event) => {
+      if (event.key === "Escape" && !busy) onClose();
+    }}>
+      <div className="schedule-heading schedule-detail-heading">
+        <h2 id="schedule-detail-title" tabIndex={-1} ref={heading}>{title}</h2>
+        <button className="button" type="button" disabled={Boolean(busy)} onClick={onClose}>关闭详情</button>
+      </div>
+      {history}
+    </section>
+  );
+}
+
 function SchedulePage({ api, token, active, accounts }) {
   const schedules = useSchedules({ api, token, active });
   const [editor, setEditor] = useState(null);
   const [deleting, setDeleting] = useState("");
   const selected = schedules.schedules.find((item) => item.id === schedules.selectedId);
+  const detailDrawer = useSyncExternalStore(subscribeDetailDrawer, getDetailDrawer);
+  const showDetail = active && Boolean(schedules.selectedId);
+  const closingDetail = useRef("");
+  useLayoutEffect(() => {
+    if (!active || schedules.selectedId || !closingDetail.current) return;
+    const trigger = document.getElementById(`schedule-detail-trigger-${closingDetail.current}`);
+    (trigger || document.getElementById("schedules-title"))?.focus();
+    closingDetail.current = "";
+  }, [active, schedules.selectedId]);
+  const closeDetail = () => {
+    closingDetail.current = schedules.selectedId;
+    schedules.select("");
+  };
   const errorNotice = useMemo(() => {
     const error = schedules.error || (schedules.selectedId && schedules.runsError);
     return error ? { message: `读取定时任务失败：${error}`, type: "error" } : null;
@@ -203,34 +273,35 @@ function SchedulePage({ api, token, active, accounts }) {
       {!accounts.length && <p className="schedule-warning">请先到<a href="#accounts">账号页添加并登录账号</a>，并在<a href="#settings">设置页保存文字模型</a>。</p>}
       {editor && <ScheduleForm key={editor.id || "new"} schedule={editor.id ? editor : null} accounts={accounts} busy={schedules.busy} onSave={save} onCancel={() => setEditor(null)} />}
       {!schedules.loading && !schedules.error && !schedules.schedules.length && <div className="card schedules-empty"><h2>还没有定时任务</h2><p className="muted">配置创作关键词和执行时间，模型将自动创作并发布。</p><p><a href="#accounts">管理发布账号</a> · <a href="#settings">配置文字模型</a></p></div>}
-      <div className="schedule-list">
-        {schedules.schedules.map((schedule) => <article key={schedule.id} className={`schedule-item${schedules.selectedId === schedule.id ? " selected" : ""}`} aria-label={`定时任务：${schedule.name}`}>
-          <div className="schedule-heading"><h2>{schedule.name}</h2><span className={`schedule-status ${schedule.enabled ? "enabled" : "paused"}`}>{schedule.enabled ? "已启用" : "已暂停"}</span></div>
-          <p className="muted">{schedule.account_name || schedule.account_id} · {publicationLabel(schedule.publication_type)} · {ruleLabel(schedule.cron)} · {schedule.timezone}</p>
-          <dl className="schedule-meta"><div><dt>下次执行</dt><dd>{schedule.enabled ? time(schedule.next_run_at) : "已暂停"}</dd></div><div><dt>上次执行</dt><dd>{time(schedule.last_run_at)}</dd></div></dl>
-          {schedule.configuration_error && <p className="schedule-error">配置问题：{schedule.configuration_error} <a href="#settings">前往设置</a></p>}
-          {schedule.last_run_status && <p className="muted">最近执行：{statuses[schedule.last_run_status] || schedule.last_run_status}</p>}
-          {schedule.last_run_error && <p className="schedule-error">最近执行说明：{schedule.last_run_error}</p>}
-          <div className="button-group">
-            <button className="button" type="button" disabled={Boolean(schedules.busy)} aria-expanded={schedules.selectedId === schedule.id} aria-controls="schedule-detail" onClick={() => schedules.select(schedules.selectedId === schedule.id ? "" : schedule.id)}>详情与执行记录</button>
-            <button className="button" type="button" disabled={Boolean(schedules.busy)} onClick={() => { setEditor(schedule); setDeleting(""); }}>编辑</button>
-            <button className="button" type="button" disabled={Boolean(schedules.busy)} onClick={() => schedules.mutate(`toggle-${schedule.id}`, `/schedules/${encodeURIComponent(schedule.id)}`, { method: "PUT", body: { ...inputFor(schedule), enabled: !schedule.enabled } }, schedule.enabled ? "已暂停后续执行，已开始的任务会继续。" : "定时任务已启用，将按计划自动发布。")}>{schedule.enabled ? "暂停" : "启用"}</button>
-            {canRetry(schedule) && <button className="button" type="button" disabled={Boolean(schedules.busy)} onClick={() => retry(schedule)}>{schedules.busy === `retry-${schedule.id}` ? "提交重试中…" : "重试最近执行"}</button>}
-            <button className="button danger" type="button" disabled={Boolean(schedules.busy)} onClick={() => setDeleting(schedule.id)}>删除</button>
-          </div>
-          {canRetry(schedule) && <p className="helper">重试将使用当前配置重新创作并自动发布，保留原执行记录，不改变计划启停状态。</p>}
-          {deleting === schedule.id && <div className="schedule-delete" role="group" aria-label={`确认删除 ${schedule.name}`}><p>删除「{schedule.name}」并停止后续计划？执行记录会保留；正在执行时无法删除。</p><div className="button-group"><button className="button danger" type="button" disabled={Boolean(schedules.busy)} onClick={() => remove(schedule.id)}>确认删除</button><button className="button" type="button" disabled={Boolean(schedules.busy)} onClick={() => setDeleting("")}>取消删除</button></div></div>}
-        </article>)}
+      <div className={`schedule-layout${showDetail && !detailDrawer ? " has-detail" : ""}`}>
+        <div className="schedule-list">
+          {schedules.schedules.map((schedule) => {
+            const expanded = schedules.selectedId === schedule.id;
+            return <article key={schedule.id} className={`schedule-item${expanded ? " selected" : ""}`} aria-label={`定时任务：${schedule.name}`}>
+              <div className="schedule-heading"><h2>{schedule.name}</h2><span className={`schedule-status ${schedule.enabled ? "enabled" : "paused"}`}>{schedule.enabled ? "已启用" : "已暂停"}</span></div>
+              <p className="muted">{schedule.account_name || schedule.account_id} · {publicationLabel(schedule.publication_type)} · {ruleLabel(schedule.cron)} · {schedule.timezone}</p>
+              <dl className="schedule-meta"><div><dt>下次执行</dt><dd>{schedule.enabled ? time(schedule.next_run_at) : "已暂停"}</dd></div><div><dt>上次执行</dt><dd>{time(schedule.last_run_at)}</dd></div></dl>
+              {schedule.configuration_error && <p className="schedule-error">配置问题：{schedule.configuration_error} <a href="#settings">前往设置</a></p>}
+              {schedule.last_run_status && <p className="muted">最近执行：{statuses[schedule.last_run_status] || schedule.last_run_status}</p>}
+              {schedule.last_run_error && <p className="schedule-error">最近执行说明：{schedule.last_run_error}</p>}
+              <div className="button-group">
+                <button
+                  id={`schedule-detail-trigger-${schedule.id}`} className="button" type="button" disabled={Boolean(schedules.busy)}
+                  aria-expanded={expanded} aria-controls={showDetail ? "schedule-detail" : undefined} aria-haspopup={detailDrawer ? "dialog" : undefined}
+                  onClick={expanded ? closeDetail : () => schedules.select(schedule.id)}
+                >详情与执行记录</button>
+                <button className="button" type="button" disabled={Boolean(schedules.busy)} onClick={() => { setEditor(schedule); setDeleting(""); }}>编辑</button>
+                <button className="button" type="button" disabled={Boolean(schedules.busy)} onClick={() => schedules.mutate(`toggle-${schedule.id}`, `/schedules/${encodeURIComponent(schedule.id)}`, { method: "PUT", body: { ...inputFor(schedule), enabled: !schedule.enabled } }, schedule.enabled ? "已暂停后续执行，已开始的任务会继续。" : "定时任务已启用，将按计划自动发布。")}>{schedule.enabled ? "暂停" : "启用"}</button>
+                {canRetry(schedule) && <button className="button" type="button" disabled={Boolean(schedules.busy)} onClick={() => retry(schedule)}>{schedules.busy === `retry-${schedule.id}` ? "提交重试中…" : "重试最近执行"}</button>}
+                <button className="button danger" type="button" disabled={Boolean(schedules.busy)} onClick={() => setDeleting(schedule.id)}>删除</button>
+              </div>
+              {canRetry(schedule) && <p className="helper">重试将使用当前配置重新创作并自动发布，保留原执行记录，不改变计划启停状态。</p>}
+              {deleting === schedule.id && <div className="schedule-delete" role="group" aria-label={`确认删除 ${schedule.name}`}><p>删除「{schedule.name}」并停止后续计划？执行记录会保留；正在执行时无法删除。</p><div className="button-group"><button className="button danger" type="button" disabled={Boolean(schedules.busy)} onClick={() => remove(schedule.id)}>确认删除</button><button className="button" type="button" disabled={Boolean(schedules.busy)} onClick={() => setDeleting("")}>取消删除</button></div></div>}
+            </article>;
+          })}
+        </div>
+        {showDetail && <ScheduleDetails schedules={schedules} schedule={selected} api={api} token={token} drawer={detailDrawer} onClose={closeDetail} />}
       </div>
-      {schedules.selectedId && <section id="schedule-detail" className="schedule-detail" aria-labelledby="schedule-detail-title">
-        <div className="schedule-heading"><h2 id="schedule-detail-title">{selected?.name || "已删除的定时任务"} · 执行记录</h2><button className="button" type="button" disabled={Boolean(schedules.busy)} onClick={() => schedules.select("")}>关闭详情</button></div>
-        {selected && <div className="schedule-config"><dl className="schedule-meta"><div><dt>创作关键词</dt><dd>{selected.keyword}</dd></div><div><dt>Cron / 时区</dt><dd>{selected.cron} · {selected.timezone}</dd></div></dl><h3>创作要求</h3><p className="schedule-prose">{selected.instructions || "未设置，由模型自由发挥。"}</p></div>}
-        <p className="helper">以下时间按浏览器本地时区显示，计划按任务设置的时区执行。</p>
-        {schedules.runsLoading && <p className="muted">正在读取执行记录…</p>}
-        {!schedules.runsLoading && !schedules.runsError && !schedules.total && <p className="muted">暂无执行记录，启用后将按计划执行。</p>}
-        {schedules.runs.map((run) => <RunRecord key={run.id} run={run} api={api} token={token} active={active} />)}
-        {schedules.total > 0 && <nav className="schedule-pagination" aria-label="执行记录分页"><button className="button" type="button" disabled={schedules.runsLoading || Boolean(schedules.busy) || schedules.page <= 1} onClick={() => schedules.setPage(schedules.page - 1)}>上一页</button><span>第 {schedules.page} / {schedules.pages} 页 · 共 {schedules.total} 次</span><button className="button" type="button" disabled={schedules.runsLoading || Boolean(schedules.busy) || schedules.page >= schedules.pages} onClick={() => schedules.setPage(schedules.page + 1)}>下一页</button></nav>}
-      </section>}
     </div>
   );
 }
