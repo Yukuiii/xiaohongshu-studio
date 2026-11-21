@@ -36,6 +36,7 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 
 	// API 路由组
 	api := protected.Group("/api/v1")
+	appServer.registerDesktopUpdateRoutes(api)
 	api.GET("/settings", appServer.getSettingsHandler)
 	api.PUT("/settings", appServer.putSettingsHandler)
 	api.DELETE("/settings", appServer.deleteSettingsHandler)

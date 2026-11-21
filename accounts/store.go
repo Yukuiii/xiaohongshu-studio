@@ -26,6 +26,7 @@ var (
 	ErrIdentityMismatch  = errors.New("account identity mismatch")
 	ErrDuplicateIdentity = errors.New("account identity already bound")
 	ErrLocked            = errors.New("accounts root locked")
+	ErrRestartPending    = errors.New("应用正在准备安装更新")
 )
 
 // Account 是账号元数据；profiles/downloads 仍保存在数据目录。
@@ -48,12 +49,13 @@ type Account struct {
 
 // Store 负责账号元数据和 profile 目录，元数据保存在 SQLite。
 type Store struct {
-	mu       sync.RWMutex
-	root     string
-	lock     *flock.Flock
-	db       *sql.DB
-	accounts map[string]Account
-	closed   bool
+	mu             sync.RWMutex
+	root           string
+	lock           *flock.Flock
+	db             *sql.DB
+	accounts       map[string]Account
+	closed         bool
+	restartPending bool
 }
 
 const accountColumns = `id, name, user_id, nickname, avatar, is_logged_in, verification_required, login_checked_at, seed, active_profile, created_at, updated_at, deleted`

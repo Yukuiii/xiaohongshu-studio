@@ -316,6 +316,9 @@ func (s *Store) ClaimDueScheduleRuns(ctx context.Context, now time.Time) ([]Sche
 	if s.closed {
 		return nil, os.ErrClosed
 	}
+	if s.restartPending {
+		return nil, nil
+	}
 	now = now.UTC().Truncate(time.Millisecond)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -668,6 +671,9 @@ func (s *Store) RetryScheduleRun(ctx context.Context, scheduleID, runID string, 
 	defer s.mu.RUnlock()
 	if s.closed {
 		return ScheduleRun{}, false, os.ErrClosed
+	}
+	if s.restartPending {
+		return ScheduleRun{}, false, ErrRestartPending
 	}
 	now = now.UTC().Truncate(time.Millisecond)
 	tx, err := s.db.BeginTx(ctx, nil)

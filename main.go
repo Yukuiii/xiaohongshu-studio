@@ -13,6 +13,7 @@ import (
 	"github.com/Yukuiii/xiaohongshu-studio/configs"
 	"github.com/Yukuiii/xiaohongshu-studio/datadir"
 	"github.com/Yukuiii/xiaohongshu-studio/db"
+	"github.com/Yukuiii/xiaohongshu-studio/internal/appupdate"
 	"github.com/sirupsen/logrus"
 )
 
@@ -30,18 +31,32 @@ func watchReaderEOF(r io.Reader, cancel context.CancelFunc) {
 }
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "--install-desktop-update" {
+		if len(os.Args) != 3 {
+			logrus.Fatal("缺少桌面更新任务文件")
+		}
+		if err := appupdate.RunInstaller(os.Args[2]); err != nil {
+			logrus.Fatal(err)
+		}
+		return
+	}
+
 	var (
-		headless   bool
-		port       string
-		token      string
-		watchStdin bool
-		printAddr  bool
+		headless    bool
+		port        string
+		token       string
+		watchStdin  bool
+		printAddr   bool
+		desktopHost string
+		installer   string
 	)
 	flag.BoolVar(&headless, "headless", true, "是否无头模式")
 	flag.StringVar(&port, "port", ":18060", "端口")
 	flag.StringVar(&token, "token", "", "鉴权 Token，留空则读取 AUTH_TOKEN")
 	flag.BoolVar(&watchStdin, "watch-stdin", false, "标准输入关闭时自动优雅退出（供桌面端托管）")
 	flag.BoolVar(&printAddr, "print-addr", false, "监听就绪后向标准输出打印监听地址")
+	flag.StringVar(&desktopHost, "desktop-host", "", "桌面宿主程序路径")
+	flag.StringVar(&installer, "desktop-installer", "", "当前 Windows 安装包类型")
 	flag.Parse()
 	if token == "" {
 		token = os.Getenv("AUTH_TOKEN")
@@ -99,6 +114,12 @@ func main() {
 	appServer := NewAccountAppServer(manager, token)
 	appServer.settings = settings
 	appServer.prompts = prompts
+	if watchStdin && printAddr && desktopHost != "" {
+		appServer.appUpdate = newDesktopUpdater(ctx, desktopHost, installer)
+		if appServer.appUpdate != nil {
+			defer appServer.appUpdate.close()
+		}
+	}
 	if err := appServer.StartContext(ctx, port, onListen); err != nil {
 		logrus.Fatalf("failed to run server: %v", err)
 	}

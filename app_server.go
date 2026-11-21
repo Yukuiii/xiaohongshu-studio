@@ -24,6 +24,7 @@ type AppServer struct {
 	settings           *settingsStore
 	prompts            *promptStore
 	desktop            *desktopGateway
+	appUpdate          *desktopUpdater
 	tasks              *PublishTaskManager
 	schedules          *ScheduleManager
 }

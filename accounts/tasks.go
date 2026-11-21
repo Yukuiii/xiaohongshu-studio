@@ -92,6 +92,9 @@ const taskColumns = `id, account_id, account_name, user_id, kind, title, payload
 func (s *Store) EnqueuePublishTask(ctx context.Context, input NewPublishTask, baseProtectionRevision int64) (PublishTask, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.restartPending {
+		return PublishTask{}, ErrRestartPending
+	}
 	if _, err := s.get(input.AccountID); err != nil {
 		return PublishTask{}, err
 	}

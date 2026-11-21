@@ -8,6 +8,14 @@
 
 发布结果提供「打开笔记」和「复制链接」；「打开笔记」会使用系统默认浏览器，笔记的访问仍遵循小红书的登录和可见范围设置。
 
+## 应用更新
+
+桌面客户端会在启动时和运行期间每 6 小时检查 GitHub Release 的最新稳定版。在「设置 → 应用更新」可以手动检查、下载和安装。下载完成后会校验安装包大小和 SHA-256。确认安装时需要等待发布及定时任务结束，应用随后会退出、安装并重新打开。
+
+macOS 使用已安装目录中的 `.app`，Windows 沿用原来的 NSIS 或 MSI 安装方式。升级继续使用原来的账号、草稿和任务数据。旧版首次升级可在发布页下载对应安装包覆盖安装。[GitHub Releases](https://github.com/Yukuiii/xiaohongshu-studio/releases)
+
+稳定版发布自动生成 `studio-update.json`，记录 tag、三个桌面安装包的大小和 SHA-256，和安装包一起上传到 GitHub Release。客户端从同一 Release 读取清单和安装包。
+
 ## 目录结构
 
 - `package.json`：桌面端构建与开发脚本（`@tauri-apps/cli`）

@@ -46,6 +46,8 @@ func accountFailure(err error) *accountError {
 	switch {
 	case errors.Is(err, xhsErrors.ErrVerificationRequired):
 		return &accountError{http.StatusConflict, "XHS_VERIFICATION_REQUIRED", "小红书要求安全验证，请前往账号页打开验证窗口，按页面提示完成手机验证"}
+	case errors.Is(err, accounts.ErrRestartPending):
+		return &accountError{http.StatusServiceUnavailable, "APP_UPDATE_INSTALLING", accounts.ErrRestartPending.Error()}
 	case errors.Is(err, accounts.ErrTaskNotFound):
 		return &accountError{http.StatusNotFound, "TASK_NOT_FOUND", "任务不存在"}
 	case errors.Is(err, accounts.ErrTaskActive):

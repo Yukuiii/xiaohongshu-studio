@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Dialog } from "./components.jsx";
+import DesktopUpdate from "./DesktopUpdate.jsx";
 import { ToastNotice } from "./notifications.jsx";
 
 export default function Settings({ workbench: wb, active = true }) {
@@ -18,6 +19,14 @@ export default function Settings({ workbench: wb, active = true }) {
           <p className="muted">连接模型服务，管理工作台共用的模型配置。</p>
         </div>
       </header>
+      {active && (
+        <DesktopUpdate
+          key={wb.settings.token}
+          api={wb.api}
+          token={wb.settings.token}
+          busy={wb.busy}
+        />
+      )}
       <form
         id="settings-form"
         className="card settings-form"

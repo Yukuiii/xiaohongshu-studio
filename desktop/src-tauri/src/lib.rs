@@ -316,16 +316,29 @@ fn spawn_and_wait_addr(
     sidecar: &Path,
     paths: &BackendPaths,
     listen_addr: &str,
+    app: &AppHandle,
 ) -> Result<(Child, String), String> {
     let mut cmd = Command::new(sidecar);
     cmd.args(["-port", listen_addr, "-watch-stdin", "-print-addr"])
+        .arg("-desktop-host")
+        .arg(std::env::current_exe().map_err(|e| format!("无法定位桌面端可执行文件: {e}"))?)
         .current_dir(&paths.data_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
     #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    {
+        use tauri::utils::{config::BundleType, platform::bundle_type};
+        if let Some(kind) = match bundle_type() {
+            Some(BundleType::Nsis) => Some("nsis"),
+            Some(BundleType::Msi) => Some("msi"),
+            _ => None,
+        } {
+            cmd.args(["-desktop-installer", kind]);
+        }
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
 
     let mut child = cmd
         .spawn()
@@ -378,9 +391,16 @@ fn spawn_and_wait_addr(
     }
     if let Some(addr) = addr {
         // Gin 访问日志写 stdout；读端关闭会让 sidecar 收到 SIGPIPE 直接退出。
+        let app = app.clone();
         std::thread::spawn(move || {
             let mut line = String::new();
             while matches!(reader.read_line(&mut line), Ok(n) if n > 0) {
+                if line.trim_end() == "XHS_STUDIO_UPDATE_EXIT" {
+                    // Go 已启动独立安装进程，沿用正常退出流程让安装器等待落盘。
+                    let state = app.state::<SidecarState>();
+                    state.quitting.store(true, Ordering::SeqCst);
+                    app.exit(0);
+                }
                 line.clear();
             }
         });
@@ -407,9 +427,9 @@ fn start_backend(app: AppHandle) {
     let result: Result<String, String> = (|| {
         let sidecar = resolve_sidecar_path()?;
         let paths = prepare_backend_paths(&app)?;
-        let (child, addr) = match spawn_and_wait_addr(&sidecar, &paths, DEFAULT_ADDR) {
+        let (child, addr) = match spawn_and_wait_addr(&sidecar, &paths, DEFAULT_ADDR, &app) {
             Ok(ok) => ok,
-            Err(_) => spawn_and_wait_addr(&sidecar, &paths, FALLBACK_ADDR)?,
+            Err(_) => spawn_and_wait_addr(&sidecar, &paths, FALLBACK_ADDR, &app)?,
         };
         let state = app.state::<SidecarState>();
         if state.quitting.load(Ordering::SeqCst) {

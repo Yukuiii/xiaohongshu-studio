@@ -69,10 +69,10 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           SHORT_SHA: ${{ github.sha }}
         run: |
-          if [ -n "$INPUT_VERSION" ]; then
-            version="$INPUT_VERSION"
-          elif [ "$REF_TYPE" = "tag" ]; then
+          if [ "$REF_TYPE" = "tag" ]; then
             version="$REF_NAME"
+          elif [ -n "$INPUT_VERSION" ]; then
+            version="$INPUT_VERSION"
           else
             version="${SHORT_SHA:0:7}"
           fi
@@ -107,14 +107,48 @@ jobs:
           merge-multiple: true
           path: dist
 
+      - name: Create Desktop Update Manifest
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          tag = os.environ['RELEASE_TAG']
+          if not re.fullmatch(r'v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', tag):
+              raise SystemExit('无效的桌面稳定版 tag')
+
+          dist = Path('dist')
+          assets = {}
+          for suffix in ('_aarch64.dmg', '_x64-setup.exe', '_x64_en-US.msi'):
+              name = f'Xiaohongshu.Studio_{tag[1:]}{suffix}'
+              paths = list(dist.rglob(name))
+              if len(paths) != 1 or not paths[0].is_file() or paths[0].stat().st_size == 0:
+                  raise SystemExit(f'桌面安装包缺失或不唯一: {name}')
+              path = paths[0]
+              with path.open('rb') as package:
+                  digest = hashlib.file_digest(package, 'sha256').hexdigest()
+              assets[name] = {'size': path.stat().st_size, 'sha256': digest}
+
+          manifest = {'version': tag, 'assets': assets}
+          (dist / 'studio-update.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          PY
+
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           name: Xiaohongshu Studio ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/**/*.dmg
             dist/**/*-setup.exe
             dist/**/*.msi
+            dist/studio-update.json
           generate_release_notes: true
           body: |
             ## 红薯创作台 ${{ github.ref_name }}
