@@ -34,7 +34,7 @@ function cards() {
 }
 function finish() {
  sessionStorage.setItem('publication', JSON.stringify({title:document.querySelector('input').value,caption:document.querySelector('[contenteditable]').innerText,ready:[...document.querySelectorAll('.img-container')].every(c=>c.getAttribute('aria-busy')==='false')}));
- if (!sessionStorage.getItem('uncertain')) location.href='/published';
+ if (!sessionStorage.getItem('uncertain')) location.href='/publish/success';
 }
 </script>`
 

@@ -445,7 +445,7 @@ GET /api/v1/tasks/0123456789abcdef0123456789abcdef
 | --- | --- |
 | `queued` | 已接收，等待账号浏览器可用 |
 | `running` | 正在执行发布 |
-| `succeeded` | 已确认发布完成，`result` 包含原发布结果 |
+| `succeeded` | 已收到包含有效笔记标识的创建回执或到达创作者中心发布成功页，`result` 包含发布结果 |
 | `failed` | 发布失败，`error` 包含原因 |
 | `uncertain` | 无法确认发布结果，需到小红书核对后处理发布保护 |
 
@@ -1407,7 +1407,7 @@ Content-Type: application/json
 GET /api/v1/publish-protection
 ```
 
-返回 `revision`、`uncertain`、`last_published` 和 `active_task_id`。活动任务期间 `active_task_id` 非空，禁止再次发布或手动解锁；无活动任务但 `uncertain=true` 时，须先核对实际发布结果。
+返回 `revision`、`uncertain`、`last_published` 和 `active_task_id`。活动任务期间 `active_task_id` 非空，禁止再次发布或手动解锁。无活动任务但 `uncertain=true` 时，手动与定时发布都会暂停提交，须到创作者中心核对该笔记后在工作台「确认发布」解除锁定。
 
 ```http
 PUT /api/v1/publish-protection

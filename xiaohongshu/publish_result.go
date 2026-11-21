@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
 	"time"
 
+	xhsErrors "github.com/Yukuiii/xiaohongshu-studio/errors"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 )
@@ -22,30 +24,90 @@ type PublishedNote struct {
 
 // clickAndConfirmPublish 在点击前监听创建响应，不按标题猜测已发布笔记。
 func clickAndConfirmPublish(page *rod.Page) (PublishedNote, error) {
-	responses, stop := watchPublishResponses(page)
-	defer stop()
-	if err := clickPublishButton(page); err != nil {
-		return PublishedNote{}, err
-	}
-	if err := waitPublishSuccess(page, 15*time.Second); err != nil {
+	btn, err := waitForPublishButtonClickable(page, 15*time.Second)
+	if err != nil {
 		return PublishedNote{}, err
 	}
 
-	// 发布已确认，后续取消或读取失败只影响链接，不能触发重发。
+	responses, stop := watchPublishResponses(page)
+	defer stop()
+	ctx := page.GetContext()
+	if err := ctx.Err(); err != nil {
+		return PublishedNote{}, fmt.Errorf("提交前任务已中止: %w", err)
+	}
+	// 单调时钟在部分系统休眠时停止，用实际时间检查提交期限。
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline.Round(0)) {
+		return PublishedNote{}, fmt.Errorf("提交前任务已超时: %w", context.DeadlineExceeded)
+	}
+	if err := clickPublishButton(page, btn); err != nil {
+		return PublishedNote{}, err
+	}
+
+	return waitPublishResult(page, responses)
+}
+
+func waitPublishResult(page *rod.Page, responses <-chan PublishedNote) (PublishedNote, error) {
+	ctx, cancel := context.WithTimeout(page.GetContext(), 15*time.Second)
+	defer cancel()
+	browser := page.Browser().Context(ctx)
+	request := proto.TargetGetTargetInfo{TargetID: page.TargetID}
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	// 等待创作者页完成提交后的处理，超时后仍认可有效创建回执。
+	var note PublishedNote
+	for {
+		select {
+		case note = <-responses:
+		case <-ticker.C:
+			info, err := request.Call(browser)
+			if err == nil && isPublishSuccessURL(info.TargetInfo.URL) {
+				slog.Info("发布成功，已跳转到发布成功页")
+				return waitPublishedNoteLink(page, responses, note), nil
+			}
+		case <-ctx.Done():
+			select {
+			case note = <-responses:
+			default:
+			}
+			if note.NoteID != "" {
+				slog.Info("发布成功，已收到创建笔记回执", "note_id", note.NoteID)
+				return note, nil
+			}
+			if note.NoteLinkError == "" {
+				note.NoteLinkError = "未收到可确认的创建笔记回执"
+			}
+			return PublishedNote{}, fmt.Errorf("点击发布后未确认成功（%s）: %w", note.NoteLinkError, xhsErrors.ErrPublishUncertain)
+		}
+	}
+}
+
+func isPublishSuccessURL(raw string) bool {
+	if index := strings.IndexAny(raw, "?#"); index >= 0 {
+		raw = raw[:index]
+	}
+	return raw == "https://creator.xiaohongshu.com/publish/success"
+}
+
+// 已确认发布后仅等待可选的笔记标识。
+func waitPublishedNoteLink(page *rod.Page, responses <-chan PublishedNote, fallback PublishedNote) PublishedNote {
 	select {
 	case note := <-responses:
-		return note, nil
+		return note
 	default:
+	}
+	if fallback.NoteID != "" || fallback.NoteLinkError != "" {
+		return fallback
 	}
 	timer := time.NewTimer(2 * time.Second)
 	defer timer.Stop()
 	select {
 	case note := <-responses:
-		return note, nil
+		return note
 	case <-page.GetContext().Done():
-		return PublishedNote{NoteLinkError: "发布已完成，读取笔记链接时操作被中断"}, nil
+		return PublishedNote{NoteLinkError: "发布已完成，读取笔记链接时操作被中断"}
 	case <-timer.C:
-		return PublishedNote{NoteLinkError: "发布已完成，但未收到笔记链接，请到小红书账号查看"}, nil
+		return PublishedNote{NoteLinkError: "发布已完成，但未收到笔记链接，请到小红书账号查看"}
 	}
 }
 
@@ -80,32 +142,40 @@ func watchPublishResponses(page *rod.Page) (<-chan PublishedNote, func()) {
 		case <-responses:
 		default:
 		}
-	}, func(event *proto.NetworkResponseReceived) {
-		if event.RequestID == requestID {
-			status = event.Response.Status
-			// 小响应可能已经读完，先取结果，避免跳转清理旧资源。
-			if status >= 200 && status < 300 {
-				if note, err := readPublishedNoteResponse(p, requestID); err == nil {
-					requestID = ""
-					update(note)
-				}
+	}, func(event *proto.NetworkResponseReceived) bool {
+		if requestID == "" || event.RequestID != requestID {
+			return false
+		}
+		if !isCreateNoteURL(event.Response.URL) {
+			requestID = ""
+			update(PublishedNote{NoteLinkError: "创建笔记请求跳转，未收到回执"})
+			return false
+		}
+		status = event.Response.Status
+		// 小响应可能已经读完，先取结果，避免跳转清理旧资源。
+		if status >= 200 && status < 300 {
+			if note, err := readPublishedNoteResponse(p, requestID); err == nil {
+				update(note)
+				return true
 			}
 		}
-	}, func(event *proto.NetworkLoadingFinished) {
+		return false
+	}, func(event *proto.NetworkLoadingFinished) bool {
 		if requestID == "" || event.RequestID != requestID {
-			return
+			return false
 		}
 		requestID = ""
 		if status < 200 || status >= 300 {
-			update(PublishedNote{NoteLinkError: fmt.Sprintf("无法读取发布响应中的笔记链接（HTTP %d）", status)})
-			return
+			update(PublishedNote{NoteLinkError: fmt.Sprintf("创建笔记请求返回 HTTP %d", status)})
+			return false
 		}
 		note, err := readPublishedNoteResponse(p, event.RequestID)
 		if err != nil {
 			slog.Warn("读取发布响应失败", "error", err)
-			note.NoteLinkError = "发布已完成，但无法读取笔记链接"
+			note.NoteLinkError = "无法读取创建笔记回执: " + err.Error()
 		}
 		update(note)
+		return note.NoteID != ""
 	}, func(event *proto.NetworkLoadingFailed) {
 		if requestID != "" && event.RequestID == requestID {
 			requestID = ""
@@ -151,10 +221,16 @@ func parsePublishedNoteResponse(body []byte) (PublishedNote, error) {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		return PublishedNote{}, fmt.Errorf("发布已完成，但笔记链接响应格式无效")
+		return PublishedNote{}, fmt.Errorf("创建笔记回执格式无效")
 	}
-	if (response.Code == nil && response.Success == nil) || (response.Code != nil && *response.Code != 0) || (response.Success != nil && !*response.Success) {
-		return PublishedNote{}, fmt.Errorf("发布响应未提供可确认的笔记链接")
+	if response.Code != nil && *response.Code != 0 {
+		return PublishedNote{}, fmt.Errorf("小红书创建回执 code=%d", *response.Code)
+	}
+	if response.Success != nil && !*response.Success {
+		return PublishedNote{}, fmt.Errorf("小红书创建回执 success=false")
+	}
+	if response.Code == nil && response.Success == nil {
+		return PublishedNote{}, fmt.Errorf("创建笔记回执缺少状态")
 	}
 	// 创建页面自身兼容这三个字段；存在冲突时不选择其中任意一个。
 	var id string
@@ -168,7 +244,7 @@ func parsePublishedNoteResponse(body []byte) (PublishedNote, error) {
 		id = value
 	}
 	if id == "" {
-		return PublishedNote{}, fmt.Errorf("发布已完成，但平台未返回笔记标识")
+		return PublishedNote{}, fmt.Errorf("创建笔记回执缺少笔记标识")
 	}
 	return PublishedNote{NoteID: id}, nil
 }

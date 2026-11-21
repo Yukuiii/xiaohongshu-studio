@@ -19,17 +19,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type suspendedPublishContext struct{ context.Context }
+
+func (ctx suspendedPublishContext) Deadline() (time.Time, bool) {
+	deadline, _ := ctx.Context.Deadline()
+	return deadline.Add(-time.Minute), true
+}
+
 // 所有域名只解析到本地 HTTPS 夹具，保留真实 Network 事件，不连接实际账号。
 func TestPublishedNoteCaptureLocal(t *testing.T) {
 	const id = "6af8bd4c000000002a01272b"
+	const success = `{"code":0,"success":true,"data":{"id":"` + id + `"}}`
+	const missingID = `{"code":0,"success":true,"data":{}}`
+	const rejected = `{"code":-1,"success":false,"data":{"id":"` + id + `"}}`
 	for _, test := range []struct {
-		name, response string
-		redirect       bool
-		wantLink       bool
+		name, response, redirect string
+		wantLink                 bool
+		uncertainReason          string
+		deadlineElapsed          bool
 	}{
-		{"捕获本次创建结果", `{"code":0,"success":true,"data":{"id":"` + id + `"}}`, true, true},
-		{"缺失链接仍是发布成功", `{"code":0,"success":true,"data":{}}`, true, false},
-		{"未确认跳转仍是结果未知", `{"code":0,"success":true,"data":{"id":"` + id + `"}}`, false, false},
+		{"捕获本次创建结果", success, "/publish/success?source=official", true, "", false},
+		{"创建回执确认成功且无需跳转", success, "", true, "", false},
+		{"成功页缺失链接仍是发布成功", missingID, "/publish/success", false, "", false},
+		{"回执缺少标识且未跳转仍是结果未知", missingID, "", false, "缺少笔记标识", false},
+		{"回执失败且跳转登录页仍是结果未知", rejected, "/login", false, "code=-1", false},
+		{"休眠导致截止时间已过时不提交", success, "/publish/success", false, "", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var creations atomic.Int32
@@ -56,7 +70,7 @@ func TestPublishedNoteCaptureLocal(t *testing.T) {
 					return
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				if r.URL.Path == "/published" {
+				if r.URL.Path == "/publish/success" {
 					fmt.Fprint(w, "发布完成")
 					return
 				}
@@ -64,11 +78,13 @@ func TestPublishedNoteCaptureLocal(t *testing.T) {
 <div class="publish-page-publish-btn"><button class="bg-red" onclick="publish()">发布</button></div>
 <script>
 async function publish() {
+ sessionStorage.setItem('clicked', '1');
  await fetch('https://edith.xiaohongshu.com/web_api/sns/v2/note');
  await fetch('https://edith.xiaohongshu.com/web_api/sns/capa/postgw/note/update', {method:'POST'});
  const response = await fetch('https://edith.xiaohongshu.com/web_api/sns/v2/note', {method:'POST', body:'{}'});
  await response.json();
- if (%t) location.href='/published';
+ const redirect = %q;
+ if (redirect) location.href=redirect;
 }
 </script>`, test.redirect)
 			}))
@@ -94,10 +110,21 @@ async function publish() {
 			defer page.Close()
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			note, err := clickAndConfirmPublish(page.Context(ctx))
+			var publishCtx context.Context = ctx
+			if test.deadlineElapsed {
+				publishCtx = suspendedPublishContext{ctx}
+			}
+			note, err := clickAndConfirmPublish(page.Context(publishCtx))
+			if test.deadlineElapsed {
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				require.NotErrorIs(t, err, xhsErrors.ErrPublishUncertain)
+				require.False(t, page.MustEval(`() => sessionStorage.getItem('clicked') === '1'`).Bool())
+				return
+			}
 			require.Equal(t, int32(1), creations.Load())
-			if !test.redirect {
+			if test.uncertainReason != "" {
 				require.ErrorIs(t, err, xhsErrors.ErrPublishUncertain)
+				require.ErrorContains(t, err, test.uncertainReason)
 				require.Empty(t, note.NoteURL)
 				return
 			}

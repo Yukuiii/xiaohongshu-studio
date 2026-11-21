@@ -448,42 +448,12 @@ func submitPublish(ctx context.Context, page *rod.Page, title, content string, t
 	return clickAndConfirmPublish(page)
 }
 
-// waitPublishSuccess 等待离开发布页，超时或中断时保留结果未知。
-func waitPublishSuccess(page *rod.Page, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-	ctx := page.GetContext()
-	for {
-		if err := ctx.Err(); err != nil {
-			return errors.Wrapf(xhsErrors.ErrPublishUncertain, "等待发布结果被中断: %v", err)
-		}
-		if info, err := page.Info(); err == nil && !strings.Contains(info.URL, "/publish/publish") {
-			slog.Info("发布成功，已跳转离开发布页", "url", info.URL)
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return errors.Wrap(xhsErrors.ErrPublishUncertain, "点击发布后未跳转离开发布页，请到小红书核对结果")
-		}
-		select {
-		case <-ctx.Done():
-			return errors.Wrapf(xhsErrors.ErrPublishUncertain, "等待发布结果被中断: %v", ctx.Err())
-		case <-ticker.C:
-		}
-	}
-}
-
 type publishButton struct {
 	elem     *rod.Element
 	isWidget bool
 }
 
-func clickPublishButton(page *rod.Page) error {
-	btn, err := waitForPublishButtonClickable(page, 15*time.Second)
-	if err != nil {
-		return err
-	}
-
+func clickPublishButton(page *rod.Page, btn *publishButton) error {
 	if btn.isWidget {
 		if err := clickPublishWidget(page, btn.elem); err != nil {
 			return errors.Wrapf(xhsErrors.ErrPublishUncertain, "点击发布按钮失败: %v", err)

@@ -17,7 +17,7 @@ var (
 	ErrTaskActive             = errors.New("publish task already active")
 	ErrTaskDuplicateRequest   = errors.New("publish task request already exists")
 	ErrTaskProtectionConflict = errors.New("publish task protection revision conflict")
-	ErrTaskUncertain          = errors.New("publish result requires review")
+	ErrTaskUncertain          = errors.New("上次发布结果尚未确认，请在小红书核对后到工作台解除发布锁定")
 	ErrTaskLoginRequired      = errors.New("publish task requires a bound logged-in account")
 	ErrTaskStateConflict      = errors.New("publish task state conflict")
 )

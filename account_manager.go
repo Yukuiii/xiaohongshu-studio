@@ -51,7 +51,7 @@ func accountFailure(err error) *accountError {
 	case errors.Is(err, accounts.ErrTaskActive):
 		return &accountError{http.StatusConflict, "PUBLISH_TASK_ACTIVE", "该账号有未完成的发布任务，请前往任务页查看"}
 	case errors.Is(err, accounts.ErrTaskUncertain):
-		return &accountError{http.StatusConflict, "PUBLISH_UNCERTAIN", "上次发布结果尚未确认，请先核对并解除发布保护"}
+		return &accountError{http.StatusConflict, "PUBLISH_UNCERTAIN", accounts.ErrTaskUncertain.Error()}
 	case errors.Is(err, accounts.ErrTaskLoginRequired):
 		return &accountError{http.StatusConflict, "XHS_LOGIN_REQUIRED", "请先登录并验证该账号后再提交发布任务"}
 	case errors.Is(err, accounts.ErrTaskProtectionConflict):
