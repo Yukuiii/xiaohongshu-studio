@@ -12,6 +12,10 @@ on:
         description: '版本号（默认使用 tag 或 short SHA）'
         required: false
         default: ''
+      artifact_run:
+        description: '补发时填写原始 tag 构建运行 ID，并在 version 填写 tag'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -19,6 +23,7 @@ permissions:
 jobs:
   build-desktop:
     name: Build (${{ matrix.os }})
+    if: inputs.artifact_run == ''
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -96,21 +101,54 @@ jobs:
 
   release:
     name: Publish Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      always() && !cancelled() &&
+      ((startsWith(github.ref, 'refs/tags/v') && needs.build-desktop.result == 'success') ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.artifact_run != ''))
     needs: build-desktop
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
     steps:
+      - name: Select Release Artifacts
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.version }}
+          ARTIFACT_RUN: ${{ inputs.artifact_run }}
+        run: |
+          if [[ -z "$ARTIFACT_RUN" ]]; then
+            printf 'tag=%s\nrun_id=%s\n' "$GITHUB_REF_NAME" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+            exit
+          fi
+          if [[ ! "$ARTIFACT_RUN" =~ ^[1-9][0-9]*$ || ! "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo '补发需要有效的原始运行 ID 和版本 tag' >&2
+            exit 1
+          fi
+          tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$REQUESTED_TAG" --jq .sha)
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN" |
+            jq -e --arg repo "$GITHUB_REPOSITORY" --arg tag "$REQUESTED_TAG" --arg sha "$tag_sha" '
+              .path == ".github/workflows/desktop-release.yml" and .head_repository.full_name == $repo and
+              .status == "completed" and .event == "push" and .head_branch == $tag and .head_sha == $sha' >/dev/null
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -se --arg tag "$REQUESTED_TAG" 'all(.[][] | select(.tag_name == $tag); .draft)' >/dev/null
+          printf 'tag=%s\nrun_id=%s\n' "$REQUESTED_TAG" "$ARTIFACT_RUN" >> "$GITHUB_OUTPUT"
+
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: desktop-*
           merge-multiple: true
           path: dist
+          github-token: ${{ inputs.artifact_run != '' && github.token || '' }}
+          run-id: ${{ steps.source.outputs.run_id }}
 
       - name: Create Desktop Update Manifest
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ !contains(steps.source.outputs.tag, '-') }}
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
         run: |
           python3 - <<'PY'
           import hashlib
@@ -145,8 +183,9 @@ jobs:
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          name: Xiaohongshu Studio ${{ github.ref_name }}
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          tag_name: ${{ steps.source.outputs.tag }}
+          name: Xiaohongshu Studio ${{ steps.source.outputs.tag }}
+          prerelease: ${{ contains(steps.source.outputs.tag, '-') }}
           files: |
             dist/**/*.dmg
             dist/**/*-setup.exe
@@ -154,7 +193,7 @@ jobs:
             dist/studio-update.json
           generate_release_notes: true
           body: |
-            ## 红薯创作台 ${{ github.ref_name }}
+            ## 红薯创作台 ${{ steps.source.outputs.tag }}
 
             ### 📦 下载
             - **macOS Apple Silicon**：`.dmg`
